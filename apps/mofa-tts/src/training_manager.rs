@@ -71,6 +71,10 @@ pub struct TrainingProgress {
     pub current_step: usize,
     /// Total number of steps (typically 7)
     pub total_steps: usize,
+    /// Current epoch within the active training stage (GPT/SoVITS)
+    pub sub_step: usize,
+    /// Total epochs for the active training stage
+    pub sub_total: usize,
     /// Log lines from training process
     pub log_lines: Vec<String>,
     /// Last update timestamp
@@ -84,6 +88,8 @@ impl Default for TrainingProgress {
             current_stage: String::new(),
             current_step: 0,
             total_steps: 7,
+            sub_step: 0,
+            sub_total: 0,
             log_lines: Vec::new(),
             last_updated: Instant::now(),
         }
@@ -260,6 +266,8 @@ impl TrainingManager {
             prog.current_stage = "Starting...".to_string();
             prog.current_step = 0;
             prog.total_steps = 7;
+            prog.sub_step = 0;
+            prog.sub_total = 0;
             prog.log_lines.clear();
             prog.log_lines.push("[INFO] Training started".to_string());
             prog.last_updated = Instant::now();
@@ -411,6 +419,10 @@ impl TrainingManager {
         match event.event_type.as_str() {
             "STAGE" => {
                 prog.current_stage = event.message.clone();
+                // Reset sub-epoch progress whenever a new stage starts,
+                // so stale values from the previous stage don't bleed through.
+                prog.sub_step = 0;
+                prog.sub_total = 0;
 
                 // Extract progress data if available
                 if let Some(data) = event.data {
@@ -425,6 +437,20 @@ impl TrainingManager {
                 prog.log_lines
                     .push(format!("[STAGE] {}", event.message));
                 log::info!("Training stage: {}", event.message);
+            }
+
+            "PROGRESS" => {
+                // Epoch-level progress within the current stage (GPT or SoVITS training)
+                if let Some(data) = event.data {
+                    if let Some(epoch) = data.get("epoch").and_then(|v| v.as_u64()) {
+                        prog.sub_step = epoch as usize;
+                    }
+                    if let Some(total) = data.get("total_epochs").and_then(|v| v.as_u64()) {
+                        prog.sub_total = total as usize;
+                    }
+                }
+                prog.log_lines.push(format!("[PROGRESS] {}", event.message));
+                log::debug!("Training sub-progress: {}", event.message);
             }
 
             "INFO" | "LOG" => {

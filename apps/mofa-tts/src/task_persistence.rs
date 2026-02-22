@@ -31,6 +31,12 @@ pub struct CloneTask {
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub message: Option<String>,
+    #[serde(default)]
+    pub current_step: Option<u32>,   // Current training stage index (0-7)
+    #[serde(default)]
+    pub sub_step: Option<u32>,       // Current epoch within the active stage
+    #[serde(default)]
+    pub sub_total: Option<u32>,      // Total epochs for the active stage
 }
 
 /// Clone tasks configuration file format
@@ -125,7 +131,7 @@ pub fn save_clone_tasks(tasks: &[CloneTask]) -> Result<(), String> {
 
     fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))?;
 
-    log::info!("Saved {} clone tasks to {:?}", tasks.len(), config_path);
+    // log::info!("Saved {} clone tasks to {:?}", tasks.len(), config_path);
     Ok(())
 }
 
@@ -167,4 +173,76 @@ pub fn delete_task(task_id: &str) -> Result<(), String> {
 /// Get a specific task by ID
 pub fn get_task(task_id: &str) -> Option<CloneTask> {
     load_clone_tasks().into_iter().find(|t| t.id == task_id)
+}
+
+/// Update task progress fields (overall and optional sub-epoch progress)
+pub fn update_task_progress(
+    task_id: &str,
+    progress: f32,
+    current_step: u32,
+    message: &str,
+) -> Result<(), String> {
+    update_task_progress_full(task_id, progress, current_step, message, None, None)
+}
+
+/// Update task progress including sub-epoch progress for long training stages
+pub fn update_task_progress_full(
+    task_id: &str,
+    progress: f32,
+    current_step: u32,
+    message: &str,
+    sub_step: Option<u32>,
+    sub_total: Option<u32>,
+) -> Result<(), String> {
+    let mut tasks = load_clone_tasks();
+    if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+        task.progress = progress;
+        task.current_step = Some(current_step);
+        task.message = Some(message.to_string());
+        if let Some(ss) = sub_step {
+            task.sub_step = Some(ss);
+        }
+        if let Some(st) = sub_total {
+            task.sub_total = Some(st);
+        }
+    }
+    save_clone_tasks(&tasks)
+}
+
+/// Update task status (and optional timestamps)
+pub fn update_task_status(
+    task_id: &str,
+    status: CloneTaskStatus,
+    started_at: Option<String>,
+    completed_at: Option<String>,
+) -> Result<(), String> {
+    let mut tasks = load_clone_tasks();
+    if let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) {
+        task.status = status;
+        if let Some(s) = started_at {
+            task.started_at = Some(s);
+        }
+        if let Some(c) = completed_at {
+            task.completed_at = Some(c);
+        }
+    }
+    save_clone_tasks(&tasks)
+}
+
+/// Mark all Processing tasks as Failed (called on app startup to clean up interrupted training)
+pub fn mark_stale_tasks_as_failed() -> Result<(), String> {
+    let mut tasks = load_clone_tasks();
+    let mut changed = false;
+    for task in tasks.iter_mut() {
+        if task.status == CloneTaskStatus::Processing {
+            task.status = CloneTaskStatus::Failed;
+            task.message = Some("Training was interrupted (app was closed)".to_string());
+            changed = true;
+        }
+    }
+    if changed {
+        save_clone_tasks(&tasks)
+    } else {
+        Ok(())
+    }
 }

@@ -58,7 +58,7 @@ else:
     device = "cpu"  # Use CPU on macOS (MPS not supported for this model)
 
 
-def main():
+def main(epoch_callback=None):
 
     if torch.cuda.is_available():
         n_gpus = torch.cuda.device_count()
@@ -67,17 +67,23 @@ def main():
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = str(randint(20000, 55555))
 
-    mp.spawn(
-        run,
-        nprocs=n_gpus,
-        args=(
-            n_gpus,
-            hps,
-        ),
-    )
+    if n_gpus == 1:
+        # Single device (CPU/MPS/single GPU): call run() directly to allow
+        # epoch_callback (a closure) to be passed without pickle serialization.
+        run(0, n_gpus, hps, epoch_callback=epoch_callback)
+    else:
+        # Multi-GPU: use mp.spawn (epoch_callback not supported — can't pickle)
+        mp.spawn(
+            run,
+            nprocs=n_gpus,
+            args=(
+                n_gpus,
+                hps,
+            ),
+        )
 
 
-def run(rank, n_gpus, hps):
+def run(rank, n_gpus, hps, epoch_callback=None):
     global global_step
     if rank == 0:
         logger = utils.get_logger(hps.data.exp_dir)
@@ -295,6 +301,8 @@ def run(rank, n_gpus, hps):
             )
         scheduler_g.step()
         scheduler_d.step()
+        if epoch_callback is not None and rank == 0:
+            epoch_callback(epoch, hps.train.epochs)
 
 
 def train_and_evaluate(

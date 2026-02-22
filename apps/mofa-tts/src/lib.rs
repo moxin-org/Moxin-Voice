@@ -12,6 +12,7 @@ pub mod screen;
 #[path = "screen_moyoyo.rs"]
 pub mod screen;
 
+pub mod training_executor;
 pub mod training_manager;
 pub mod voice_clone_modal;
 pub mod voice_data;

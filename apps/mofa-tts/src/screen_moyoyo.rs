@@ -4,7 +4,8 @@
 use crate::audio_player::TTSPlayer;
 use crate::dora_integration::DoraIntegration;
 use crate::log_bridge;
-use crate::voice_clone_modal::{VoiceCloneModalAction, VoiceCloneModalWidgetExt};
+use crate::training_executor::TrainingExecutor;
+use crate::voice_clone_modal::{CloneMode, VoiceCloneModalAction, VoiceCloneModalWidgetExt};
 use crate::voice_data::{TTSStatus, Voice};
 use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use crate::task_persistence;
@@ -1081,15 +1082,9 @@ live_design! {
                     library_page = <View> {
                         width: Fill, height: Fill
                         flow: Down
-                        spacing: 20
+                        spacing: 0
+                        padding: {left: 24, right: 24, top: 24, bottom: 0}
                         visible: false  // Hidden by default
-
-                        show_bg: true
-                        draw_bg: {
-                            fn pixel(self) -> vec4 {
-                                return vec4(1.0, 0.0, 0.0, 1.0); // DEBUG: bright red background
-                            }
-                        }
 
                         // Page header
                         library_header = <View> {
@@ -1463,7 +1458,6 @@ live_design! {
                                         width: Fit, height: 32
                                         padding: {left: 16, right: 16}
                                         text: "高级模式"
-                                        enabled: false
 
                                         draw_bg: {
                                             instance hover: 0.0
@@ -1755,11 +1749,577 @@ live_design! {
                                                         }
                                                     }
                                                 }
+
+                                                delete_btn = <Button> {
+                                                    width: Fit, height: 32
+                                                    padding: {left: 12, right: 12}
+                                                    text: "删除"
+                                                    visible: false
+
+                                                    draw_bg: {
+                                                        instance hover: 0.0
+                                                        instance dark_mode: 0.0
+                                                        instance border_radius: 6.0
+                                                        fn pixel(self) -> vec4 {
+                                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                            let base = mix(vec4(0.95, 0.93, 0.93, 1.0), (SLATE_700), self.dark_mode);
+                                                            let hover_color = mix(vec4(0.98, 0.80, 0.80, 1.0), vec4(0.65, 0.25, 0.25, 1.0), self.dark_mode);
+                                                            sdf.fill(mix(base, hover_color, self.hover));
+                                                            return sdf.result;
+                                                        }
+                                                    }
+
+                                                    draw_text: {
+                                                        instance hover: 0.0
+                                                        instance dark_mode: 0.0
+                                                        text_style: { font_size: 12.0 }
+                                                        fn get_color(self) -> vec4 {
+                                                            let normal = mix(vec4(0.75, 0.2, 0.2, 1.0), vec4(1.0, 0.5, 0.5, 1.0), self.dark_mode);
+                                                            let hover_color = mix(vec4(0.8, 0.1, 0.1, 1.0), vec4(1.0, 0.3, 0.3, 1.0), self.dark_mode);
+                                                            return mix(normal, hover_color, self.hover);
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                     } // End clone_page
+
+                    // Task Detail page
+                    task_detail_page = <View> {
+                        width: Fill, height: Fill
+                        flow: Down
+                        spacing: 20
+                        padding: {left: 24, right: 24, top: 24, bottom: 24}
+                        visible: false
+
+                        // Header: back button + task name + status badge + cancel button
+                        detail_header = <View> {
+                            width: Fill, height: Fit
+                            flow: Right
+                            spacing: 16
+                            align: {y: 0.5}
+
+                            back_btn = <Button> {
+                                width: Fit, height: 36
+                                padding: {left: 16, right: 16}
+                                text: "← 返回"
+
+                                draw_bg: {
+                                    instance hover: 0.0
+                                    instance border_radius: 8.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        let bg = mix((SLATE_100), (SLATE_700), 0.0);
+                                        let border = mix((SLATE_300), (SLATE_500), 0.0);
+                                        sdf.fill(bg);
+                                        sdf.stroke(border, 1.0);
+                                        return sdf.result;
+                                    }
+                                }
+                                draw_text: {
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return (MOYOYO_TEXT_PRIMARY);
+                                    }
+                                }
+                            }
+
+                            detail_task_name = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 20.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return (MOYOYO_TEXT_PRIMARY);
+                                    }
+                                }
+                                text: "任务详情"
+                            }
+
+                            detail_status_badge = <RoundedView> {
+                                width: Fit, height: Fit
+                                padding: {left: 12, right: 12, top: 4, bottom: 4}
+                                draw_bg: {
+                                    instance border_radius: 12.0
+                                    instance status_color: 0.0  // 0=pending,1=running,2=done,3=failed
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                        let running = vec4(0.38, 0.40, 0.95, 0.15);
+                                        let done = vec4(0.05, 0.65, 0.35, 0.15);
+                                        let failed = vec4(0.9, 0.2, 0.2, 0.15);
+                                        let c = mix(
+                                            mix(pending, running, clamp(self.status_color - 0.0, 0.0, 1.0)),
+                                            mix(done, failed, clamp(self.status_color - 2.0, 0.0, 1.0)),
+                                            clamp(self.status_color - 1.0, 0.0, 1.0)
+                                        );
+                                        sdf.fill(c);
+                                        return sdf.result;
+                                    }
+                                }
+
+                                detail_status_label = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return (MOYOYO_TEXT_SECONDARY);
+                                        }
+                                    }
+                                    text: ""
+                                }
+                            }
+
+                            <View> { width: Fill, height: 1 }  // Spacer
+
+                            detail_cancel_btn = <Button> {
+                                width: Fit, height: 36
+                                padding: {left: 16, right: 16}
+                                text: "取消任务"
+                                visible: false
+
+                                draw_bg: {
+                                    instance hover: 0.0
+                                    instance border_radius: 8.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        let base = vec4(0.9, 0.2, 0.2, 1.0);
+                                        let hov = vec4(1.0, 0.3, 0.3, 1.0);
+                                        sdf.fill(mix(base, hov, self.hover));
+                                        return sdf.result;
+                                    }
+                                }
+                                draw_text: {
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                    fn get_color(self) -> vec4 { return (WHITE); }
+                                }
+                            }
+                        }
+
+                        // Task info card
+                        detail_info_card = <RoundedView> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 12
+                            padding: {left: 20, right: 20, top: 16, bottom: 16}
+                            draw_bg: {
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    sdf.fill((WHITE));
+                                    sdf.stroke(vec4(0.0, 0.0, 0.0, 0.05), 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            detail_info_title = <Label> {
+                                width: Fill, height: Fit
+                                draw_text: {
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                    fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); }
+                                }
+                                text: "任务信息"
+                            }
+
+                            detail_times_row = <View> {
+                                flow: Right
+                                spacing: 40
+                                width: Fill, height: Fit
+
+                                detail_created_section = <View> {
+                                    flow: Down, spacing: 4, width: Fit, height: Fit
+                                    <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            text_style: { font_size: 11.0 }
+                                            fn get_color(self) -> vec4 { return (MOYOYO_TEXT_MUTED); }
+                                        }
+                                        text: "创建时间"
+                                    }
+                                    detail_created_at = <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            text_style: { font_size: 13.0 }
+                                            fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); }
+                                        }
+                                        text: "-"
+                                    }
+                                }
+
+                                detail_started_section = <View> {
+                                    flow: Down, spacing: 4, width: Fit, height: Fit
+                                    <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            text_style: { font_size: 11.0 }
+                                            fn get_color(self) -> vec4 { return (MOYOYO_TEXT_MUTED); }
+                                        }
+                                        text: "开始时间"
+                                    }
+                                    detail_started_at = <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            text_style: { font_size: 13.0 }
+                                            fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); }
+                                        }
+                                        text: "-"
+                                    }
+                                }
+
+                                detail_completed_section = <View> {
+                                    flow: Down, spacing: 4, width: Fit, height: Fit
+                                    <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            text_style: { font_size: 11.0 }
+                                            fn get_color(self) -> vec4 { return (MOYOYO_TEXT_MUTED); }
+                                        }
+                                        text: "完成时间"
+                                    }
+                                    detail_completed_at = <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            text_style: { font_size: 13.0 }
+                                            fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); }
+                                        }
+                                        text: "-"
+                                    }
+                                }
+                            }
+                        }
+
+                        // Progress card with 8-stage list
+                        detail_progress_card = <RoundedView> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 12
+                            padding: {left: 20, right: 20, top: 16, bottom: 16}
+                            draw_bg: {
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    sdf.fill((WHITE));
+                                    sdf.stroke(vec4(0.0, 0.0, 0.0, 0.05), 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            detail_progress_title = <Label> {
+                                width: Fill, height: Fit
+                                draw_text: {
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                    fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); }
+                                }
+                                text: "训练进度"
+                            }
+
+                            // Overall progress bar row
+                            detail_overall_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit
+
+                                detail_progress_bar = <View> {
+                                    width: Fill, height: 8
+                                    show_bg: true
+                                    draw_bg: {
+                                        instance progress: 0.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 4.0);
+                                            sdf.fill(vec4(0.9, 0.9, 0.95, 1.0));
+                                            let pw = self.rect_size.x * self.progress;
+                                            sdf.box(0., 0., pw, self.rect_size.y, 4.0);
+                                            sdf.fill((MOYOYO_PRIMARY));
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+
+                                detail_progress_text = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                        fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); }
+                                    }
+                                    text: "0%"
+                                }
+                            }
+
+                            // Stage rows (8 stages)
+                            stage_1_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit, padding: {top: 4, bottom: 4}
+                                stage_1_dot = <RoundedView> {
+                                    width: 16, height: 16
+                                    draw_bg: {
+                                        instance border_radius: 8.0
+                                        instance dot_color: 0.0  // 0=pending,1=running,2=done
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(8.0, 8.0, 7.0);
+                                            let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                            let running = vec4(0.38, 0.40, 0.95, 1.0);
+                                            let done = vec4(0.1, 0.75, 0.4, 1.0);
+                                            let c = mix(mix(pending, running, clamp(self.dot_color, 0.0, 1.0)), done, clamp(self.dot_color - 1.0, 0.0, 1.0));
+                                            sdf.fill(c);
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+                                <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: { text_style: { font_size: 13.0 } fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); } }
+                                    text: "音频切片"
+                                }
+                                stage_1_pct = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: { text_style: { font_size: 12.0 } fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); } }
+                                    text: ""
+                                }
+                            }
+
+                            stage_2_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit, padding: {top: 4, bottom: 4}
+                                stage_2_dot = <RoundedView> {
+                                    width: 16, height: 16
+                                    draw_bg: {
+                                        instance border_radius: 8.0
+                                        instance dot_color: 0.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(8.0, 8.0, 7.0);
+                                            let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                            let running = vec4(0.38, 0.40, 0.95, 1.0);
+                                            let done = vec4(0.1, 0.75, 0.4, 1.0);
+                                            let c = mix(mix(pending, running, clamp(self.dot_color, 0.0, 1.0)), done, clamp(self.dot_color - 1.0, 0.0, 1.0));
+                                            sdf.fill(c);
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+                                <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: { text_style: { font_size: 13.0 } fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); } }
+                                    text: "语音识别"
+                                }
+                                stage_2_pct = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: { text_style: { font_size: 12.0 } fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); } }
+                                    text: ""
+                                }
+                            }
+
+                            stage_3_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit, padding: {top: 4, bottom: 4}
+                                stage_3_dot = <RoundedView> {
+                                    width: 16, height: 16
+                                    draw_bg: {
+                                        instance border_radius: 8.0
+                                        instance dot_color: 0.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(8.0, 8.0, 7.0);
+                                            let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                            let running = vec4(0.38, 0.40, 0.95, 1.0);
+                                            let done = vec4(0.1, 0.75, 0.4, 1.0);
+                                            let c = mix(mix(pending, running, clamp(self.dot_color, 0.0, 1.0)), done, clamp(self.dot_color - 1.0, 0.0, 1.0));
+                                            sdf.fill(c);
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+                                <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: { text_style: { font_size: 13.0 } fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); } }
+                                    text: "文本特征"
+                                }
+                                stage_3_pct = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: { text_style: { font_size: 12.0 } fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); } }
+                                    text: ""
+                                }
+                            }
+
+                            stage_4_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit, padding: {top: 4, bottom: 4}
+                                stage_4_dot = <RoundedView> {
+                                    width: 16, height: 16
+                                    draw_bg: {
+                                        instance border_radius: 8.0
+                                        instance dot_color: 0.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(8.0, 8.0, 7.0);
+                                            let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                            let running = vec4(0.38, 0.40, 0.95, 1.0);
+                                            let done = vec4(0.1, 0.75, 0.4, 1.0);
+                                            let c = mix(mix(pending, running, clamp(self.dot_color, 0.0, 1.0)), done, clamp(self.dot_color - 1.0, 0.0, 1.0));
+                                            sdf.fill(c);
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+                                <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: { text_style: { font_size: 13.0 } fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); } }
+                                    text: "HuBERT特征"
+                                }
+                                stage_4_pct = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: { text_style: { font_size: 12.0 } fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); } }
+                                    text: ""
+                                }
+                            }
+
+                            stage_5_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit, padding: {top: 4, bottom: 4}
+                                stage_5_dot = <RoundedView> {
+                                    width: 16, height: 16
+                                    draw_bg: {
+                                        instance border_radius: 8.0
+                                        instance dot_color: 0.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(8.0, 8.0, 7.0);
+                                            let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                            let running = vec4(0.38, 0.40, 0.95, 1.0);
+                                            let done = vec4(0.1, 0.75, 0.4, 1.0);
+                                            let c = mix(mix(pending, running, clamp(self.dot_color, 0.0, 1.0)), done, clamp(self.dot_color - 1.0, 0.0, 1.0));
+                                            sdf.fill(c);
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+                                <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: { text_style: { font_size: 13.0 } fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); } }
+                                    text: "语义Token"
+                                }
+                                stage_5_pct = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: { text_style: { font_size: 12.0 } fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); } }
+                                    text: ""
+                                }
+                            }
+
+                            stage_6_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit, padding: {top: 4, bottom: 4}
+                                stage_6_dot = <RoundedView> {
+                                    width: 16, height: 16
+                                    draw_bg: {
+                                        instance border_radius: 8.0
+                                        instance dot_color: 0.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(8.0, 8.0, 7.0);
+                                            let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                            let running = vec4(0.38, 0.40, 0.95, 1.0);
+                                            let done = vec4(0.1, 0.75, 0.4, 1.0);
+                                            let c = mix(mix(pending, running, clamp(self.dot_color, 0.0, 1.0)), done, clamp(self.dot_color - 1.0, 0.0, 1.0));
+                                            sdf.fill(c);
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+                                <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: { text_style: { font_size: 13.0 } fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); } }
+                                    text: "SoVITS训练"
+                                }
+                                stage_6_pct = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: { text_style: { font_size: 12.0 } fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); } }
+                                    text: ""
+                                }
+                            }
+
+                            stage_7_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit, padding: {top: 4, bottom: 4}
+                                stage_7_dot = <RoundedView> {
+                                    width: 16, height: 16
+                                    draw_bg: {
+                                        instance border_radius: 8.0
+                                        instance dot_color: 0.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(8.0, 8.0, 7.0);
+                                            let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                            let running = vec4(0.38, 0.40, 0.95, 1.0);
+                                            let done = vec4(0.1, 0.75, 0.4, 1.0);
+                                            let c = mix(mix(pending, running, clamp(self.dot_color, 0.0, 1.0)), done, clamp(self.dot_color - 1.0, 0.0, 1.0));
+                                            sdf.fill(c);
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+                                <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: { text_style: { font_size: 13.0 } fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); } }
+                                    text: "GPT训练"
+                                }
+                                stage_7_pct = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: { text_style: { font_size: 12.0 } fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); } }
+                                    text: ""
+                                }
+                            }
+
+                            stage_8_row = <View> {
+                                flow: Right, spacing: 12, align: {y: 0.5}
+                                width: Fill, height: Fit, padding: {top: 4, bottom: 4}
+                                stage_8_dot = <RoundedView> {
+                                    width: 16, height: 16
+                                    draw_bg: {
+                                        instance border_radius: 8.0
+                                        instance dot_color: 0.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(8.0, 8.0, 7.0);
+                                            let pending = vec4(0.8, 0.8, 0.85, 1.0);
+                                            let running = vec4(0.38, 0.40, 0.95, 1.0);
+                                            let done = vec4(0.1, 0.75, 0.4, 1.0);
+                                            let c = mix(mix(pending, running, clamp(self.dot_color, 0.0, 1.0)), done, clamp(self.dot_color - 1.0, 0.0, 1.0));
+                                            sdf.fill(c);
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+                                <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: { text_style: { font_size: 13.0 } fn get_color(self) -> vec4 { return (MOYOYO_TEXT_PRIMARY); } }
+                                    text: "推理测试"
+                                }
+                                stage_8_pct = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: { text_style: { font_size: 12.0 } fn get_color(self) -> vec4 { return (MOYOYO_PRIMARY); } }
+                                    text: ""
+                                }
+                            }
+
+                            detail_message_label = <Label> {
+                                width: Fill, height: Fit
+                                draw_text: {
+                                    text_style: { font_size: 12.0 }
+                                    fn get_color(self) -> vec4 { return (MOYOYO_TEXT_SECONDARY); }
+                                }
+                                text: ""
+                            }
+                        }
+                    } // End task_detail_page
+
                 } // End content_area
             } // End left_column
 
@@ -2397,11 +2957,19 @@ pub struct TTSScreen {
     #[rust]
     clone_loading: bool,
     #[rust]
-    clone_card_areas: Vec<(usize, Area, Area, Area)>, // (task_idx, card_area, view_btn_area, cancel_btn_area)
+    clone_card_areas: Vec<(usize, Area, Area, Area, Area)>, // (task_idx, card_area, view_btn_area, cancel_btn_area, delete_btn_area)
     
     // Task Detail page state
     #[rust]
     current_task_id: Option<String>,
+
+    // Current clone mode (Quick/Advanced)
+    #[rust]
+    current_clone_mode: CloneMode,
+
+    // Training executor for background task execution
+    #[rust]
+    training_executor: Option<TrainingExecutor>,
 
     #[rust]
     dora_started: bool,
@@ -2452,7 +3020,12 @@ impl Widget for TTSScreen {
             self.clone_tasks = Vec::new();
             self.clone_loading = false;
             self.clone_card_areas = Vec::new();
-            
+            self.current_clone_mode = CloneMode::Express;
+            self.training_executor = Some(TrainingExecutor::new());
+
+            // Mark any interrupted (Processing) tasks as Failed
+            let _ = task_persistence::mark_stale_tasks_as_failed();
+
             // Load initial data
             self.load_voice_library(cx);
             self.load_clone_tasks(cx);
@@ -2592,6 +3165,99 @@ impl Widget for TTSScreen {
                 }
             }
 
+            // Poll TrainingExecutor for task queue execution
+            if let Some(ref mut executor) = self.training_executor {
+                if let Some(event) = executor.poll() {
+                    use crate::training_executor::ExecutorEvent;
+                    match event {
+                        ExecutorEvent::TaskCompleted {
+                            task_id,
+                            task_name,
+                            gpt_weights,
+                            sovits_weights,
+                            reference_audio,
+                            reference_text,
+                        } => {
+                            self.add_log(cx, &format!("[INFO] [executor] Task completed: {}", task_id));
+
+                            // Register the trained voice so it appears in Voice Library
+                            // and the voice selector.
+                            use crate::voice_data::{Voice, VoiceCategory, VoiceSource};
+                            use crate::voice_persistence;
+                            let new_voice = Voice {
+                                id: task_id.clone(),
+                                name: task_name.clone(),
+                                description: format!("Trained voice - {}", task_name),
+                                category: VoiceCategory::Character,
+                                language: "zh".to_string(),
+                                preview_audio: Some(reference_audio.to_string_lossy().to_string()),
+                                source: VoiceSource::Trained,
+                                reference_audio_path: Some(reference_audio.to_string_lossy().to_string()),
+                                prompt_text: Some(reference_text.clone()),
+                                gpt_weights: Some(gpt_weights.to_string_lossy().to_string()),
+                                sovits_weights: Some(sovits_weights.to_string_lossy().to_string()),
+                                created_at: Some(
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_secs())
+                                        .unwrap_or(0),
+                                ),
+                            };
+
+                            // Save to disk (ignore duplicate errors — voice may already exist)
+                            let _ = voice_persistence::add_custom_voice(new_voice.clone());
+
+                            // Add to in-memory library list and refresh Library page
+                            self.library_voices.push(new_voice.clone());
+                            self.update_library_display(cx);
+
+                            // Add to voice selector
+                            let voice_selector = self.view.voice_selector(ids!(
+                                content_wrapper
+                                    .main_content
+                                    .left_column
+                                    .content_area
+                                    .controls_panel
+                                    .voice_section
+                                    .voice_selector
+                            ));
+                            voice_selector.add_custom_voice(cx, new_voice);
+
+                            // Refresh clone task list and detail
+                            self.refresh_clone_tasks(cx);
+                            if self.current_task_id.as_deref() == Some(&task_id) {
+                                self.refresh_task_detail(cx);
+                            }
+
+                            self.show_toast(cx, &format!("音色「{}」训练完成，已添加到语音库", task_name));
+                        }
+                        ExecutorEvent::TaskFailed(task_id, err) => {
+                            self.add_log(cx, &format!("[ERROR] [executor] Task failed: {} - {}", task_id, err));
+                            self.refresh_clone_tasks(cx);
+                            if self.current_task_id.as_deref() == Some(&task_id) {
+                                self.refresh_task_detail(cx);
+                            }
+                        }
+                        ExecutorEvent::ProgressUpdated(task_id, _progress) => {
+                            // Sync updated task data (progress, sub_step, etc.) into the
+                            // in-memory list so the clone-page card redraws correctly.
+                            if let Some(fresh) = task_persistence::get_task(&task_id) {
+                                if let Some(existing) = self.clone_tasks.iter_mut().find(|t| t.id == task_id) {
+                                    *existing = fresh;
+                                }
+                            }
+                            self.view.redraw(cx);
+                            // Refresh detail page if currently showing this task
+                            if self.current_page == AppPage::TaskDetail
+                                && self.current_task_id.as_deref() == Some(&task_id)
+                            {
+                                self.refresh_task_detail(cx);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Poll Logs from log_bridge
             let logs = log_bridge::poll_logs();
             if !logs.is_empty() {
@@ -2697,6 +3363,39 @@ impl Widget for TTSScreen {
             self.add_log(cx, &format!("[INFO] [library] Search query: {}", self.library_search_query));
         }
 
+        // Handle Voice Clone page mode selector buttons
+        if self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
+        )).clicked(&actions) {
+            self.current_clone_mode = CloneMode::Express;
+            // Update quick_mode_btn active state
+            self.view.button(ids!(
+                content_wrapper.main_content.left_column.content_area
+                .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
+            )).apply_over(cx, live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } });
+            self.view.button(ids!(
+                content_wrapper.main_content.left_column.content_area
+                .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
+            )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
+        }
+
+        if self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
+        )).clicked(&actions) {
+            self.current_clone_mode = CloneMode::Pro;
+            // Update advanced_mode_btn active state
+            self.view.button(ids!(
+                content_wrapper.main_content.left_column.content_area
+                .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
+            )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
+            self.view.button(ids!(
+                content_wrapper.main_content.left_column.content_area
+                .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
+            )).apply_over(cx, live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } });
+        }
+
         // Handle Voice Clone page buttons
         if self
             .view
@@ -2711,11 +3410,30 @@ impl Widget for TTSScreen {
             ))
             .clicked(&actions)
         {
-            // Show the voice clone modal
+            // Show the voice clone modal in the current mode
+            let mode = self.current_clone_mode;
             self.view
                 .voice_clone_modal(ids!(voice_clone_modal))
-                .show(cx);
+                .show_with_mode(cx, mode);
             self.add_log(cx, "[INFO] [clone] Opening create task dialog...");
+        }
+
+        // Handle Task Detail page buttons
+        if self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_header.back_btn
+        )).clicked(&actions) {
+            self.switch_page(cx, AppPage::VoiceClone);
+        }
+
+        if self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_header.detail_cancel_btn
+        )).clicked(&actions) {
+            if let Some(task_id) = self.current_task_id.clone() {
+                self.cancel_clone_task(cx, task_id.clone());
+                self.refresh_task_detail(cx);
+            }
         }
 
         // Handle confirm delete modal buttons
@@ -2793,16 +3511,16 @@ impl Widget for TTSScreen {
         }
 
         // Handle Clone Task card button clicks using stored areas
-        for (task_idx, _card_area, view_btn_area, cancel_btn_area) in self.clone_card_areas.clone() {
+        for (task_idx, _card_area, view_btn_area, cancel_btn_area, delete_btn_area) in self.clone_card_areas.clone() {
             if task_idx >= self.clone_tasks.len() {
                 continue;
             }
-            
+
             let task = &self.clone_tasks[task_idx];
             let task_id = task.id.clone();
             let task_name = task.name.clone();
             let task_status = task.status.clone();
-            
+
             // Check view button click
             match event.hits(cx, view_btn_area) {
                 Hit::FingerUp(fe) if fe.was_tap() => {
@@ -2810,12 +3528,43 @@ impl Widget for TTSScreen {
                 }
                 _ => {}
             }
-            
-            // Check cancel button click (only for processing/pending tasks)
-            if task_status == CloneTaskStatus::Processing || task_status == CloneTaskStatus::Pending {
+
+            // Check cancel/stop button click
+            if task_status == CloneTaskStatus::Pending || task_status == CloneTaskStatus::Processing {
                 match event.hits(cx, cancel_btn_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
-                        self.show_cancel_task_confirmation(cx, task_id.clone(), task_name.clone());
+                        if task_status == CloneTaskStatus::Processing {
+                            // Stop the running training
+                            if let Some(ref mut executor) = self.training_executor {
+                                executor.cancel_current();
+                            }
+                            let _ = task_persistence::update_task_status(
+                                &task_id,
+                                CloneTaskStatus::Cancelled,
+                                None,
+                                None,
+                            );
+                            self.load_clone_tasks(cx);
+                        } else {
+                            // Pending task — confirm cancel
+                            self.show_cancel_task_confirmation(cx, task_id.clone(), task_name.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // Check delete button click (only for terminal states)
+            if matches!(task_status, CloneTaskStatus::Completed | CloneTaskStatus::Failed | CloneTaskStatus::Cancelled) {
+                match event.hits(cx, delete_btn_area) {
+                    Hit::FingerUp(fe) if fe.was_tap() => {
+                        let _ = task_persistence::delete_task(&task_id);
+                        // If we were viewing this task in the detail page, go back
+                        if self.current_task_id.as_deref() == Some(&task_id) {
+                            self.current_task_id = None;
+                            self.switch_page(cx, AppPage::VoiceClone);
+                        }
+                        self.load_clone_tasks(cx);
                     }
                     _ => {}
                 }
@@ -2915,6 +3664,14 @@ impl Widget for TTSScreen {
 
             // Handle voice clone modal actions
             match action.as_widget_action().cast() {
+                VoiceCloneModalAction::TaskCreated(task) => {
+                    // Add to in-memory list, hide empty state, navigate to task detail
+                    self.clone_tasks.push(task.clone());
+                    self.update_clone_display(cx);
+                    self.add_log(cx, &format!("[INFO] [clone] Task created: {}", task.name));
+                    let task_id = task.id.clone();
+                    self.open_task_detail(cx, task_id);
+                }
                 VoiceCloneModalAction::VoiceCreated(voice) => {
                     // Add the new voice to the selector
                     let voice_selector = self.view.voice_selector(ids!(
@@ -3266,12 +4023,9 @@ impl Widget for TTSScreen {
         while let Some(item) = self.view.draw_walk(cx, scope, walk).step() {
             if let Some(mut list) = item.as_portal_list().borrow_mut() {
                 let list_id = list.widget_uid();
-                eprintln!("[DEBUG] PortalList yielded: uid={:?}, voice_list_uid={:?}, task_list_uid={:?}", list_id, voice_list_uid, task_list_uid);
-
                 if list_id == voice_list_uid {
                     // Render voice cards
                     let filtered_voices = self.get_filtered_voices();
-                    eprintln!("[DEBUG] voice_list draw_walk: {} filtered voices, library_voices={}", filtered_voices.len(), self.library_voices.len());
                     list.set_item_range(cx, 0, filtered_voices.len());
 
                     while let Some(item_id) = list.next_visible_item(cx) {
@@ -3308,8 +4062,11 @@ impl Widget for TTSScreen {
                             // Draw the card
                             card.draw_all(cx, &mut Scope::empty());
 
-                            // Store card areas for hit testing
-                            // (areas are valid after draw_all)
+                            // Store card areas for hit testing (valid after draw_all)
+                            let card_area = card.area();
+                            let preview_area = card.button(ids!(actions.preview_btn)).area();
+                            let delete_area = card.button(ids!(actions.delete_btn)).area();
+                            self.library_card_areas.push((item_id, card_area, preview_area, delete_area));
                         }
                     }
                 } else if list_id == task_list_uid {
@@ -3354,8 +4111,19 @@ impl Widget for TTSScreen {
 
                             card.label(ids!(bottom_row.task_meta.created_time)).set_text(cx, &task_created);
 
-                            let can_cancel = task_status == CloneTaskStatus::Processing || task_status == CloneTaskStatus::Pending;
-                            card.button(ids!(bottom_row.actions.cancel_btn)).set_visible(cx, can_cancel);
+                            // Show cancel/stop for pending/processing; show delete for terminal states
+                            let can_cancel = task_status == CloneTaskStatus::Pending;
+                            let can_stop = task_status == CloneTaskStatus::Processing;
+                            let can_delete = matches!(task_status, CloneTaskStatus::Completed | CloneTaskStatus::Failed | CloneTaskStatus::Cancelled);
+
+                            // Reuse cancel_btn for both Pending (Cancel) and Processing (Stop)
+                            card.button(ids!(bottom_row.actions.cancel_btn)).set_visible(cx, can_cancel || can_stop);
+                            if can_stop {
+                                card.button(ids!(bottom_row.actions.cancel_btn)).set_text(cx, "停止");
+                            } else {
+                                card.button(ids!(bottom_row.actions.cancel_btn)).set_text(cx, "取消");
+                            }
+                            card.button(ids!(bottom_row.actions.delete_btn)).set_visible(cx, can_delete);
 
                             card.apply_over(cx, live! {
                                 draw_bg: { dark_mode: (dark_mode) }
@@ -3363,12 +4131,19 @@ impl Widget for TTSScreen {
 
                             // Draw the card
                             card.draw_all(cx, &mut Scope::empty());
+
+                            // Store card areas for hit testing (valid after draw_all)
+                            let card_area = card.area();
+                            let view_area = card.button(ids!(bottom_row.actions.view_btn)).area();
+                            let cancel_area = card.button(ids!(bottom_row.actions.cancel_btn)).area();
+                            let delete_area = card.button(ids!(bottom_row.actions.delete_btn)).area();
+                            self.clone_card_areas.push((item_id, card_area, view_area, cancel_area, delete_area));
                         }
                     }
                 }
             }
         }
-        
+
         DrawStep::done()
     }
 }
@@ -3429,6 +4204,7 @@ impl TTSScreen {
         let show_tts = page == AppPage::TextToSpeech;
         let show_library = page == AppPage::VoiceLibrary;
         let show_clone = page == AppPage::VoiceClone;
+        let show_detail = page == AppPage::TaskDetail;
 
         self.view
             .view(ids!(
@@ -3459,6 +4235,21 @@ impl TTSScreen {
                     .clone_page
             ))
             .set_visible(cx, show_clone);
+
+        self.view
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+            ))
+            .set_visible(cx, show_detail);
+
+        // Show audio player bar only on TTS page
+        self.view
+            .view(ids!(content_wrapper.audio_player_bar))
+            .set_visible(cx, show_tts);
 
         self.view.redraw(cx);
     }
@@ -4474,8 +5265,8 @@ impl TTSScreen {
             ))
             .set_visible(cx, !is_empty);
 
-        // Trigger redraw so PortalList re-renders
-        self.view.redraw(cx);
+        // Force full redraw so PortalList re-renders with updated filter
+        self.redraw(cx);
     }
 
     /// Delete a voice
@@ -4502,17 +5293,80 @@ impl TTSScreen {
         self.show_toast(cx, "Voice deleted successfully");
     }
 
-    /// Preview a voice
+    /// Preview a voice from the library
     fn preview_voice(&mut self, cx: &mut Cx, voice_id: String) {
         self.add_log(cx, &format!("[INFO] [library] Previewing voice: {}", voice_id));
-        
-        // Find the voice
-        if let Some(voice) = self.library_voices.iter().find(|v| v.id == voice_id) {
-            if let Some(ref audio_path) = voice.preview_audio {
-                // TODO: Load and play preview audio
-                self.add_log(cx, &format!("[INFO] [library] Playing preview: {}", audio_path));
-            } else {
-                self.add_log(cx, "[WARN] [library] No preview audio available");
+
+        // Toggle: stop if already playing this voice
+        if self.preview_playing_voice_id.as_deref() == Some(&voice_id) {
+            if let Some(player) = &self.preview_player {
+                player.stop();
+            }
+            self.preview_playing_voice_id = None;
+            return;
+        }
+
+        // Stop any currently playing preview
+        if let Some(player) = &self.preview_player {
+            player.stop();
+        }
+
+        // Find the voice in library
+        let voice = match self.library_voices.iter().find(|v| v.id == voice_id) {
+            Some(v) => v.clone(),
+            None => {
+                self.add_log(cx, &format!("[WARN] [library] Voice not found: {}", voice_id));
+                return;
+            }
+        };
+
+        // Build audio path based on voice source
+        use crate::voice_data::VoiceSource;
+        use crate::voice_persistence;
+        let audio_path = if voice.source == VoiceSource::Custom || voice.source == VoiceSource::Trained {
+            match voice_persistence::get_reference_audio_path(&voice) {
+                Some(path) => path,
+                None => {
+                    self.add_log(cx, &format!("[WARN] [library] No reference audio for custom voice: {}", voice_id));
+                    return;
+                }
+            }
+        } else {
+            let preview_file = match &voice.preview_audio {
+                Some(f) => f.clone(),
+                None => {
+                    self.add_log(cx, &format!("[WARN] [library] No preview audio for: {}", voice_id));
+                    return;
+                }
+            };
+            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+            home.join(".dora")
+                .join("models")
+                .join("primespeech")
+                .join("moyoyo")
+                .join("ref_audios")
+                .join(&preview_file)
+        };
+
+        if !audio_path.exists() {
+            self.add_log(cx, &format!("[WARN] [library] Preview audio file not found: {:?}", audio_path));
+            return;
+        }
+
+        // Load and play WAV file
+        match self.load_wav_file(&audio_path) {
+            Ok(samples) => {
+                if self.preview_player.is_none() {
+                    self.preview_player = Some(TTSPlayer::new());
+                }
+                if let Some(player) = &self.preview_player {
+                    player.write_audio(&samples);
+                }
+                self.preview_playing_voice_id = Some(voice_id.clone());
+                self.add_log(cx, &format!("[INFO] [library] Playing preview: {}", voice_id));
+            }
+            Err(e) => {
+                self.add_log(cx, &format!("[ERROR] [library] Failed to load preview audio: {}", e));
             }
         }
     }
@@ -4526,54 +5380,6 @@ impl TTSScreen {
         
         // Load tasks from disk
         self.clone_tasks = task_persistence::load_clone_tasks();
-        
-        // If no tasks found, create some mock data for demonstration
-        if self.clone_tasks.is_empty() {
-            self.add_log(cx, "[INFO] [clone] No saved tasks found, creating mock data...");
-            self.clone_tasks = vec![
-                CloneTask {
-                    id: "task_001".to_string(),
-                    name: "Voice Clone Task 1".to_string(),
-                    status: CloneTaskStatus::Completed,
-                    progress: 1.0,
-                    created_at: "2024-01-15 10:30:00".to_string(),
-                    audio_path: Some("tasks/task_001/output.wav".to_string()),
-                    reference_text: Some("This is a test reference text for voice cloning.".to_string()),
-                    started_at: Some("2024-01-15 10:30:05".to_string()),
-                    completed_at: Some("2024-01-15 10:45:30".to_string()),
-                    message: Some("Training completed successfully".to_string()),
-                },
-                CloneTask {
-                    id: "task_002".to_string(),
-                    name: "Voice Clone Task 2".to_string(),
-                    status: CloneTaskStatus::Processing,
-                    progress: 0.65,
-                    created_at: "2024-01-15 14:20:00".to_string(),
-                    audio_path: None,
-                    reference_text: Some("Another test text for voice training.".to_string()),
-                    started_at: Some("2024-01-15 14:20:10".to_string()),
-                    completed_at: None,
-                    message: Some("Processing stage 3 of 5...".to_string()),
-                },
-                CloneTask {
-                    id: "task_003".to_string(),
-                    name: "Voice Clone Task 3".to_string(),
-                    status: CloneTaskStatus::Pending,
-                    progress: 0.0,
-                    created_at: "2024-01-15 15:00:00".to_string(),
-                    audio_path: None,
-                    reference_text: Some("Waiting to start training.".to_string()),
-                    started_at: None,
-                    completed_at: None,
-                    message: Some("Waiting in queue...".to_string()),
-                },
-            ];
-            
-            // Save the mock data
-            if let Err(e) = task_persistence::save_clone_tasks(&self.clone_tasks) {
-                self.add_log(cx, &format!("[ERROR] [clone] Failed to save mock tasks: {}", e));
-            }
-        }
         
         self.clone_loading = false;
         self.add_log(cx, &format!("[INFO] [clone] Loaded {} tasks", self.clone_tasks.len()));
@@ -4661,35 +5467,196 @@ impl TTSScreen {
         self.show_toast(cx, "Task cancelled");
     }
 
-    /// View clone task details
+    /// View clone task details - now opens the task detail page
     fn view_clone_task(&mut self, cx: &mut Cx, task_id: String) {
         self.add_log(cx, &format!("[INFO] [clone] Viewing task: {}", task_id));
-        
-        // Find the task and clone the data we need
-        let task_info = self.clone_tasks.iter().find(|t| t.id == task_id).map(|task| {
-            let status_text = match task.status {
-                CloneTaskStatus::Completed => "Completed",
-                CloneTaskStatus::Processing => "Processing",
-                CloneTaskStatus::Pending => "Pending",
-                CloneTaskStatus::Failed => "Failed",
-                CloneTaskStatus::Cancelled => "Cancelled",
-            };
-            
-            (task.name.clone(), status_text, task.progress, task.created_at.clone())
-        });
-        
-        if let Some((name, status, progress, created_at)) = task_info {
-            let details = format!(
-                "Task: {}\nStatus: {}\nProgress: {:.0}%\nCreated: {}",
-                name, status, progress * 100.0, created_at
-            );
-            
-            self.add_log(cx, &format!("[INFO] [clone] Task details:\n{}", details));
-            self.show_toast(cx, &format!("Viewing task: {}", name));
+        self.open_task_detail(cx, task_id);
+    }
+
+    /// Open the task detail page for a given task ID
+    fn open_task_detail(&mut self, cx: &mut Cx, task_id: String) {
+        self.current_task_id = Some(task_id);
+        self.refresh_task_detail(cx);
+        self.switch_page(cx, AppPage::TaskDetail);
+    }
+
+    /// Refresh the task detail page UI from persistence
+    fn refresh_task_detail(&mut self, cx: &mut Cx) {
+        let Some(ref task_id) = self.current_task_id.clone() else { return; };
+
+        // Try to get fresh data from persistence
+        let task = if let Some(t) = task_persistence::get_task(task_id) {
+            // Update in-memory list too
+            if let Some(existing) = self.clone_tasks.iter_mut().find(|t| t.id == *task_id) {
+                *existing = t.clone();
+            }
+            t
+        } else if let Some(t) = self.clone_tasks.iter().find(|t| t.id == *task_id).cloned() {
+            t
         } else {
-            self.add_log(cx, &format!("[WARN] [clone] Task not found: {}", task_id));
-            self.show_toast(cx, "Task not found");
+            return;
+        };
+
+        // Update task name
+        self.view.label(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_header.detail_task_name
+        )).set_text(cx, &task.name);
+
+        // Update status badge text
+        let (status_text, _status_val) = match task.status {
+            CloneTaskStatus::Pending => ("待执行", 0.0_f64),
+            CloneTaskStatus::Processing => ("训练中", 1.0),
+            CloneTaskStatus::Completed => ("已完成", 2.0),
+            CloneTaskStatus::Failed => ("失败", 3.0),
+            CloneTaskStatus::Cancelled => ("已取消", 3.0),
+        };
+        self.view.label(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_header.detail_status_badge.detail_status_label
+        )).set_text(cx, status_text);
+
+        // Show cancel button only for Pending/Processing tasks
+        let can_cancel = matches!(task.status, CloneTaskStatus::Pending | CloneTaskStatus::Processing);
+        self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_header.detail_cancel_btn
+        )).set_visible(cx, can_cancel);
+
+        // Update time info
+        self.view.label(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_info_card.detail_times_row
+            .detail_created_section.detail_created_at
+        )).set_text(cx, &task.created_at);
+
+        self.view.label(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_info_card.detail_times_row
+            .detail_started_section.detail_started_at
+        )).set_text(cx, task.started_at.as_deref().unwrap_or("-"));
+
+        self.view.label(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_info_card.detail_times_row
+            .detail_completed_section.detail_completed_at
+        )).set_text(cx, task.completed_at.as_deref().unwrap_or("-"));
+
+        // Update overall progress bar
+        let pct = task.progress;
+        let pct_text = format!("{:.0}%", pct * 100.0);
+        self.view.view(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_progress_card.detail_overall_row.detail_progress_bar
+        )).apply_over(cx, live! { draw_bg: { progress: (pct) } });
+        self.view.label(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_progress_card.detail_overall_row.detail_progress_text
+        )).set_text(cx, &pct_text);
+
+        // Update 8 stage dots
+        // dot_color: 0.0 = pending (gray), 1.0 = running (purple), 2.0 = done (green)
+        //
+        // Python sends current_step 1..=7 (1-indexed) when a stage STARTS.
+        // So when current_step=N, steps 1..N-1 are complete and step N is running.
+        // In the 8-slot UI (0-indexed) the running dot is at index current_step - 1.
+        // The 8th dot (推理测试) is only lit on COMPLETE (current_step set to 8).
+        let current_step = task.current_step.unwrap_or(0) as usize;
+        let is_completed = matches!(task.status, CloneTaskStatus::Completed);
+        let is_processing = matches!(task.status, CloneTaskStatus::Processing);
+        // 0-indexed slot currently running; clamp so it never exceeds 7
+        let running_idx = current_step.saturating_sub(1).min(7);
+
+        // Sub-epoch progress for GPT/SoVITS stages
+        let sub_step = task.sub_step.unwrap_or(0) as usize;
+        let sub_total = task.sub_total.unwrap_or(0) as usize;
+
+        // Python stage 6 = GPT training → UI index 5 (SoVITS训练) … but that's a
+        // name mismatch.  We keep the linear mapping; the stage name display will
+        // still be useful progress feedback.
+        // Stages 5 and 6 (0-indexed) are the long training stages that have sub-progress.
+        let long_training_stages = [5usize, 6usize]; // SoVITS训练 / GPT训练 slots
+
+        let stage_names = ["stage_1", "stage_2", "stage_3", "stage_4", "stage_5", "stage_6", "stage_7", "stage_8"];
+        for (i, _name) in stage_names.iter().enumerate() {
+            let dot_color: f64 = if is_completed {
+                2.0  // all green when training complete
+            } else if i < running_idx {
+                2.0  // completed stages
+            } else if i == running_idx && is_processing {
+                1.0  // currently running stage
+            } else {
+                0.0  // pending
+            };
+
+            // Show "X/Y epochs" for long training stages, otherwise show nothing
+            let pct_label = if i == running_idx && is_processing && long_training_stages.contains(&i) && sub_total > 0 {
+                format!("{}/{} epochs", sub_step, sub_total)
+            } else {
+                String::new()
+            };
+
+            // Apply to each stage row's dot and pct label
+            match i {
+                0 => {
+                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_1_row.stage_1_dot))
+                        .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
+                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_1_row.stage_1_pct))
+                        .set_text(cx, &pct_label);
+                }
+                1 => {
+                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_2_row.stage_2_dot))
+                        .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
+                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_2_row.stage_2_pct))
+                        .set_text(cx, &pct_label);
+                }
+                2 => {
+                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_3_row.stage_3_dot))
+                        .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
+                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_3_row.stage_3_pct))
+                        .set_text(cx, &pct_label);
+                }
+                3 => {
+                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_4_row.stage_4_dot))
+                        .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
+                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_4_row.stage_4_pct))
+                        .set_text(cx, &pct_label);
+                }
+                4 => {
+                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_5_row.stage_5_dot))
+                        .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
+                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_5_row.stage_5_pct))
+                        .set_text(cx, &pct_label);
+                }
+                5 => {
+                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_6_row.stage_6_dot))
+                        .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
+                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_6_row.stage_6_pct))
+                        .set_text(cx, &pct_label);
+                }
+                6 => {
+                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_7_row.stage_7_dot))
+                        .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
+                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_7_row.stage_7_pct))
+                        .set_text(cx, &pct_label);
+                }
+                7 => {
+                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_8_row.stage_8_dot))
+                        .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
+                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_8_row.stage_8_pct))
+                        .set_text(cx, &pct_label);
+                }
+                _ => {}
+            }
         }
+
+        // Update message label
+        self.view.label(ids!(
+            content_wrapper.main_content.left_column.content_area
+            .task_detail_page.detail_progress_card.detail_message_label
+        )).set_text(cx, task.message.as_deref().unwrap_or(""));
+
+        self.view.redraw(cx);
     }
 }
 

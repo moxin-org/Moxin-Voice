@@ -795,7 +795,7 @@ def run_training_pipeline(request: Dict):
         extract_features_for_sovits_training(workspace_dir, language, asr_output_path)
 
         # Stage 6: Train GPT model
-        emit_progress("STAGE", f"Training GPT model ({gpt_epochs} epochs)", {"current": 6, "total": 7})
+        emit_progress("STAGE", f"Training GPT model ({gpt_epochs} epochs)", {"current": 6, "total": 7, "stage_epochs": gpt_epochs})
 
         gpt_config_path = generate_gpt_config(workspace_dir, language, gpt_epochs, batch_size)
 
@@ -808,8 +808,15 @@ def run_training_pipeline(request: Dict):
 
         gpt_args = GPTArgs(gpt_config_path)
 
+        def gpt_epoch_callback(epoch, total_epochs):
+            emit_progress("PROGRESS", f"GPT训练: epoch {epoch}/{total_epochs}", {
+                "stage": "gpt_training",
+                "epoch": epoch,
+                "total_epochs": total_epochs,
+            })
+
         emit_progress("INFO", "Starting GPT training (this may take 20-60 minutes)")
-        train_gpt_main(gpt_args)
+        train_gpt_main(gpt_args, epoch_callback=gpt_epoch_callback)
 
         # Find final GPT checkpoint
         model_dir = os.path.join(workspace_dir, "models")
@@ -825,20 +832,18 @@ def run_training_pipeline(request: Dict):
         emit_progress("INFO", f"GPT training completed: {os.path.basename(gpt_final_path)}")
 
         # Stage 7: Train SoVITS model
-        emit_progress("STAGE", f"Training SoVITS model ({sovits_epochs} epochs)", {"current": 7, "total": 7})
+        emit_progress("STAGE", f"Training SoVITS model ({sovits_epochs} epochs)", {"current": 7, "total": 7, "stage_epochs": sovits_epochs})
 
         sovits_config_path = generate_sovits_config(workspace_dir, language, sovits_epochs, batch_size)
 
         emit_progress("INFO", "Starting SoVITS training (this may take 30-90 minutes)")
 
-        # Launch s2_train as subprocess with config argument
-        # This is more reliable than importing since s2_train uses multiprocessing
-        import subprocess
-
-        s2_train_script = os.path.join(
-            os.path.dirname(__file__),
-            "s2_train.py"
-        )
+        def sovits_epoch_callback(epoch, total_epochs):
+            emit_progress("PROGRESS", f"SoVITS训练: epoch {epoch}/{total_epochs}", {
+                "stage": "sovits_training",
+                "epoch": epoch,
+                "total_epochs": total_epochs,
+            })
 
         # Set sys.argv for s2_train to parse
         original_argv = sys.argv.copy()
@@ -847,7 +852,7 @@ def run_training_pipeline(request: Dict):
         try:
             # Import and run s2_train
             from moyoyo_tts import s2_train
-            s2_train.main()
+            s2_train.main(epoch_callback=sovits_epoch_callback)
         finally:
             sys.argv = original_argv
 

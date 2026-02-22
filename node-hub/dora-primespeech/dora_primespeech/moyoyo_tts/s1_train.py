@@ -98,7 +98,7 @@ class my_model_ckpt(ModelCheckpoint):
             self._save_last_checkpoint(trainer, monitor_candidates)
 
 
-def main(args):
+def main(args, epoch_callback=None):
     config = load_yaml_config(args.config_file)
 
     output_dir = Path(config["output_dir"])
@@ -135,6 +135,19 @@ def main(args):
     else:
         accelerator = "cpu"
 
+    # Build callbacks list; add an epoch-progress callback when caller provides one
+    trainer_callbacks = [ckpt_callback]
+    if epoch_callback is not None:
+        from pytorch_lightning import Callback as _Callback
+        _total_epochs = config["train"]["epochs"]
+        _cb = epoch_callback  # capture
+
+        class _EpochProgressCallback(_Callback):
+            def on_train_epoch_end(self, trainer, pl_module):
+                _cb(trainer.current_epoch + 1, _total_epochs)
+
+        trainer_callbacks.append(_EpochProgressCallback())
+
     trainer: Trainer = Trainer(
         max_epochs=config["train"]["epochs"],
         accelerator=accelerator,
@@ -150,7 +163,7 @@ def main(args):
         precision=config["train"]["precision"],
         logger=logger,
         num_sanity_val_steps=0,
-        callbacks=[ckpt_callback],
+        callbacks=trainer_callbacks,
         use_distributed_sampler=False,  # 非常简单的修改，但解决了采用自定义的 bucket_sampler 下训练步数不一致的问题！
     )
 

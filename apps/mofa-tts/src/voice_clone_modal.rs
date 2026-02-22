@@ -5,8 +5,8 @@
 //! 2. Pro Mode (Few-shot Training): Record 3-10 minutes of audio and train custom GPT-SoVITS models
 
 use crate::audio_player::TTSPlayer;
-use crate::training_manager::{TrainingManager, TrainingProgress, TrainingStatus};
-use crate::voice_data::{CloningStatus, Voice, VoiceCategory, VoiceSource};
+use crate::task_persistence;
+use crate::voice_data::{CloningStatus, Voice};
 use crate::voice_persistence;
 use makepad_widgets::*;
 use parking_lot::Mutex;
@@ -659,33 +659,6 @@ live_design! {
                     }
                 }
 
-                // Mode tabs
-                mode_tabs = <View> {
-                    width: Fill, height: Fit
-                    flow: Right
-                    spacing: 0
-
-                    show_bg: true
-                    draw_bg: {
-                        instance dark_mode: 0.0
-                        fn pixel(self) -> vec4 {
-                            return mix((SLATE_50), (SLATE_700), self.dark_mode);
-                        }
-                    }
-
-                    express_tab = <ModeTabButton> {
-                        text: "Express Mode"
-                        draw_bg: { active: 1.0 }
-                        draw_text: { active: 1.0 }
-                    }
-
-                    pro_tab = <ModeTabButton> {
-                        text: "Pro Mode (Training)"
-                        draw_bg: { active: 0.0 }
-                        draw_text: { active: 0.0 }
-                    }
-                }
-
                 // Body
                 body = <View> {
                     width: Fill, height: Fit
@@ -1116,34 +1089,6 @@ live_design! {
                                 }
                             }
 
-                            log_scroll = <ScrollYView> {
-                                width: Fill, height: 200
-                                show_bg: true
-                                draw_bg: {
-                                    instance dark_mode: 0.0
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 4.0);
-                                        let bg = mix((SLATE_50), (SLATE_800), self.dark_mode);
-                                        sdf.fill(bg);
-                                        sdf.stroke(mix((SLATE_200), (SLATE_600), self.dark_mode), 1.0);
-                                        return sdf.result;
-                                    }
-                                }
-
-                                log_content = <Label> {
-                                    width: Fill, height: Fit
-                                    padding: {left: 10, right: 10, top: 8, bottom: 8}
-                                    draw_text: {
-                                        instance dark_mode: 0.0
-                                        text_style: { font_size: 11.0, line_spacing: 1.5 }
-                                        fn get_color(self) -> vec4 {
-                                            return mix((SLATE_600), (SLATE_300), self.dark_mode);
-                                        }
-                                    }
-                                    text: ""
-                                }
-                            }
                         }
                     } // end pro_mode_content
                 } // end body
@@ -1212,7 +1157,7 @@ live_design! {
                         }
 
                         start_training_btn = <ActionButton> {
-                            text: "Start Training"
+                            text: "创建克隆任务"
                             draw_bg: { primary: 1.0 }
                             draw_text: { primary: 1.0 }
                         }
@@ -1336,6 +1281,7 @@ pub enum VoiceCloneModalAction {
     None,
     Closed,
     VoiceCreated(Voice),
+    TaskCreated(crate::task_persistence::CloneTask),
     SendAudioToAsr {
         samples: Vec<f32>,
         sample_rate: u32,
@@ -1427,10 +1373,7 @@ pub struct VoiceCloneModal {
     clone_mode: CloneMode,
 
     #[rust]
-    training_manager: Option<Arc<TrainingManager>>,
-
-    #[rust]
-    training_progress: TrainingProgress,
+    current_task_id: Option<String>,
 
     #[rust]
     recording_for_training: bool,
@@ -1455,10 +1398,7 @@ pub struct VoiceCloneModal {
 
 impl LiveHook for VoiceCloneModal {
     fn after_new_from_doc(&mut self, _cx: &mut Cx) {
-        // Initialize training manager
-        self.training_manager = Some(Arc::new(TrainingManager::new()));
         self.clone_mode = CloneMode::Express;
-        self.training_progress = TrainingProgress::default();
         self.max_training_duration = 600.0; // 10 minutes
         self.recording_for_training = false;
     }
@@ -1875,27 +1815,6 @@ impl Widget for VoiceCloneModal {
             _ => {}
         }
 
-        // Handle mode tab switching
-        let express_tab = self.view.button(ids!(
-            modal_container.modal_wrapper.modal_content.mode_tabs.express_tab
-        ));
-        match event.hits(cx, express_tab.area()) {
-            Hit::FingerUp(fe) if fe.was_tap() => {
-                self.switch_to_mode(cx, CloneMode::Express);
-            }
-            _ => {}
-        }
-
-        let pro_tab = self.view.button(ids!(
-            modal_container.modal_wrapper.modal_content.mode_tabs.pro_tab
-        ));
-        match event.hits(cx, pro_tab.area()) {
-            Hit::FingerUp(fe) if fe.was_tap() => {
-                self.switch_to_mode(cx, CloneMode::Pro);
-            }
-            _ => {}
-        }
-
         // Pro mode: Training recording button
         if self.clone_mode == CloneMode::Pro {
             let record_btn = self.view.button(ids!(
@@ -1921,7 +1840,7 @@ impl Widget for VoiceCloneModal {
                 _ => {}
             }
 
-            // Start training button
+            // Start training button (now creates a Pending task)
             let start_training_btn = self.view.button(ids!(
                 modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
             ));
@@ -1931,20 +1850,6 @@ impl Widget for VoiceCloneModal {
                 }
                 _ => {}
             }
-
-            // Cancel training button
-            let cancel_training_btn = self.view.button(ids!(
-                modal_container.modal_wrapper.modal_content.footer.pro_actions.cancel_training_btn
-            ));
-            match event.hits(cx, cancel_training_btn.area()) {
-                Hit::FingerUp(fe) if fe.was_tap() => {
-                    self.cancel_training(cx);
-                }
-                _ => {}
-            }
-
-            // Poll training progress (should be called on every frame)
-            self.poll_training_progress(cx, scope);
         }
 
         // Extract actions - keep for any remaining action-based handling
@@ -3035,30 +2940,11 @@ impl VoiceCloneModal {
 
     // ========== Pro Mode Training Methods ==========
 
-    fn switch_to_mode(&mut self, cx: &mut Cx, mode: CloneMode) {
-        if self.clone_mode == mode {
-            return;
-        }
-
+    pub fn switch_to_mode(&mut self, cx: &mut Cx, mode: CloneMode) {
         self.clone_mode = mode;
 
         match mode {
             CloneMode::Express => {
-                // Update tab visuals
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.mode_tabs.express_tab
-                )).apply_over(cx, live! {
-                    draw_bg: { active: 1.0 }
-                    draw_text: { active: 1.0 }
-                });
-
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.mode_tabs.pro_tab
-                )).apply_over(cx, live! {
-                    draw_bg: { active: 0.0 }
-                    draw_text: { active: 0.0 }
-                });
-
                 // Show/hide content
                 self.view.view(ids!(modal_container.modal_wrapper.modal_content.body.express_mode_content))
                     .set_visible(cx, true);
@@ -3071,20 +2957,6 @@ impl VoiceCloneModal {
             }
 
             CloneMode::Pro => {
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.mode_tabs.express_tab
-                )).apply_over(cx, live! {
-                    draw_bg: { active: 0.0 }
-                    draw_text: { active: 0.0 }
-                });
-
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.mode_tabs.pro_tab
-                )).apply_over(cx, live! {
-                    draw_bg: { active: 1.0 }
-                    draw_text: { active: 1.0 }
-                });
-
                 self.view.view(ids!(modal_container.modal_wrapper.modal_content.body.express_mode_content))
                     .set_visible(cx, false);
                 self.view.view(ids!(modal_container.modal_wrapper.modal_content.body.pro_mode_content))
@@ -3469,212 +3341,74 @@ impl VoiceCloneModal {
         )).text();
 
         if voice_name.is_empty() {
-            let msg = "Voice name is required";
-            eprintln!("[Training] ERROR: {}", msg);
-            self.add_training_log(cx, &format!("[ERROR] {}", msg));
-            self.show_error(cx, msg);
+            self.show_error(cx, "Voice name is required");
             return;
         }
 
-        let Some(audio_file) = &self.training_audio_file else {
-            let msg = "No training audio available. Please record or upload at least 10 seconds of audio first.";
-            eprintln!("[Training] ERROR: {}", msg);
-            self.add_training_log(cx, &format!("[ERROR] {}", msg));
-            self.show_error(cx, msg);
+        let Some(audio_file) = &self.training_audio_file.clone() else {
+            self.show_error(cx, "No training audio available. Please record or upload at least 10 seconds of audio first.");
             return;
         };
-
-        let language = self.selected_language.clone();
-        let voice_id = voice_persistence::generate_voice_id(&voice_name);
-
-        // Show progress section
-        self.view.view(ids!(
-            modal_container.modal_wrapper.modal_content.body.pro_mode_content.training_progress_section
-        )).set_visible(cx, true);
-
-        // Show cancel button, hide start button
-        self.view.button(ids!(
-            modal_container.modal_wrapper.modal_content.footer.pro_actions.cancel_training_btn
-        )).set_visible(cx, true);
-
-        self.view.button(ids!(
-            modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
-        )).set_visible(cx, false);
-
-        // Start training via manager
-        let manager = self.training_manager.as_ref().unwrap();
-        if !manager.start_training(voice_id, voice_name, audio_file.clone(), language) {
-            let msg = "Failed to start training process";
-            eprintln!("[Training] ERROR: {}", msg);
-            self.add_training_log(cx, &format!("[ERROR] {}", msg));
-            self.show_error(cx, msg);
-            return;
-        }
-
-        self.add_training_log(cx, "[INFO] Training started...");
-        self.add_training_log(cx, "[INFO] This will take 30-120 minutes. Do not close the application.");
-
-        self.view.redraw(cx);
-    }
-
-    fn cancel_training(&mut self, cx: &mut Cx) {
-        if let Some(ref manager) = self.training_manager {
-            manager.cancel_training();
-            self.add_training_log(cx, "[INFO] Cancelling training (may take a few seconds)...");
-        }
-    }
-
-    fn poll_training_progress(&mut self, cx: &mut Cx, scope: &mut Scope) {
-        let Some(ref manager) = self.training_manager else {
-            return;
-        };
-
-        let progress = manager.get_progress();
-
-        // Only update if changed
-        if progress.last_updated > self.training_progress.last_updated {
-            self.training_progress = progress.clone();
-            self.update_training_ui(cx, scope, &progress);
-        }
-    }
-
-    fn update_training_ui(&mut self, cx: &mut Cx, scope: &mut Scope, progress: &TrainingProgress) {
-        // Update stage label
-        self.view.label(ids!(
-            modal_container.modal_wrapper.modal_content.body.pro_mode_content
-            .training_progress_section.stage_label
-        )).set_text(cx, &format!(
-            "Step {} of {}: {}",
-            progress.current_step, progress.total_steps, progress.current_stage
-        ));
-
-        // Update progress bar
-        let progress_pct = if progress.total_steps > 0 {
-            progress.current_step as f32 / progress.total_steps as f32
-        } else {
-            0.0
-        };
-
-        self.view.view(ids!(
-            modal_container.modal_wrapper.modal_content.body.pro_mode_content
-            .training_progress_section.progress_bar
-        )).apply_over(cx, live! { draw_bg: { progress: (progress_pct) } });
-
-        // Update log content (show last 100 lines)
-        let log_text = progress.log_lines
-            .iter()
-            .rev()
-            .take(100)
-            .rev()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        self.view.label(ids!(
-            modal_container.modal_wrapper.modal_content.body.pro_mode_content
-            .training_progress_section.log_scroll.log_content
-        )).set_text(cx, &log_text);
-
-        // Handle training completion/failure/cancel
-        match &progress.status {
-            TrainingStatus::Completed {
-                gpt_weights,
-                sovits_weights,
-                reference_audio,
-                reference_text,
-            } => {
-                self.on_training_completed(
-                    cx,
-                    scope,
-                    gpt_weights.clone(),
-                    sovits_weights.clone(),
-                    reference_audio.clone(),
-                    reference_text.clone(),
-                );
-            }
-            TrainingStatus::Failed { error } => {
-                self.add_training_log(cx, &format!("[ERROR] Training failed: {}", error));
-                // Re-enable start button
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
-                )).set_visible(cx, true);
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.footer.pro_actions.cancel_training_btn
-                )).set_visible(cx, false);
-            }
-            TrainingStatus::Cancelled => {
-                self.add_training_log(cx, "[INFO] Training cancelled");
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
-                )).set_visible(cx, true);
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.footer.pro_actions.cancel_training_btn
-                )).set_visible(cx, false);
-            }
-            _ => {}
-        }
-
-        self.view.redraw(cx);
-    }
-
-    fn on_training_completed(
-        &mut self,
-        cx: &mut Cx,
-        scope: &mut Scope,
-        gpt_weights: PathBuf,
-        sovits_weights: PathBuf,
-        reference_audio: PathBuf,
-        reference_text: String,
-    ) {
-        let voice_name = self.view.text_input(ids!(
-            modal_container.modal_wrapper.modal_content.body.pro_mode_content.voice_name_input.input
-        )).text();
 
         let voice_id = voice_persistence::generate_voice_id(&voice_name);
 
-        // Create new trained voice entry
-        let new_voice = Voice {
+        // Build the current timestamp string using civil_from_days (Howard Hinnant)
+        let created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| {
+                let secs = d.as_secs();
+                let sec = secs % 60;
+                let min = (secs / 60) % 60;
+                let hour = (secs / 3600) % 24;
+                let total_days = (secs / 86400) as i64;
+                let z = total_days + 719468;
+                let era = if z >= 0 { z } else { z - 146096 } / 146097;
+                let doe = z - era * 146097;
+                let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+                let y = yoe + era * 400;
+                let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+                let mp = (5 * doy + 2) / 153;
+                let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+                let month = if mp < 10 { (mp + 3) as u32 } else { (mp - 9) as u32 };
+                let year = if month <= 2 { y + 1 } else { y };
+                format!("{}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hour, min, sec)
+            })
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        // Create a Pending CloneTask
+        let task = crate::task_persistence::CloneTask {
             id: voice_id.clone(),
             name: voice_name.clone(),
-            description: format!("Custom trained voice (Few-Shot)"),
-            category: VoiceCategory::Character,
-            language: self.selected_language.clone(),
-            source: VoiceSource::Trained,
-            reference_audio_path: Some(reference_audio.to_string_lossy().to_string()),
-            prompt_text: Some(reference_text),
-            gpt_weights: Some(gpt_weights.to_string_lossy().to_string()),
-            sovits_weights: Some(sovits_weights.to_string_lossy().to_string()),
-            created_at: Some(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            ),
-            preview_audio: Some(reference_audio.to_string_lossy().to_string()),
+            status: crate::task_persistence::CloneTaskStatus::Pending,
+            progress: 0.0,
+            created_at,
+            audio_path: Some(audio_file.to_string_lossy().to_string()),
+            reference_text: None,
+            started_at: None,
+            completed_at: None,
+            message: Some("Waiting in queue...".to_string()),
+            current_step: None,
+            sub_step: None,
+            sub_total: None,
         };
 
-        // Save to custom voices config
-        if let Err(e) = voice_persistence::add_custom_voice(new_voice.clone()) {
-            self.add_training_log(cx, &format!("[ERROR] Failed to save voice: {}", e));
+        // Persist to disk
+        if let Err(e) = task_persistence::add_task(task.clone()) {
+            self.show_error(cx, &format!("Failed to save task: {}", e));
             return;
         }
 
-        self.add_training_log(cx, "[SUCCESS] Voice saved successfully!");
+        self.current_task_id = Some(voice_id);
 
-        // Emit action to notify parent screen to refresh voice library
+        // Emit TaskCreated action so parent can open task detail page
         cx.widget_action(
             self.widget_uid(),
             &scope.path,
-            VoiceCloneModalAction::VoiceCreated(new_voice),
+            VoiceCloneModalAction::TaskCreated(task),
         );
 
-        // Show success message
-        self.view.button(ids!(
-            modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
-        )).set_visible(cx, true);
-        self.view.button(ids!(
-            modal_container.modal_wrapper.modal_content.footer.pro_actions.cancel_training_btn
-        )).set_visible(cx, false);
+        // Close modal
+        self.close(cx, scope);
     }
 
     fn check_gpu_availability(&mut self, cx: &mut Cx) {
@@ -3703,24 +3437,8 @@ impl VoiceCloneModal {
         }
     }
 
-    fn add_training_log(&mut self, cx: &mut Cx, message: &str) {
-        self.training_progress.log_lines.push(message.to_string());
-
-        let log_text = self.training_progress.log_lines
-            .iter()
-            .rev()
-            .take(100)
-            .rev()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        self.view.label(ids!(
-            modal_container.modal_wrapper.modal_content.body.pro_mode_content
-            .training_progress_section.log_scroll.log_content
-        )).set_text(cx, &log_text);
-
-        self.view.redraw(cx);
+    fn add_training_log(&mut self, _cx: &mut Cx, message: &str) {
+        eprintln!("[Training] {}", message);
     }
 }
 
@@ -3973,6 +3691,14 @@ impl VoiceCloneModalRef {
     pub fn set_shared_dora_state(&self, state: std::sync::Arc<mofa_dora_bridge::SharedDoraState>) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.shared_dora_state = Some(state);
+        }
+    }
+
+    /// Show the modal in a specific mode (Express or Pro)
+    pub fn show_with_mode(&self, cx: &mut Cx, mode: CloneMode) {
+        self.show(cx);
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.switch_to_mode(cx, mode);
         }
     }
 }

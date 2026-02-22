@@ -253,49 +253,49 @@ live_design! {
                 <View> { width: Fill, height: 1 }
 
                 // Clone voice button
-                clone_voice_btn = <Button> {
-                    width: Fit, height: 26
-                    padding: {left: 10, right: 10}
-                    text: "+ Clone"
+                // clone_voice_btn = <Button> {
+                //     width: Fit, height: 26
+                //     padding: {left: 10, right: 10}
+                //     text: "+ Clone"
 
-                    draw_bg: {
-                        instance dark_mode: 0.0
-                        instance hover: 0.0
-                        instance disabled: 0.0
-                        border_radius: 4.0
-                        fn pixel(self) -> vec4 {
-                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                //     draw_bg: {
+                //         instance dark_mode: 0.0
+                //         instance hover: 0.0
+                //         instance disabled: 0.0
+                //         border_radius: 4.0
+                //         fn pixel(self) -> vec4 {
+                //             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                //             sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
 
-                            // Disabled state
-                            if self.disabled > 0.5 {
-                                let disabled_bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                sdf.fill(disabled_bg);
-                                sdf.stroke(mix((SLATE_300), (SLATE_600), self.dark_mode), 1.0);
-                            } else {
-                                // Normal state
-                                let base = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
-                                let hover_color = mix((PRIMARY_100), (PRIMARY_800), self.dark_mode);
-                                sdf.fill(mix(base, hover_color, self.hover));
-                                sdf.stroke(mix((PRIMARY_300), (PRIMARY_600), self.dark_mode), 1.0);
-                            }
-                            return sdf.result;
-                        }
-                    }
+                //             // Disabled state
+                //             if self.disabled > 0.5 {
+                //                 let disabled_bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                //                 sdf.fill(disabled_bg);
+                //                 sdf.stroke(mix((SLATE_300), (SLATE_600), self.dark_mode), 1.0);
+                //             } else {
+                //                 // Normal state
+                //                 let base = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
+                //                 let hover_color = mix((PRIMARY_100), (PRIMARY_800), self.dark_mode);
+                //                 sdf.fill(mix(base, hover_color, self.hover));
+                //                 sdf.stroke(mix((PRIMARY_300), (PRIMARY_600), self.dark_mode), 1.0);
+                //             }
+                //             return sdf.result;
+                //         }
+                //     }
 
-                    draw_text: {
-                        instance dark_mode: 0.0
-                        instance disabled: 0.0
-                        text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
-                        fn get_color(self) -> vec4 {
-                            if self.disabled > 0.5 {
-                                return mix((SLATE_400), (SLATE_500), self.dark_mode);
-                            } else {
-                                return mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
-                            }
-                        }
-                    }
-                }
+                //     draw_text: {
+                //         instance dark_mode: 0.0
+                //         instance disabled: 0.0
+                //         text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                //         fn get_color(self) -> vec4 {
+                //             if self.disabled > 0.5 {
+                //                 return mix((SLATE_400), (SLATE_500), self.dark_mode);
+                //             } else {
+                //                 return mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
+                //             }
+                //         }
+                //     }
+                // }
             }
 
             // Second row: Selected voice badge (full width for long names)
@@ -421,27 +421,6 @@ impl Widget for VoiceSelector {
             self.initialized = true;
         }
 
-        // Handle clone voice button click using event.hits (BEFORE Actions early return)
-        let clone_btn = self.view.button(ids!(header.title_row.clone_voice_btn));
-        match event.hits(cx, clone_btn.area()) {
-            Hit::FingerUp(fe) if fe.was_tap() => {
-                if self.dora_running {
-                    cx.widget_action(
-                        self.widget_uid(),
-                        &scope.path,
-                        VoiceSelectorAction::CloneVoiceClicked,
-                    );
-                } else {
-                    cx.widget_action(
-                        self.widget_uid(),
-                        &scope.path,
-                        VoiceSelectorAction::RequestStartDora,
-                    );
-                }
-            }
-            _ => {}
-        }
-
         // Handle portal list item clicks using stored areas (BEFORE Actions early return)
         for (item_id, item_area, preview_area, delete_area) in self.item_areas.iter().cloned() {
             if item_id >= self.voices.len() {
@@ -553,18 +532,6 @@ impl Widget for VoiceSelector {
             }
             self.initialized = true;
         }
-
-        // Update clone button disabled state based on dora_running
-        let disabled_val = if self.dora_running { 0.0 } else { 1.0 };
-        self.view
-            .button(ids!(header.title_row.clone_voice_btn))
-            .apply_over(
-                cx,
-                live! {
-                    draw_bg: { disabled: (disabled_val) }
-                    draw_text: { disabled: (disabled_val) }
-                },
-            );
 
         // Clear item areas before redrawing
         self.item_areas.clear();
@@ -795,18 +762,6 @@ impl VoiceSelectorRef {
                     draw_text: { dark_mode: (dark_mode) }
                 },
             );
-
-            // Clone button
-            inner
-                .view
-                .button(ids!(header.title_row.clone_voice_btn))
-                .apply_over(
-                    cx,
-                    live! {
-                        draw_bg: { dark_mode: (dark_mode) }
-                        draw_text: { dark_mode: (dark_mode) }
-                    },
-                );
 
             // Selected voice badge
             inner
