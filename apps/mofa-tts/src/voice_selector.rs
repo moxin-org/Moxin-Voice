@@ -217,12 +217,13 @@ live_design! {
             }
         }
 
-        // Header with title and selected voice indicator
+        // Header with title and selected voice indicator (single row)
         header = <View> {
             width: Fill, height: Fit
-            padding: {left: 16, right: 16, top: 14, bottom: 14}
-            flow: Down
-            spacing: 0
+            padding: {left: 16, right: 16, top: 12, bottom: 12}
+            flow: Right
+            align: {y: 0.5}
+            spacing: 8
             show_bg: true
             draw_bg: {
                 instance dark_mode: 0.0
@@ -231,12 +232,10 @@ live_design! {
                 }
             }
 
-            // First row: Title + Clone button
             title_row = <View> {
-                width: Fill, height: Fit
+                width: Fit, height: Fit
                 flow: Right
-                align: {x: 0.0, y: 0.5}
-                spacing: 8
+                align: {y: 0.5}
 
                 title = <Label> {
                     width: Fit, height: Fit
@@ -249,63 +248,16 @@ live_design! {
                     }
                     text: "Select Voice"
                 }
-
-                <View> { width: Fill, height: 1 }
-
-                // Clone voice button
-                // clone_voice_btn = <Button> {
-                //     width: Fit, height: 26
-                //     padding: {left: 10, right: 10}
-                //     text: "+ Clone"
-
-                //     draw_bg: {
-                //         instance dark_mode: 0.0
-                //         instance hover: 0.0
-                //         instance disabled: 0.0
-                //         border_radius: 4.0
-                //         fn pixel(self) -> vec4 {
-                //             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                //             sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-
-                //             // Disabled state
-                //             if self.disabled > 0.5 {
-                //                 let disabled_bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
-                //                 sdf.fill(disabled_bg);
-                //                 sdf.stroke(mix((SLATE_300), (SLATE_600), self.dark_mode), 1.0);
-                //             } else {
-                //                 // Normal state
-                //                 let base = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
-                //                 let hover_color = mix((PRIMARY_100), (PRIMARY_800), self.dark_mode);
-                //                 sdf.fill(mix(base, hover_color, self.hover));
-                //                 sdf.stroke(mix((PRIMARY_300), (PRIMARY_600), self.dark_mode), 1.0);
-                //             }
-                //             return sdf.result;
-                //         }
-                //     }
-
-                //     draw_text: {
-                //         instance dark_mode: 0.0
-                //         instance disabled: 0.0
-                //         text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
-                //         fn get_color(self) -> vec4 {
-                //             if self.disabled > 0.5 {
-                //                 return mix((SLATE_400), (SLATE_500), self.dark_mode);
-                //             } else {
-                //                 return mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
-                //             }
-                //         }
-                //     }
-                // }
             }
 
-            // Second row: Selected voice badge (full width for long names)
-            badge_row = <View> {
-                width: Fill, height: Fit
-                flow: Right
-                align: {x: 1.0, y: 0.5}
-                margin: {top: 6}
+            <View> { width: Fill, height: 1 }
 
-                // Selected voice badge
+            // Selected voice badge (inline with title)
+            badge_row = <View> {
+                width: Fit, height: Fit
+                flow: Right
+                align: {y: 0.5}
+
                 selected_voice_badge = <RoundedView> {
                     width: Fit, height: Fit
                     padding: {left: 8, right: 8, top: 4, bottom: 4}

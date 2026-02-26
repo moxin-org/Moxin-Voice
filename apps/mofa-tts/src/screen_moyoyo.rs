@@ -1083,7 +1083,6 @@ live_design! {
                         width: Fill, height: Fill
                         flow: Down
                         spacing: 0
-                        padding: {left: 24, right: 24, top: 24, bottom: 0}
                         visible: false  // Hidden by default
 
                         // Page header
@@ -1141,7 +1140,7 @@ live_design! {
                             refresh_btn = <Button> {
                                 width: Fit, height: 40
                                 padding: {left: 16, right: 16}
-                                text: "🔄 刷新"
+                                text: "刷新"
 
                                 draw_bg: {
                                     instance hover: 0.0
@@ -1581,10 +1580,10 @@ live_design! {
                                             width: Fill, height: Fit
                                             flow: Right
                                             align: {y: 0.5}
-                                            spacing: 12
+                                            spacing: 8
 
                                             task_name = <Label> {
-                                                width: Fill, height: Fit
+                                                width: Fit, height: Fit
                                                 draw_text: {
                                                     instance dark_mode: 0.0
                                                     text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }
@@ -1597,7 +1596,7 @@ live_design! {
 
                                             status_badge = <View> {
                                                 width: Fit, height: Fit
-                                                padding: {left: 8, right: 8, top: 4, bottom: 4}
+                                                padding: {left: 6, right: 6, top: 2, bottom: 2}
                                                 show_bg: true
                                                 draw_bg: {
                                                     instance status_color: vec4(0.16, 0.65, 0.37, 1.0)
@@ -1613,7 +1612,7 @@ live_design! {
                                                 status_label = <Label> {
                                                     width: Fit, height: Fit
                                                     draw_text: {
-                                                        text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                                        text_style: <FONT_SEMIBOLD>{ font_size: 10.0 }
                                                         fn get_color(self) -> vec4 {
                                                             return (WHITE);
                                                         }
@@ -1621,6 +1620,8 @@ live_design! {
                                                     text: "Completed"
                                                 }
                                             }
+
+                                            <View> { width: Fill, height: 1 }
                                         }
 
                                         progress_row = <View> {
@@ -1693,7 +1694,7 @@ live_design! {
                                                 view_btn = <Button> {
                                                     width: Fit, height: 32
                                                     padding: {left: 12, right: 12}
-                                                    text: "View"
+                                                    text: "查看"
 
                                                     draw_bg: {
                                                         instance hover: 0.0
@@ -1721,7 +1722,7 @@ live_design! {
                                                 cancel_btn = <Button> {
                                                     width: Fit, height: 32
                                                     padding: {left: 12, right: 12}
-                                                    text: "Cancel"
+                                                    text: "取消"
                                                     visible: false
 
                                                     draw_bg: {
@@ -2611,17 +2612,26 @@ live_design! {
                     play_btn = <PlayButton> {
                         text: ""
                         draw_bg: {
+                            instance is_playing: 0.0
                             fn pixel(self) -> vec4 {
                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                                 let center = self.rect_size * 0.5;
                                 sdf.circle(center.x, center.y, 17.0);
                                 sdf.fill((MOYOYO_PRIMARY));
-                                // Draw play icon
-                                sdf.move_to(14.0, 11.0);
-                                sdf.line_to(26.0, 18.0);
-                                sdf.line_to(14.0, 25.0);
-                                sdf.close_path();
-                                sdf.fill((WHITE));
+                                if self.is_playing > 0.5 {
+                                    // Pause icon (two vertical bars)
+                                    sdf.rect(13.0, 12.0, 3.0, 12.0);
+                                    sdf.fill((WHITE));
+                                    sdf.rect(20.0, 12.0, 3.0, 12.0);
+                                    sdf.fill((WHITE));
+                                } else {
+                                    // Play icon (triangle)
+                                    sdf.move_to(14.0, 11.0);
+                                    sdf.line_to(26.0, 18.0);
+                                    sdf.line_to(14.0, 25.0);
+                                    sdf.close_path();
+                                    sdf.fill((WHITE));
+                                }
                                 return sdf.result;
                             }
                         }
