@@ -1115,14 +1115,17 @@ live_design! {
 
                                 draw_bg: {
                                     instance dark_mode: 0.0
+                                    instance focus: 0.0
                                     instance border_radius: 8.0
                                     fn pixel(self) -> vec4 {
                                         let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                                         sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
                                         let bg = mix((WHITE), (SLATE_800), self.dark_mode);
                                         sdf.fill(bg);
-                                        let border = mix((MOYOYO_BORDER_LIGHT), (SLATE_700), self.dark_mode);
-                                        sdf.stroke(border, 1.0);
+                                        let border_normal = mix((MOYOYO_BORDER_LIGHT), (SLATE_700), self.dark_mode);
+                                        let border_focused = (MOYOYO_PRIMARY);
+                                        let border = mix(border_normal, border_focused, self.focus);
+                                        sdf.stroke(border, mix(1.0, 2.0, self.focus));
                                         return sdf.result;
                                     }
                                 }
@@ -1132,6 +1135,25 @@ live_design! {
                                     text_style: { font_size: 14.0 }
                                     fn get_color(self) -> vec4 {
                                         return mix((MOYOYO_TEXT_PRIMARY), (MOYOYO_TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+
+                                draw_cursor: {
+                                    uniform border_radius: 0.5
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        sdf.fill((MOYOYO_PRIMARY));
+                                        return sdf.result;
+                                    }
+                                }
+
+                                draw_selection: {
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 1.0);
+                                        sdf.fill(vec4(0.39, 0.40, 0.95, 0.25));
+                                        return sdf.result;
                                     }
                                 }
                             }

@@ -81,14 +81,17 @@ live_design! {
 
             draw_bg: {
                 instance dark_mode: 0.0
+                instance focus: 0.0
                 border_radius: 6.0
                 fn pixel(self) -> vec4 {
                     let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                     sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
                     let bg = mix((WHITE), (SLATE_700), self.dark_mode);
-                    let border = mix((SLATE_200), (SLATE_600), self.dark_mode);
                     sdf.fill(bg);
-                    sdf.stroke(border, 1.0);
+                    let border_normal = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                    let border_focused = (PRIMARY_500);
+                    let border = mix(border_normal, border_focused, self.focus);
+                    sdf.stroke(border, mix(1.0, 2.0, self.focus));
                     return sdf.result;
                 }
             }
@@ -107,7 +110,7 @@ live_design! {
                 fn pixel(self) -> vec4 {
                     let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                     sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.border_radius);
-                    sdf.fill(mix((PRIMARY_500), (PRIMARY_500), self.focus));
+                    sdf.fill((PRIMARY_500));
                     return sdf.result;
                 }
             }
@@ -143,10 +146,31 @@ live_design! {
         }
 
         file_row = <View> {
-            width: Fill, height: 40
+            width: Fill, height: 60
             flow: Right
             spacing: 8
             align: {y: 0.5}
+            padding: {left: 8, right: 8}
+            show_bg: true
+
+            draw_bg: {
+                instance is_drag_over: 0.0
+                instance border_radius: 6.0
+                fn pixel(self) -> vec4 {
+                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                    // Background: subtle blue tint when dragging over
+                    sdf.fill(vec4(0.39, 0.40, 0.95, self.is_drag_over * 0.07));
+                    // Border: subtle gray normally, bright blue when dragging
+                    let border_color = mix(
+                        vec4(0.75, 0.77, 0.82, 0.7),
+                        vec4(0.39, 0.40, 0.95, 1.0),
+                        self.is_drag_over
+                    );
+                    sdf.stroke(border_color, mix(1.0, 2.0, self.is_drag_over));
+                    return sdf.result;
+                }
+            }
 
             // Record button (microphone)
             record_btn = <Button> {
@@ -244,7 +268,7 @@ live_design! {
                         return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
                     }
                 }
-                text: "No file selected"
+                text: "No file selected · drag audio here"
             }
 
             // Preview button
@@ -838,6 +862,25 @@ live_design! {
                                 flow: Right
                                 spacing: 12
                                 align: {y: 0.5}
+                                padding: {left: 8, right: 8, top: 8, bottom: 8}
+                                show_bg: true
+
+                                draw_bg: {
+                                    instance is_drag_over: 0.0
+                                    instance border_radius: 6.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        sdf.fill(vec4(0.39, 0.40, 0.95, self.is_drag_over * 0.07));
+                                        let border_color = mix(
+                                            vec4(0.75, 0.77, 0.82, 0.7),
+                                            vec4(0.39, 0.40, 0.95, 1.0),
+                                            self.is_drag_over
+                                        );
+                                        sdf.stroke(border_color, mix(1.0, 2.0, self.is_drag_over));
+                                        return sdf.result;
+                                    }
+                                }
 
                                 record_btn = <Button> {
                                     width: 48, height: 48
@@ -1302,6 +1345,9 @@ pub struct VoiceCloneModal {
     selected_file: Option<PathBuf>,
 
     #[rust]
+    is_drag_over: bool,
+
+    #[rust]
     audio_info: Option<voice_persistence::AudioInfo>,
 
     #[rust]
@@ -1407,6 +1453,67 @@ impl LiveHook for VoiceCloneModal {
 impl Widget for VoiceCloneModal {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         self.view.handle_event(cx, event, scope);
+
+        // Handle system file drag-and-drop
+        match event {
+            Event::Drag(de) => {
+                // CRITICAL: Tell macOS we accept this drag.
+                // Without setting response to Copy, macOS returns NSDragOperation::None
+                // and will never fire performDragOperation (Event::Drop).
+                *de.response.lock().unwrap() = DragResponse::Copy;
+
+                if !self.is_drag_over {
+                    self.is_drag_over = true;
+                    self.set_drop_zone_highlight(cx, 1.0);
+                    self.view.redraw(cx);
+                }
+            }
+            Event::DragEnd => {
+                if self.is_drag_over {
+                    self.is_drag_over = false;
+                    self.set_drop_zone_highlight(cx, 0.0);
+                    self.view.redraw(cx);
+                }
+            }
+            Event::Drop(de) => {
+                self.is_drag_over = false;
+                // Extract data from de before any mutable self borrow
+                let audio_exts = ["wav", "mp3", "flac", "ogg", "m4a"];
+                let dropped_path: Option<std::path::PathBuf> = de.items.iter()
+                    .find(|item| {
+                        if let DragItem::FilePath { path, .. } = item {
+                            let lower = path.to_lowercase();
+                            audio_exts.iter().any(|ext| lower.ends_with(ext))
+                        } else {
+                            false
+                        }
+                    })
+                    .and_then(|item| {
+                        if let DragItem::FilePath { path, .. } = item {
+                            // macOS drag-and-drop passes paths as URL-encoded strings
+                            // (e.g. Chinese filenames become %E8%AF%AD...).
+                            // Decode percent-encoding before creating the PathBuf.
+                            Some(std::path::PathBuf::from(percent_decode(path)))
+                        } else {
+                            None
+                        }
+                    });
+                let had_items = !de.items.is_empty();
+                // Reset visual feedback
+                self.set_drop_zone_highlight(cx, 0.0);
+                // Process the dropped file
+                if let Some(path) = dropped_path {
+                    eprintln!("[DragDrop] Audio file dropped: {}", path.display());
+                    match self.clone_mode {
+                        CloneMode::Express => self.handle_file_selected(cx, path),
+                        CloneMode::Pro => self.handle_training_file_selected(cx, path),
+                    }
+                } else if had_items {
+                    eprintln!("[DragDrop] Dropped items contain no supported audio file (wav/mp3/flac/ogg/m4a)");
+                }
+            }
+            _ => {}
+        }
 
         // Initialize defaults
         if self.selected_language.is_empty() {
@@ -1865,6 +1972,22 @@ impl Widget for VoiceCloneModal {
 }
 
 impl VoiceCloneModal {
+    /// Update the drag-over visual highlight on the drop zone for the current mode.
+    fn set_drop_zone_highlight(&mut self, cx: &mut Cx, value: f64) {
+        match self.clone_mode {
+            CloneMode::Express => {
+                self.view
+                    .view(ids!(modal_container.modal_wrapper.modal_content.body.file_selector.file_row))
+                    .apply_over(cx, live! { draw_bg: { is_drag_over: (value) } });
+            }
+            CloneMode::Pro => {
+                self.view
+                    .view(ids!(modal_container.modal_wrapper.modal_content.body.pro_mode_content.training_recording_section.record_row))
+                    .apply_over(cx, live! { draw_bg: { is_drag_over: (value) } });
+            }
+        }
+    }
+
     /// Clean up old temporary recording files from previous sessions
     ///
     /// Removes temp files older than 1 hour to prevent disk buildup.
@@ -2058,7 +2181,7 @@ impl VoiceCloneModal {
                             .file_row
                             .file_name
                     ))
-                    .set_text(cx, "No file selected");
+                    .set_text(cx, "No file selected · drag audio here");
 
                 // Clear audio info label
                 self.view
@@ -2450,7 +2573,7 @@ impl VoiceCloneModal {
                     .file_row
                     .file_name
             ))
-            .set_text(cx, "No file selected");
+            .set_text(cx, "No file selected · drag audio here");
         self.view
             .label(ids!(
                 modal_container
@@ -3701,4 +3824,29 @@ impl VoiceCloneModalRef {
             inner.switch_to_mode(cx, mode);
         }
     }
+}
+
+/// Decode a percent-encoded URL path to a plain file system path.
+///
+/// macOS drag-and-drop returns file paths via `NSURL absoluteString`, which
+/// percent-encodes non-ASCII characters (e.g. Chinese filenames become %E8%AF%AD...).
+/// This decodes them back to the real UTF-8 path.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
 }
