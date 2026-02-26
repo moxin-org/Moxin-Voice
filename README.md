@@ -1,4 +1,4 @@
-# Moxin TTS
+# Moxin-Voice
 
 > Standalone AI-powered Text-to-Speech desktop application with voice cloning capabilities
 
