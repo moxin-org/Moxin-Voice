@@ -1879,10 +1879,10 @@ impl TTSScreen {
             .label(ids!(confirm_delete_modal.dialog.header.message))
             .set_text(cx, &i18n.t("tts.delete_modal.message"));
         self.view
-            .button(ids!(confirm_delete_modal.dialog.actions.cancel_btn))
+            .button(ids!(confirm_delete_modal.dialog.footer.cancel_btn))
             .set_text(cx, &i18n.t("tts.delete_modal.cancel"));
         self.view
-            .button(ids!(confirm_delete_modal.dialog.actions.delete_btn))
+            .button(ids!(confirm_delete_modal.dialog.footer.confirm_btn))
             .set_text(cx, &i18n.t("tts.delete_modal.confirm"));
 
         // Homepage language toggle button
@@ -1899,7 +1899,15 @@ impl TTSScreen {
 
         // TTS title
         self.view
-            .label(ids!(content_wrapper.main_content.tts_section.header.title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .input_section
+                    .header
+                    .title
+            ))
             .set_text(cx, &i18n.t("tts.screen.title"));
 
         // Generate button
@@ -1907,11 +1915,32 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .main_content
-                    .tts_section
-                    .controls
+                    .left_column
+                    .content_area
+                    .input_section
+                    .bottom_bar
+                    .generate_section
                     .generate_btn
             ))
             .set_text(cx, &i18n.t("tts.controls.generate"));
+
+        // Input placeholder
+        let placeholder = if i18n.current_language().starts_with("zh") {
+            i18n.t("tts.input.placeholder_zh")
+        } else {
+            i18n.t("tts.input.placeholder")
+        };
+        self.view
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .input_section
+                    .input_container
+                    .text_input
+            ))
+            .apply_over(cx, live! { empty_text: (placeholder) });
 
         // Log section
         self.view
@@ -1921,7 +1950,8 @@ impl TTSScreen {
                     .log_section
                     .log_content_column
                     .log_header
-                    .title
+                    .log_title_row
+                    .log_title_label
             ))
             .set_text(cx, &i18n.t("tts.log.title"));
         self.view
@@ -1931,7 +1961,8 @@ impl TTSScreen {
                     .log_section
                     .log_content_column
                     .log_header
-                    .clear_btn
+                    .log_title_row
+                    .clear_log_btn
             ))
             .set_text(cx, &i18n.t("tts.log.clear"));
 
@@ -1950,9 +1981,9 @@ impl TTSScreen {
         self.view
             .label(ids!(
                 content_wrapper
-                    .main_content
-                    .tts_section
+                    .audio_player_bar
                     .voice_info
+                    .voice_name_container
                     .status_label
             ))
             .set_text(cx, &i18n.t("tts.status.ready"));
@@ -1961,9 +1992,8 @@ impl TTSScreen {
         self.view
             .button(ids!(
                 content_wrapper
-                    .main_content
-                    .tts_section
-                    .controls
+                    .audio_player_bar
+                    .download_section
                     .download_btn
             ))
             .set_text(cx, &i18n.t("tts.controls.download"));
@@ -1973,20 +2003,18 @@ impl TTSScreen {
         self.view
             .label(ids!(
                 content_wrapper
-                    .main_content
-                    .tts_section
-                    .controls
+                    .audio_player_bar
                     .playback_controls
+                    .progress_row
                     .current_time
             ))
             .set_text(cx, &default_time);
         self.view
             .label(ids!(
                 content_wrapper
-                    .main_content
-                    .tts_section
-                    .controls
+                    .audio_player_bar
                     .playback_controls
+                    .progress_row
                     .total_time
             ))
             .set_text(cx, &default_time);
@@ -2085,7 +2113,8 @@ impl TTSScreen {
         let text = self
             .view
             .text_input(ids!(
-                main_content
+                content_wrapper
+                    .main_content
                     .left_column
                     .content_area
                     .input_section
@@ -2094,10 +2123,16 @@ impl TTSScreen {
             ))
             .text();
         let count = text.chars().count();
-        let label = format!("{} / 5,000 characters", count);
+        let lang = crate::preferences::load_language_preference();
+        let label = if lang.starts_with("zh") {
+            format!("{} / 5,000 字符", count)
+        } else {
+            format!("{} / 5,000 characters", count)
+        };
         self.view
             .label(ids!(
-                main_content
+                content_wrapper
+                    .main_content
                     .left_column
                     .content_area
                     .input_section
