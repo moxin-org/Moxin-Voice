@@ -1,0 +1,18 @@
+# Settings page strings
+page:
+  title: "Settings"
+  subtitle: "Configure application preferences"
+
+language:
+  section_title: "Language"
+  section_description: "Select your preferred language"
+  current: "Current Language"
+  available: "Available Languages"
+
+languages:
+  en: "English"
+  zh_cn: "中文 (简体)"
+
+feedback:
+  saved: "Settings saved successfully"
+  error: "Failed to save settings"

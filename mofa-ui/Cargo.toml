@@ -16,3 +16,6 @@ cpal.workspace = true
 # Log bridge
 crossbeam-channel.workspace = true
 once_cell.workspace = true
+# Internationalization
+rust-i18n.workspace = true
+sys-locale.workspace = true

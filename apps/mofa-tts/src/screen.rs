@@ -1488,6 +1488,10 @@ impl Widget for TTSScreen {
                         self.add_log(cx, "[ERROR] [tts] Dora integration not initialized");
                     }
                 }
+                VoiceCloneModalAction::TaskCreated(_task) => {
+                    // Task created and persisted, nothing to do here
+                    // The task will be loaded on next app start
+                }
                 VoiceCloneModalAction::Closed => {
                     // Modal closed, nothing to do
                 }

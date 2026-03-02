@@ -1,0 +1,39 @@
+# Voice cloning modal strings
+modal:
+  title: "Clone Voice"
+  subtitle: "Create a custom voice from audio samples"
+
+modes:
+  express: "Express Mode"
+  express_description: "Quick cloning with 5-10 seconds of audio"
+  pro: "Pro Mode"
+  pro_description: "High-quality cloning with 3-10 minutes of audio"
+
+audio:
+  record_label: "Record Audio"
+  upload_label: "Upload Audio File"
+  duration: "Duration"
+  required_duration_express: "5-10 seconds required"
+  required_duration_pro: "3-10 minutes required"
+
+voice_name:
+  label: "Voice Name"
+  placeholder: "Enter a name for this voice"
+
+reference_text:
+  label: "Reference Text"
+  placeholder: "Text spoken in the audio"
+  auto_detect: "Auto-detect with ASR"
+
+training:
+  start: "Start Training"
+  progress: "Training Progress"
+  status_preparing: "Preparing..."
+  status_training: "Training..."
+  status_completed: "Training completed"
+  status_failed: "Training failed"
+
+actions:
+  save: "Save Voice"
+  cancel: "Cancel"
+  retry: "Retry"

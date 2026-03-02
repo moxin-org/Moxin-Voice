@@ -93,6 +93,9 @@
 //! - **Phase 5**: Shell components
 //! - **Phase 6**: Validation with new app
 
+// Initialize rust-i18n at crate root
+rust_i18n::i18n!("../locales");
+
 pub mod registry;
 pub mod app_data;
 pub mod theme;
@@ -102,12 +105,14 @@ pub mod shell;
 pub mod system_monitor;
 pub mod audio;
 pub mod log_bridge;
+pub mod i18n_manager;
 
 // Re-export main types for convenience
 pub use registry::{MofaWidgetRegistry, MofaWidgetDef, WidgetCategory, WidgetSize};
 pub use app_data::{MofaAppData, AppConfig};
 pub use theme::{MofaTheme, ThemeColor, ThemeListener, THEME_TRANSITION_DURATION};
 pub use traits::{MofaWidget, Themeable, DoraConnected, Maximizable, Clearable, Animated, Focusable};
+pub use i18n_manager::I18nManager;
 
 // Re-export shared infrastructure
 pub use audio::{AudioManager, AudioDeviceInfo, MicLevelState};

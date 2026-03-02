@@ -53,6 +53,7 @@ use std::sync::Arc;
 use mofa_dora_bridge::SharedDoraState;
 use crate::registry::MofaWidgetRegistry;
 use crate::theme::MofaTheme;
+use crate::i18n_manager::I18nManager;
 
 /// Application configuration
 #[derive(Clone, Debug, Default)]
@@ -101,6 +102,7 @@ impl AppConfig {
 /// - Theme settings (dark mode, colors)
 /// - App configuration
 /// - Widget registry
+/// - I18n manager (translations, language switching)
 ///
 /// ## Thread Safety
 ///
@@ -119,6 +121,9 @@ pub struct MofaAppData {
 
     /// Widget registry
     registry: Arc<MofaWidgetRegistry>,
+
+    /// Internationalization manager
+    i18n: Arc<I18nManager>,
 }
 
 impl MofaAppData {
@@ -129,6 +134,7 @@ impl MofaAppData {
             theme: MofaTheme::default(),
             config: AppConfig::default(),
             registry: Arc::new(MofaWidgetRegistry::new()),
+            i18n: Arc::new(I18nManager::default()),
         }
     }
 
@@ -139,6 +145,7 @@ impl MofaAppData {
             theme: MofaTheme::default(),
             config,
             registry: Arc::new(MofaWidgetRegistry::new()),
+            i18n: Arc::new(I18nManager::default()),
         }
     }
 
@@ -154,6 +161,7 @@ impl MofaAppData {
             theme,
             config,
             registry,
+            i18n: Arc::new(I18nManager::default()),
         }
     }
 
@@ -187,6 +195,11 @@ impl MofaAppData {
     /// Get widget registry
     pub fn registry(&self) -> &Arc<MofaWidgetRegistry> {
         &self.registry
+    }
+
+    /// Get i18n manager
+    pub fn i18n(&self) -> &Arc<I18nManager> {
+        &self.i18n
     }
 
     // --- Convenience Methods ---

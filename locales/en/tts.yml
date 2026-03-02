@@ -1,0 +1,27 @@
+# TTS screen strings
+screen:
+  title: "Text to Speech"
+  subtitle: "Generate natural speech from text"
+
+input:
+  placeholder: "Enter text to convert to speech..."
+  label: "Text Input"
+
+voice:
+  selector_label: "Select Voice"
+  custom_voices: "Custom Voices"
+  preset_voices: "Preset Voices"
+
+controls:
+  generate: "Generate Speech"
+  play: "Play"
+  pause: "Pause"
+  stop: "Stop"
+  export: "Export Audio"
+  record: "Record"
+
+status:
+  generating: "Generating speech..."
+  playing: "Playing..."
+  ready: "Ready to generate"
+  error: "Generation failed"
