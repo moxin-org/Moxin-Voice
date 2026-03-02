@@ -27,13 +27,25 @@ live_design! {
             instance hover: 0.0
 
             fn pixel(self) -> vec4 {
-                let base = mix((SURFACE), (SURFACE_DARK), self.dark_mode);
-                let selected_color = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
-                let hover_color = mix((SLATE_50), (SLATE_800), self.dark_mode);
+                // Transparent base — voice_section rounded bg shows through (enables rounded corners)
+                let selected_tint = mix(
+                    vec4(0.39, 0.40, 0.95, 0.10),  // light: subtle indigo tint
+                    vec4(0.39, 0.40, 0.95, 0.20),   // dark: stronger tint
+                    self.dark_mode
+                );
+                let hover_tint = mix(
+                    vec4(0.0, 0.0, 0.0, 0.04),      // light: subtle dark overlay
+                    vec4(1.0, 1.0, 1.0, 0.07),      // dark: subtle light overlay
+                    self.dark_mode
+                );
 
-                let color = mix(base, selected_color, self.selected);
-                let color = mix(color, hover_color, self.hover * (1.0 - self.selected));
-                return color;
+                let color = mix(vec4(0.0, 0.0, 0.0, 0.0), selected_tint, self.selected);
+                let color = mix(color, hover_tint, self.hover * (1.0 - self.selected));
+
+                // Bottom divider line (1px)
+                let divider = mix(vec4(0.56, 0.6, 0.65, 0.4), vec4(0.4, 0.45, 0.55, 0.6), self.dark_mode);
+                let is_divider = step(self.rect_size.y - 1.5, self.pos.y * self.rect_size.y);
+                return mix(color, divider, is_divider);
             }
         }
 
@@ -74,7 +86,7 @@ live_design! {
             // Initial letter
             initial = <Label> {
                 width: Fill, height: Fill
-                align: {x: 0.3, y: 0.6}
+                align: {x: 0.5, y: 0.5}
                 draw_text: {
                     text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
                     fn get_color(self) -> vec4 {
@@ -209,13 +221,8 @@ live_design! {
         width: Fill, height: Fill
         flow: Down
 
-        show_bg: true
-        draw_bg: {
-            instance dark_mode: 0.0
-            fn pixel(self) -> vec4 {
-                return mix((SURFACE), (SURFACE_DARK), self.dark_mode);
-            }
-        }
+        // Transparent - rounded corners from parent voice_section show through
+        show_bg: false
 
         // Header with title and selected voice indicator (single row)
         header = <View> {
@@ -224,13 +231,7 @@ live_design! {
             flow: Right
             align: {y: 0.5}
             spacing: 8
-            show_bg: true
-            draw_bg: {
-                instance dark_mode: 0.0
-                fn pixel(self) -> vec4 {
-                    return mix((SLATE_50), (SLATE_800), self.dark_mode);
-                }
-            }
+            show_bg: false
 
             title_row = <View> {
                 width: Fit, height: Fit
@@ -262,13 +263,11 @@ live_design! {
                     width: Fit, height: Fit
                     padding: {left: 8, right: 8, top: 4, bottom: 4}
                     draw_bg: {
-                        instance dark_mode: 0.0
-                        border_radius: 4.0
+                        border_radius: 6.0
                         fn pixel(self) -> vec4 {
                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                             sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                            let bg = mix((PRIMARY_100), (PRIMARY_800), self.dark_mode);
-                            sdf.fill(bg);
+                            sdf.fill((MOYOYO_PRIMARY));
                             return sdf.result;
                         }
                     }
@@ -276,10 +275,9 @@ live_design! {
                     selected_voice_label = <Label> {
                         width: Fit, height: Fit
                         draw_text: {
-                            instance dark_mode: 0.0
                             text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
                             fn get_color(self) -> vec4 {
-                                return mix((PRIMARY_700), (PRIMARY_200), self.dark_mode);
+                                return (WHITE);
                             }
                         }
                         text: "豆包 (Doubao)"

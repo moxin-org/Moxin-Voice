@@ -640,26 +640,32 @@ live_design! {
         draw_bg: {
             instance hover: 0.0
             instance active: 0.0
+            instance dark_mode: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                 sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 8.0);
-                let normal = vec4(0.0, 0.0, 0.0, 0.0);
-                let hover_color = vec4(1.0, 1.0, 1.0, 0.08);
-                let active_color = (MOYOYO_PRIMARY);
-                let bg = mix(normal, hover_color, self.hover);
-                let bg = mix(bg, active_color, self.active);
+                let dark_hover = vec4(1.0, 1.0, 1.0, 0.08);
+                let light_hover = vec4(0.0, 0.0, 0.0, 0.06);
+                let hover_tint = mix(light_hover, dark_hover, self.dark_mode);
+                let bg = mix(vec4(0.0, 0.0, 0.0, 0.0), hover_tint, self.hover);
+                let bg = mix(bg, (MOYOYO_PRIMARY), self.active);
                 sdf.fill(bg);
                 return sdf.result;
             }
         }
-        
+
         draw_text: {
             instance active: 0.0
+            instance dark_mode: 0.0
             text_style: { font_size: 14.0 }
             fn get_color(self) -> vec4 {
-                let normal = vec4(1.0, 1.0, 1.0, 0.7);
-                let active = vec4(1.0, 1.0, 1.0, 1.0);
-                return mix(normal, active, self.active);
+                let dark_normal = vec4(1.0, 1.0, 1.0, 0.7);
+                let dark_active = vec4(1.0, 1.0, 1.0, 1.0);
+                let light_normal = (SLATE_600);
+                let light_active = vec4(1.0, 1.0, 1.0, 1.0);
+                let normal = mix(light_normal, dark_normal, self.dark_mode);
+                let active_col = mix(light_active, dark_active, self.dark_mode);
+                return mix(normal, active_col, self.active);
             }
         }
     }
@@ -696,8 +702,9 @@ live_design! {
                 
                 show_bg: true
                 draw_bg: {
+                    instance dark_mode: 0.0
                     fn pixel(self) -> vec4 {
-                        return (MOYOYO_BG_SIDEBAR);
+                        return mix((SLATE_100), (MOYOYO_BG_SIDEBAR), self.dark_mode);
                     }
                 }
 
@@ -707,13 +714,14 @@ live_design! {
                     flow: Right
                     padding: {left: 20, right: 20, top: 20, bottom: 16}
                     align: {x: 0.0, y: 0.5}
-                    
+
                     show_bg: true
                     draw_bg: {
+                        instance dark_mode: 0.0
                         fn pixel(self) -> vec4 {
                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                             sdf.rect(0.0, self.rect_size.y - 1.0, self.rect_size.x, 1.0);
-                            sdf.fill(vec4(1.0, 1.0, 1.0, 0.1));
+                            sdf.fill(mix((SLATE_200), vec4(1.0, 1.0, 1.0, 0.12), self.dark_mode));
                             return sdf.result;
                         }
                     }
@@ -727,8 +735,11 @@ live_design! {
                         logo_icon = <Label> {
                             width: Fit, height: Fit
                             draw_text: {
+                                instance dark_mode: 0.0
                                 text_style: { font_size: 22.0 }
-                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                                fn get_color(self) -> vec4 {
+                                    return mix((SLATE_700), vec4(1.0, 1.0, 1.0, 1.0), self.dark_mode);
+                                }
                             }
                             text: "🎙"
                         }
@@ -736,8 +747,11 @@ live_design! {
                         logo_text = <Label> {
                             width: Fit, height: Fit
                             draw_text: {
+                                instance dark_mode: 0.0
                                 text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
-                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                                fn get_color(self) -> vec4 {
+                                    return mix((SLATE_800), vec4(1.0, 1.0, 1.0, 1.0), self.dark_mode);
+                                }
                             }
                             text: "TTS Voice"
                         }
@@ -766,60 +780,51 @@ live_design! {
                     }
                 }
 
-                // Sidebar Footer: User Info
+                // Sidebar Footer: Theme Toggle
                 sidebar_footer = <View> {
                     width: Fill, height: Fit
-                    flow: Right
-                    padding: {left: 16, right: 16, top: 16, bottom: 16}
-                    spacing: 12
-                    align: {y: 0.5}
-                    
+                    flow: Down
+                    align: {x: 0.5, y: 0.5}
+
                     show_bg: true
                     draw_bg: {
+                        instance dark_mode: 0.0
                         fn pixel(self) -> vec4 {
                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                             sdf.rect(0.0, 0.0, self.rect_size.x, 1.0);
-                            sdf.fill(vec4(1.0, 1.0, 1.0, 0.1));
+                            sdf.fill(mix((SLATE_200), vec4(1.0, 1.0, 1.0, 0.12), self.dark_mode));
                             return sdf.result;
                         }
                     }
 
-                    user_avatar = <RoundedView> {
-                        width: 36, height: 36
-                        align: {x: 0.5, y: 0.5}
+                    theme_toggle_btn = <Button> {
+                        width: Fill, height: 48
+                        padding: {left: 16, right: 16, top: 0, bottom: 0}
+
                         draw_bg: {
+                            instance hover: 0.0
+                            instance pressed: 0.0
+                            instance dark_mode: 0.0
                             fn pixel(self) -> vec4 {
                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, 18.0);
-                                sdf.fill((MOYOYO_PRIMARY));
+                                sdf.rect(0., 0., self.rect_size.x, self.rect_size.y);
+                                let dark_hover = vec4(1.0, 1.0, 1.0, mix(0.0, 0.1, self.hover));
+                                let light_hover = vec4(0.0, 0.0, 0.0, mix(0.0, 0.06, self.hover));
+                                let hover_color = mix(light_hover, dark_hover, self.dark_mode);
+                                sdf.fill(hover_color);
                                 return sdf.result;
                             }
                         }
 
-                        avatar_letter = <Label> {
-                            width: Fill, height: Fill
-                            align: {x: 0.5, y: 0.5}
-                            draw_text: {
-                                text_style: <FONT_BOLD>{ font_size: 14.0 }
-                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((SLATE_600), vec4(1.0, 1.0, 1.0, 0.8), self.dark_mode);
                             }
-                            text: "U"
                         }
-                    }
 
-                    user_details = <View> {
-                        width: Fill, height: Fit
-                        flow: Down
-                        spacing: 2
-
-                        user_name = <Label> {
-                            width: Fit, height: Fit
-                            draw_text: {
-                                text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
-                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
-                            }
-                            text: "User"
-                        }
+                        text: "🌙  Dark Mode"
                     }
                 }
             }
@@ -846,7 +851,7 @@ live_design! {
                 width: Fill, height: Fill
                 flow: Down
                 spacing: 0
-                padding: { left: 32, right: 32, top: 24, bottom: 0 }
+                padding: { left: 32, right: 32, top: 24, bottom: 24 }
 
             // Left column - we keep this structure for compatibility but it now contains everything
             left_column = <View> {
@@ -2573,7 +2578,7 @@ live_design! {
 
                     avatar_initial = <Label> {
                         width: Fill, height: Fill
-                        align: {x: 0.4, y: 0.7}
+                        align: {x: 0.5, y: 0.5}
                         draw_text: {
                             text_style: <FONT_BOLD>{ font_size: 18.0 }
                             fn get_color(self) -> vec4 {
@@ -2734,30 +2739,32 @@ live_design! {
                     draw_bg: {
                         instance hover: 0.0
                         instance pressed: 0.0
+                        instance dark_mode: 0.0
 
                         fn pixel(self) -> vec4 {
                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                             sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
 
-                            // MoYoYo.tts style: primary color outline button
-                            let base = vec4(0.39, 0.40, 0.95, 0.08);
-                            let hover_color = vec4(0.39, 0.40, 0.95, 0.15);
-                            let pressed_color = vec4(0.39, 0.40, 0.95, 0.25);
-                            let border = (MOYOYO_PRIMARY);
+                            // Light mode: outline style; Dark mode: solid primary
+                            let light_base = vec4(0.39, 0.40, 0.95, 0.08);
+                            let light_hover = vec4(0.39, 0.40, 0.95, 0.15);
+                            let dark_base = (MOYOYO_PRIMARY);
+                            let dark_hover = (MOYOYO_PRIMARY_LIGHT);
 
-                            let color = mix(base, hover_color, self.hover);
-                            let color = mix(color, pressed_color, self.pressed);
-
+                            let base = mix(light_base, dark_base, self.dark_mode);
+                            let hover_c = mix(light_hover, dark_hover, self.dark_mode);
+                            let color = mix(base, hover_c, self.hover);
                             sdf.fill(color);
-                            sdf.stroke(border, 1.5);
+                            sdf.stroke((MOYOYO_PRIMARY), mix(1.5, 0.0, self.dark_mode));
                             return sdf.result;
                         }
                     }
 
                     draw_text: {
+                        instance dark_mode: 0.0
                         text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
                         fn get_color(self) -> vec4 {
-                            return (MOYOYO_PRIMARY);
+                            return mix((MOYOYO_PRIMARY), (WHITE), self.dark_mode);
                         }
                     }
                 }
@@ -3095,6 +3102,11 @@ impl Widget for TTSScreen {
             self.view
                 .view(ids!(content_wrapper.main_content.splitter))
                 .apply_over(cx, live! { width: 0 });
+
+            // Apply initial theme based on system preference
+            let system_dark = is_system_dark_mode();
+            let initial_dark = if system_dark { 1.0 } else { 0.0 };
+            self.apply_theme(cx, initial_dark);
         }
 
         // Initialize Dora and auto-start dataflow
@@ -3357,6 +3369,16 @@ impl Widget for TTSScreen {
             .clicked(&actions)
         {
             self.switch_page(cx, AppPage::VoiceClone);
+        }
+
+        // Handle theme toggle button
+        if self
+            .view
+            .button(ids!(app_layout.sidebar.sidebar_footer.theme_toggle_btn))
+            .clicked(&actions)
+        {
+            let new_dark_mode = if self.dark_mode > 0.5 { 0.0 } else { 1.0 };
+            self.apply_theme(cx, new_dark_mode);
         }
 
         // Handle Voice Library page buttons
@@ -4083,9 +4105,29 @@ impl Widget for TTSScreen {
                             card.label(ids!(voice_info.voice_meta.voice_language)).set_text(cx, &language);
                             card.label(ids!(voice_info.voice_meta.voice_type)).set_text(cx, type_text);
 
-                            // Apply dark mode
+                            // Apply dark mode to all card elements
                             card.apply_over(cx, live! {
                                 draw_bg: { dark_mode: (dark_mode) }
+                            });
+                            card.view(ids!(avatar)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(voice_info.voice_name)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(voice_info.voice_meta.voice_language)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(voice_info.voice_meta.voice_type)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.button(ids!(actions.preview_btn)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (dark_mode) }
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.button(ids!(actions.delete_btn)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (dark_mode) }
+                                draw_text: { dark_mode: (dark_mode) }
                             });
 
                             // Show delete button only for custom/trained voices
@@ -4157,8 +4199,33 @@ impl Widget for TTSScreen {
                             }
                             card.button(ids!(bottom_row.actions.delete_btn)).set_visible(cx, can_delete);
 
+                            // Apply dark mode to all card elements
                             card.apply_over(cx, live! {
                                 draw_bg: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(top_row.task_name)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(progress_row.progress_text)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.view(ids!(progress_row.progress_bar)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(bottom_row.task_meta.created_time)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.button(ids!(bottom_row.actions.view_btn)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (dark_mode) }
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.button(ids!(bottom_row.actions.cancel_btn)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (dark_mode) }
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.button(ids!(bottom_row.actions.delete_btn)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (dark_mode) }
+                                draw_text: { dark_mode: (dark_mode) }
                             });
 
                             // Draw the card
@@ -4180,7 +4247,217 @@ impl Widget for TTSScreen {
     }
 }
 
+/// Detect system dark mode preference
+fn is_system_dark_mode() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let output = Command::new("defaults")
+            .args(["read", "-g", "AppleInterfaceStyle"])
+            .output();
+        match output {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).trim() == "Dark",
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 impl TTSScreen {
+    /// Apply light/dark theme to all UI components
+    fn apply_theme(&mut self, cx: &mut Cx, dark_mode: f64) {
+        self.dark_mode = dark_mode;
+
+        // === Root background ===
+        self.view
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+
+        // === Content wrapper background (CRITICAL: main page background) ===
+        self.view
+            .view(ids!(app_layout.content_wrapper))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+
+        // === Sidebar theme ===
+        self.view
+            .view(ids!(app_layout.sidebar))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(app_layout.sidebar.sidebar_header))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(app_layout.sidebar.sidebar_header.logo_section.logo_icon))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(app_layout.sidebar.sidebar_header.logo_section.logo_text))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_tts))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+                draw_text: { dark_mode: (dark_mode) }
+            });
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_library))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+                draw_text: { dark_mode: (dark_mode) }
+            });
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_clone))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+                draw_text: { dark_mode: (dark_mode) }
+            });
+        self.view
+            .view(ids!(app_layout.sidebar.sidebar_footer))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+
+        // === TTS Page static elements ===
+        self.view
+            .label(ids!(tts_page.page_header.page_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(input_section))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(input_section.input_container.text_input))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(input_section.bottom_bar))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(input_section.bottom_bar.char_count))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(controls_panel.voice_section))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+
+        // === Voice Library Page static elements ===
+        self.view
+            .label(ids!(library_page.library_header.library_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(library_page.library_header.search_input))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+                draw_text: { dark_mode: (dark_mode) }
+            });
+        self.view
+            .button(ids!(library_page.library_header.refresh_btn))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+                draw_text: { dark_mode: (dark_mode) }
+            });
+        self.view
+            .label(ids!(library_page.empty_state.empty_text))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+
+        // === Voice Clone Page static elements ===
+        self.view
+            .label(ids!(clone_page.clone_header.clone_title_section.clone_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(clone_page.clone_header.clone_title_section.mode_selector))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(clone_page.clone_empty_state.clone_empty_text))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+
+        // === Audio player bar ===
+        self.view
+            .view(ids!(content_wrapper.audio_player_bar))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.audio_player_bar.voice_info.voice_name_container.current_voice_name))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.audio_player_bar.voice_info.voice_name_container.status_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.audio_player_bar.playback_controls.progress_row.current_time))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.audio_player_bar.playback_controls.progress_row.total_time))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.audio_player_bar.playback_controls.progress_row.progress_bar_container.progress_bar))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(content_wrapper.audio_player_bar.download_section.download_btn))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+                draw_text: { dark_mode: (dark_mode) }
+            });
+
+        // === Modals ===
+        self.update_delete_modal_dark_mode(cx);
+        self.update_cancel_modal_dark_mode(cx);
+        self.view
+            .view(ids!(content_wrapper.toast_overlay.download_toast))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+
+        // === Sub-components with their own update methods ===
+        self.view
+            .voice_selector(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .voice_section
+                    .voice_selector
+            ))
+            .update_dark_mode(cx, dark_mode);
+        self.view
+            .voice_clone_modal(ids!(voice_clone_modal))
+            .update_dark_mode(cx, dark_mode);
+
+        // === Update theme toggle button label and colors ===
+        let btn_text = if dark_mode > 0.5 { "☀️  Light Mode" } else { "🌙  Dark Mode" };
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_footer.theme_toggle_btn))
+            .set_text(cx, btn_text);
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_footer.theme_toggle_btn))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+                draw_text: { dark_mode: (dark_mode) }
+            });
+
+        self.view.redraw(cx);
+    }
+
+    /// Update confirm cancel modal dark mode
+    fn update_cancel_modal_dark_mode(&mut self, cx: &mut Cx) {
+        let dark_mode = self.dark_mode;
+        self.view
+            .view(ids!(confirm_cancel_modal.dialog))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(confirm_cancel_modal.dialog.header.title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(confirm_cancel_modal.dialog.header.task_name))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(confirm_cancel_modal.dialog.header.message))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(confirm_cancel_modal.dialog.footer.back_btn))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+                draw_text: { dark_mode: (dark_mode) }
+            });
+        self.view
+            .button(ids!(confirm_cancel_modal.dialog.footer.confirm_btn))
+            .apply_over(cx, live! {
+                draw_bg: { dark_mode: (dark_mode) }
+            });
+    }
+
     fn add_log(&mut self, cx: &mut Cx, message: &str) {
         self.log_entries.push(message.to_string());
         self.update_log_display(cx);
@@ -5695,56 +5972,7 @@ impl TTSScreen {
 impl TTSScreenRef {
     pub fn update_dark_mode(&self, cx: &mut Cx, dark_mode: f64) {
         if let Some(mut inner) = self.borrow_mut() {
-            inner.dark_mode = dark_mode;
-            inner
-                .view
-                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-
-            // Apply dark mode to voice selector
-            inner
-                .view
-                .voice_selector(ids!(
-                    content_wrapper
-                        .main_content
-                        .left_column
-                        .content_area
-                        .controls_panel
-                        .voice_section
-                        .voice_selector
-                ))
-                .update_dark_mode(cx, dark_mode);
-
-            // Apply dark mode to log markdown
-            let log_markdown = inner.view.markdown(ids!(
-                content_wrapper
-                    .main_content
-                    .log_section
-                    .log_content_column
-                    .log_scroll
-                    .log_content_wrapper
-                    .log_content
-            ));
-            log_markdown.apply_over(
-                cx,
-                live! {
-                    draw_normal: { dark_mode: (dark_mode) }
-                    draw_bold: { dark_mode: (dark_mode) }
-                },
-            );
-
-            // Apply dark mode to audio player bar
-            inner
-                .view
-                .view(ids!(content_wrapper.audio_player_bar))
-                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-
-            // Apply dark mode to voice clone modal
-            inner
-                .view
-                .voice_clone_modal(ids!(voice_clone_modal))
-                .update_dark_mode(cx, dark_mode);
-
-            inner.view.redraw(cx);
+            inner.apply_theme(cx, dark_mode);
         }
     }
 }
