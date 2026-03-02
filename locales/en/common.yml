@@ -1,26 +1,32 @@
 # Common UI strings shared across the application
+# These strings are used in multiple components and screens
+
+# Standard button labels used throughout the application
 buttons:
-  ok: "OK"
-  cancel: "Cancel"
-  close: "Close"
-  save: "Save"
-  delete: "Delete"
-  edit: "Edit"
-  add: "Add"
-  remove: "Remove"
-  back: "Back"
-  next: "Next"
-  confirm: "Confirm"
+  ok: "OK"                    # Confirmation button
+  cancel: "Cancel"            # Cancel action button
+  close: "Close"              # Close dialog/window button
+  save: "Save"                # Save changes button
+  delete: "Delete"            # Delete item button
+  edit: "Edit"                # Edit item button
+  add: "Add"                  # Add new item button
+  remove: "Remove"            # Remove item button
+  back: "Back"                # Navigate back button
+  next: "Next"                # Navigate forward button
+  confirm: "Confirm"          # Confirm action button
 
+# Common labels for UI elements
 labels:
-  loading: "Loading..."
-  error: "Error"
-  success: "Success"
-  warning: "Warning"
-  info: "Info"
+  loading: "Loading..."       # Loading indicator text
+  error: "Error"              # Error message label
+  success: "Success"          # Success message label
+  warning: "Warning"          # Warning message label
+  info: "Info"                # Information message label
+  participant: "Participant"  # Participant label (used in panels)
 
+# Status indicators
 status:
-  ready: "Ready"
-  processing: "Processing..."
-  completed: "Completed"
-  failed: "Failed"
+  ready: "Ready"              # System ready state
+  processing: "Processing..." # Processing in progress
+  completed: "Completed"      # Task completed successfully
+  failed: "Failed"            # Task failed

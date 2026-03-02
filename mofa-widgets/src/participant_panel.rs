@@ -305,7 +305,7 @@ live_design! {
             indicator = <StatusIndicator> {}
 
             name_label = <Label> {
-                text: "Participant"
+                text: ""
                 draw_text: {
                     instance dark_mode: 0.0
                     text_style: { font_size: 11.0 }
@@ -338,6 +338,16 @@ impl Widget for ParticipantPanel {
 }
 
 impl ParticipantPanelRef {
+    pub fn update_ui_text(&self, cx: &mut Cx) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner
+                .view
+                .label(ids!(header.name_label))
+                .set_text(cx, &rust_i18n::t!("common.labels.participant"));
+            inner.view.redraw(cx);
+        }
+    }
+
     /// Update dark mode for this widget
     pub fn update_dark_mode(&self, cx: &mut Cx, dark_mode: f64) {
         if let Some(mut inner) = self.borrow_mut() {
@@ -364,6 +374,11 @@ impl ParticipantPanelRef {
                     draw_bg: { dark_mode: (dark_mode) }
                 },
             );
+
+            inner
+                .view
+                .label(ids!(header.name_label))
+                .set_text(cx, &rust_i18n::t!("common.labels.participant"));
 
             inner.view.redraw(cx);
         }

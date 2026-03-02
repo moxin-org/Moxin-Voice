@@ -4,6 +4,7 @@
 use crate::audio_player::TTSPlayer;
 use crate::dora_integration::DoraIntegration;
 use crate::log_bridge;
+use crate::settings_screen::{SettingsScreenAction, SettingsScreenWidgetExt};
 use crate::training_executor::TrainingExecutor;
 use crate::voice_clone_modal::{CloneMode, VoiceCloneModalAction, VoiceCloneModalWidgetExt};
 use crate::voice_data::{TTSStatus, Voice};
@@ -11,6 +12,7 @@ use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use crate::task_persistence;
 use hound::WavReader;
 use makepad_widgets::*;
+use mofa_ui::app_data::MofaAppData;
 use std::path::PathBuf;
 
 /// Current page in the application
@@ -21,6 +23,7 @@ pub enum AppPage {
     VoiceLibrary,
     VoiceClone,
     TaskDetail,
+    Settings,
 }
 
 live_design! {
@@ -31,6 +34,7 @@ live_design! {
     use mofa_widgets::theme::*;
     use crate::voice_selector::VoiceSelector;
     use crate::voice_clone_modal::VoiceCloneModal;
+    use crate::settings_screen::SettingsScreen;
 
     // Confirmation dialog for deleting voices
     ConfirmDeleteModal = <View> {
@@ -763,6 +767,11 @@ live_design! {
 
                     nav_clone = <NavItem> {
                         text: "📋 Voice Clone"
+                    }
+
+                    nav_settings = <NavItem> {
+                        visible: false
+                        text: "⚙ Settings"
                     }
                 }
 
@@ -2343,6 +2352,11 @@ live_design! {
                         }
                     } // End task_detail_page
 
+                    // ============ Settings Page ============
+                    settings_page = <SettingsScreen> {
+                        visible: false  // Hidden by default
+                    }
+
                 } // End content_area
             } // End left_column
 
@@ -3095,6 +3109,10 @@ impl Widget for TTSScreen {
             self.view
                 .view(ids!(content_wrapper.main_content.splitter))
                 .apply_over(cx, live! { width: 0 });
+
+            if let Some(app_data) = scope.data.get::<MofaAppData>() {
+                self.update_sidebar_texts(cx, app_data);
+            }
         }
 
         // Initialize Dora and auto-start dataflow
@@ -3359,6 +3377,24 @@ impl Widget for TTSScreen {
             self.switch_page(cx, AppPage::VoiceClone);
         }
 
+        // Handle settings screen actions
+        for action in &actions {
+            match action.as_widget_action().cast() {
+                SettingsScreenAction::Close => {
+                    // Return to previous page (default to TTS)
+                    self.switch_page(cx, AppPage::TextToSpeech);
+                }
+                SettingsScreenAction::LanguageChanged(lang) => {
+                    self.add_log(cx, &format!("[INFO] [settings] Language changed to: {}", lang));
+                    // Update I18nManager and refresh all UI text
+                    if let Some(app_data) = scope.data.get_mut::<MofaAppData>() {
+                        self.apply_language_change(cx, app_data, &lang);
+                    }
+                }
+                SettingsScreenAction::None => {}
+            }
+        }
+
         // Handle Voice Library page buttons
         if self
             .view
@@ -3442,6 +3478,11 @@ impl Widget for TTSScreen {
             ))
             .clicked(&actions)
         {
+            if let Some(app_data) = scope.data.get_mut::<MofaAppData>() {
+                self.view
+                    .voice_clone_modal(ids!(voice_clone_modal))
+                    .update_ui_text(cx, app_data);
+            }
             // Show the voice clone modal in the current mode
             let mode = self.current_clone_mode;
             self.view
@@ -4181,6 +4222,54 @@ impl Widget for TTSScreen {
 }
 
 impl TTSScreen {
+    fn apply_language_change(&mut self, cx: &mut Cx, app_data: &mut MofaAppData, lang: &str) {
+        app_data.i18n().set_language(lang);
+        if let Err(e) = crate::preferences::save_language_preference(lang) {
+            self.add_log(
+                cx,
+                &format!("[ERROR] [settings] Failed to save language preference: {}", e),
+            );
+        }
+
+        self.update_sidebar_texts(cx, app_data);
+        self.view
+            .voice_clone_modal(ids!(voice_clone_modal))
+            .update_ui_text(cx, app_data);
+        self.view.redraw(cx);
+    }
+
+    fn update_sidebar_texts(&mut self, cx: &mut Cx, app_data: &MofaAppData) {
+        let i18n = app_data.i18n();
+        self.view
+            .label(ids!(app_layout.sidebar.sidebar_header.logo_section.logo_text))
+            .set_text(cx, &i18n.t("tts.sidebar.tts_title"));
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_tts))
+            .set_text(cx, &i18n.t("tts.sidebar.text_to_speech"));
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_library))
+            .set_text(cx, &i18n.t("tts.sidebar.voice_library"));
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_clone))
+            .set_text(cx, &i18n.t("tts.sidebar.voice_clone"));
+
+        let settings_label = if i18n.current_language().starts_with("zh") {
+            "🌐 English"
+        } else {
+            "🌐 中文"
+        };
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_settings))
+            .set_text(cx, settings_label);
+
+        self.view
+            .label(ids!(app_layout.sidebar.sidebar_footer.user_avatar.avatar_letter))
+            .set_text(cx, &i18n.t("tts.sidebar.user_initial"));
+        self.view
+            .label(ids!(app_layout.sidebar.sidebar_footer.user_details.user_name))
+            .set_text(cx, &i18n.t("tts.sidebar.user_name"));
+    }
+
     fn add_log(&mut self, cx: &mut Cx, message: &str) {
         self.log_entries.push(message.to_string());
         self.update_log_display(cx);
@@ -4196,10 +4285,11 @@ impl TTSScreen {
         self.add_log(cx, &format!("[INFO] [ui] Switching to {:?} page", page));
 
         // Update navigation button states
-        let (tts_active, library_active, clone_active) = match page {
-            AppPage::TextToSpeech => (1.0, 0.0, 0.0),
-            AppPage::VoiceLibrary => (0.0, 1.0, 0.0),
-            AppPage::VoiceClone | AppPage::TaskDetail => (0.0, 0.0, 1.0),
+        let (tts_active, library_active, clone_active, settings_active) = match page {
+            AppPage::TextToSpeech => (1.0, 0.0, 0.0, 0.0),
+            AppPage::VoiceLibrary => (0.0, 1.0, 0.0, 0.0),
+            AppPage::VoiceClone | AppPage::TaskDetail => (0.0, 0.0, 1.0, 0.0),
+            AppPage::Settings => (0.0, 0.0, 0.0, 1.0),
         };
 
         self.view
@@ -4232,11 +4322,22 @@ impl TTSScreen {
                 },
             );
 
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_settings))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (settings_active) }
+                    draw_text: { active: (settings_active) }
+                },
+            );
+
         // Show/hide page content based on current_page
         let show_tts = page == AppPage::TextToSpeech;
         let show_library = page == AppPage::VoiceLibrary;
         let show_clone = page == AppPage::VoiceClone;
         let show_detail = page == AppPage::TaskDetail;
+        let show_settings = page == AppPage::Settings;
 
         self.view
             .view(ids!(
@@ -4277,6 +4378,29 @@ impl TTSScreen {
                     .task_detail_page
             ))
             .set_visible(cx, show_detail);
+
+        self.view
+            .settings_screen(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .settings_page
+            ))
+            .set_visible(cx, show_settings);
+
+        // Initialize settings screen when showing it
+        if show_settings {
+            self.view
+                .settings_screen(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .settings_page
+                ))
+                .init(cx);
+        }
 
         // Show audio player bar only on TTS page
         self.view

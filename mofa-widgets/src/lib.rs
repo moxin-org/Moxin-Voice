@@ -74,6 +74,8 @@
 //! }
 //! ```
 
+rust_i18n::i18n!("../locales", fallback = "en");
+
 pub mod app_trait;
 pub mod audio_player;
 pub mod card;

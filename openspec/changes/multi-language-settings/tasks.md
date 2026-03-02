@@ -33,58 +33,58 @@
 
 ## 5. Integrate Settings into Default Layout
 
-- [ ] 5.1 Add settings navigation button/tab to `apps/mofa-tts/src/screen.rs`
-- [ ] 5.2 Implement screen switching logic to show/hide settings screen
-- [ ] 5.3 Update event handlers to route settings actions
+- [x] 5.1 Add settings navigation button/tab to `apps/mofa-tts/src/screen.rs`
+- [x] 5.2 Implement screen switching logic to show/hide settings screen
+- [x] 5.3 Update event handlers to route settings actions
 - [ ] 5.4 Test settings access and navigation in default layout
 
 ## 6. Integrate Settings into MoYoYo Layout
 
-- [ ] 6.1 Add settings sidebar item to `apps/mofa-tts/src/screen_moyoyo.rs`
-- [ ] 6.2 Implement conditional rendering for settings screen in sidebar navigation
-- [ ] 6.3 Update event handlers for MoYoYo layout settings navigation
+- [x] 6.1 Add settings sidebar item to `apps/mofa-tts/src/screen_moyoyo.rs`
+- [x] 6.2 Implement conditional rendering for settings screen in sidebar navigation
+- [x] 6.3 Update event handlers for MoYoYo layout settings navigation
 - [ ] 6.4 Test settings access and navigation in MoYoYo layout
 
 ## 7. Extract and Translate UI Strings
 
-- [ ] 7.1 Audit `screen.rs` and extract all hardcoded English strings to `locales/en/tts.yml`
-- [ ] 7.2 Audit `screen_moyoyo.rs` and extract strings to `locales/en/tts.yml`
-- [ ] 7.3 Audit `voice_clone_modal.rs` and extract strings to `locales/en/voice_clone.yml`
-- [ ] 7.4 Audit `mofa-widgets/` components and extract strings to `locales/en/common.yml`
-- [ ] 7.5 Create settings page strings in `locales/en/settings.yml`
-- [ ] 7.6 Generate Chinese translations for all YAML files in `locales/zh-CN/`
+- [x] 7.1 Audit `screen.rs` and extract all hardcoded English strings to `locales/en/tts.yml`
+- [x] 7.2 Audit `screen_moyoyo.rs` and extract strings to `locales/en/tts.yml`
+- [x] 7.3 Audit `voice_clone_modal.rs` and extract strings to `locales/en/voice_clone.yml`
+- [x] 7.4 Audit `mofa-widgets/` components and extract strings to `locales/en/common.yml`
+- [x] 7.5 Create settings page strings in `locales/en/settings.yml`
+- [x] 7.6 Generate Chinese translations for all YAML files in `locales/zh-CN/`
 
 ## 8. Update Widgets to Use Translations
 
-- [ ] 8.1 Update `screen.rs` to use `app_data.i18n().t()` for all UI text
-- [ ] 8.2 Update `screen_moyoyo.rs` to use translation calls
-- [ ] 8.3 Update `voice_clone_modal.rs` to use translation calls
-- [ ] 8.4 Update `voice_selector.rs` to use translation calls
-- [ ] 8.5 Update `audio_recorder.rs` and other widgets in `mofa-widgets/` to use translations
-- [ ] 8.6 Ensure all `set_text()` calls use translated strings
+- [x] 8.1 Update `screen.rs` to use `app_data.i18n().t()` for all UI text
+- [x] 8.2 Update `screen_moyoyo.rs` to use translation calls
+- [x] 8.3 Update `voice_clone_modal.rs` to use translation calls
+- [x] 8.4 Update `voice_selector.rs` to use translation calls
+- [x] 8.5 Update `audio_recorder.rs` and other widgets in `mofa-widgets/` to use translations
+- [x] 8.6 Ensure all `set_text()` calls use translated strings
 
 ## 9. Implement Runtime Language Switching
 
-- [ ] 9.1 Add global event for language change notification
-- [ ] 9.2 Implement widget refresh mechanism when language changes
-- [ ] 9.3 Update all screens to listen for language change events
-- [ ] 9.4 Test that all UI text updates immediately on language switch
+- [x] 9.1 Add global event for language change notification
+- [x] 9.2 Implement widget refresh mechanism when language changes
+- [x] 9.3 Update all screens to listen for language change events
+- [x] 9.4 Test that all UI text updates immediately on language switch
 
 ## 10. Testing and Validation
 
 - [ ] 10.1 Test language switching in default layout
 - [ ] 10.2 Test language switching in MoYoYo layout
-- [ ] 10.3 Verify language preference persists across app restarts
-- [ ] 10.4 Test system locale detection on first launch
-- [ ] 10.5 Verify fallback to English for missing translations
+- [x] 10.3 Verify language preference persists across app restarts
+- [x] 10.4 Test system locale detection on first launch
+- [x] 10.5 Verify fallback to English for missing translations
 - [ ] 10.6 Test that long Chinese strings fit in UI elements
 - [ ] 10.7 Verify all screens and modals display correctly in both languages
-- [ ] 10.8 Test edge cases (missing keys, corrupted preference file)
+- [x] 10.8 Test edge cases (missing keys, corrupted preference file)
 
 ## 11. Documentation and Polish
 
-- [ ] 11.1 Add comments to translation YAML files for context
-- [ ] 11.2 Document i18n system in project README
-- [ ] 11.3 Create translation guide for adding new languages
-- [ ] 11.4 Add logging for translation loading and language switching
+- [x] 11.1 Add comments to translation YAML files for context
+- [x] 11.2 Document i18n system in project README
+- [x] 11.3 Create translation guide for adding new languages
+- [x] 11.4 Add logging for translation loading and language switching
 - [ ] 11.5 Review and refine Chinese translations with native speaker

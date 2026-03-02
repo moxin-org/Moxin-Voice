@@ -1,18 +1,26 @@
 # Settings page strings
+# Used in the settings screen for application configuration
+
+# Settings page header and navigation
 page:
-  title: "Settings"
-  subtitle: "Configure application preferences"
+  title: "Settings"                              # Main settings page title
+  subtitle: "Configure application preferences"  # Settings page subtitle
+  back: "Back"                                    # Back button to return to main screen
 
+# Language settings section
 language:
-  section_title: "Language"
-  section_description: "Select your preferred language"
-  current: "Current Language"
-  available: "Available Languages"
+  section_title: "Language"                       # Language section header
+  section_description: "Select your preferred language"  # Language section description
+  current: "Current Language"                     # Label for current language display
+  available: "Available Languages"                # Label for language options list
 
+# Available language options
+# Note: Language names should be shown in their native script for better UX
 languages:
-  en: "English"
-  zh_cn: "中文 (简体)"
+  en: "English"                                   # English language option
+  zh_cn: "中文 (简体)"                            # Simplified Chinese language option
 
+# User feedback messages
 feedback:
-  saved: "Settings saved successfully"
-  error: "Failed to save settings"
+  saved: "Settings saved successfully"            # Success message after saving
+  error: "Failed to save settings"                # Error message if save fails

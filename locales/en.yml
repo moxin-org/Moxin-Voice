@@ -1,0 +1,212 @@
+---
+common:
+  buttons:
+    ok: OK
+    cancel: Cancel
+    close: Close
+    save: Save
+    delete: Delete
+    edit: Edit
+    add: Add
+    remove: Remove
+    back: Back
+    next: Next
+    confirm: Confirm
+  labels:
+    loading: Loading...
+    error: Error
+    success: Success
+    warning: Warning
+    info: Info
+    participant: Participant
+  status:
+    ready: Ready
+    processing: Processing...
+    completed: Completed
+    failed: Failed
+tts:
+  screen:
+    title: TTS (GPT-SoVITS)
+    subtitle: Generate natural speech from text
+    settings_button: "⚙ Settings"
+    app_title: Moxin TTS
+    app_subtitle: Voice Cloning & Text-to-Speech
+  sidebar:
+    tts_icon: "\U0001F399"
+    tts_title: TTS Voice
+    text_to_speech: "\U0001F4DD Text to Speech"
+    voice_library: "\U0001F3A4 Voice Library"
+    voice_clone: "\U0001F4CB Voice Clone"
+    settings: "⚙ Settings"
+    user_initial: U
+    user_name: User
+  input:
+    placeholder: Enter text to convert to speech...
+    placeholder_zh: 请输入要转换的文本...
+    label: Text Input
+    label_zh: 文本转语音
+    default_text: 复杂的问题背后也许没有统一的答案,选择站在正方还是反方,其实取决于你对一系列价值判断的回答。
+    character_count: "{current} / {max} characters"
+    character_count_zh: "{current} / {max} 字符"
+  voice:
+    selector_label: Select Voice
+    custom_voices: Custom Voices
+    preset_voices: Preset Voices
+    doubao: Doubao
+    library_title: 音色库
+    search_placeholder: 搜索音色...
+    refresh: 刷新
+    no_voices: 暂无音色，请先创建自定义音色
+    voice_name: Voice Name
+    language: zh
+    builtin: Built-in
+    preview: Preview
+    delete: Delete
+  controls:
+    generate: Generate Speech
+    generate_zh: 生成语音
+    play: Play
+    pause: Pause
+    stop: Stop
+    export: Export Audio
+    download: Download
+    record: Record
+  status:
+    generating: Generating speech...
+    playing: Playing...
+    ready: Ready
+    error: Generation failed
+    initializing: Initializing...
+    starting_dataflow: Starting TTS dataflow engine
+  log:
+    title: System Log
+    clear: Clear
+  navigation:
+    previous: "<"
+    next: ">"
+    back: "← 返回"
+  delete_modal:
+    title: Delete Voice?
+    message: This action cannot be undone.
+    cancel: Cancel
+    confirm: Delete
+  cancel_task_modal:
+    title: Cancel Task?
+    message: The task will be stopped and cannot be resumed.
+    go_back: Go Back
+    confirm: Cancel Task
+  toast:
+    download_success: Downloaded successfully!
+  time:
+    default: '00:00'
+  clone:
+    title: 音色克隆
+    express_mode: 快速模式
+    pro_mode: 高级模式
+    create_task: "➕ 创建任务"
+    no_tasks: 暂无训练任务，点击「创建任务」开始
+    task_name: Task Name
+    completed: Completed
+    progress: 'Progress: {percent}%'
+    view: 查看
+    cancel: 取消
+    delete: 删除
+  task_detail:
+    title: 任务详情
+    cancel_task: 取消任务
+    task_info: 任务信息
+    created_time: 创建时间
+    start_time: 开始时间
+    complete_time: 完成时间
+    training_progress: 训练进度
+    progress_percent: "{percent}%"
+    steps:
+      audio_slice: 音频切片
+      asr: 语音识别
+      text_features: 文本特征
+      hubert_features: HuBERT特征
+      semantic_token: 语义Token
+      sovits_training: SoVITS训练
+      gpt_training: GPT训练
+      inference_test: 推理测试
+settings:
+  page:
+    title: Settings
+    subtitle: Configure application preferences
+    back: Back
+  language:
+    section_title: Language
+    section_description: Select your preferred language
+    current: Current Language
+    available: Available Languages
+  languages:
+    en: English
+    zh_cn: 中文 (简体)
+  feedback:
+    saved: Settings saved successfully
+    error: Failed to save settings
+voice_clone:
+  modal:
+    title: Clone Voice
+    subtitle: Create a custom voice from audio samples
+  modes:
+    express: Express Mode
+    express_description: Quick cloning with 5-10 seconds of audio
+    pro: Pro Mode
+    pro_description: High-quality cloning with 3-10 minutes of audio
+  audio:
+    reference_label: Reference Audio (3-10 seconds)
+    select_reference_title: Select Reference Audio
+    select_file: Select File...
+    no_file: No file selected · drag audio here
+    record_label: Record Audio
+    upload_label: Upload Audio File
+    upload_button: Upload Audio File
+    duration: Duration
+    sample_rate: Sample rate
+    channels: Channels
+    required_duration_express: 5-10 seconds required
+    required_duration_pro: 3-10 minutes required
+    training_audio: Training Audio
+    training_description: Record or upload audio (WAV, 10s-10min). Longer recordings (3-10 min) produce better results.
+    click_to_record: Click to start recording
+    target_duration: 'Target: 5-10 minutes'
+    or: or
+  voice_name:
+    label: Voice Name
+    placeholder: Enter a name for this voice
+    placeholder_trained: Enter a name for this trained voice...
+  reference_text:
+    label: Reference Text (what the audio says)
+    placeholder: Enter the exact text spoken in the reference audio...
+    auto_detect: Auto-detect with ASR
+    transcribing: Transcribing...
+  language:
+    label: Language
+    chinese: Chinese
+    english: English
+  progress:
+    label: Progress
+    ready: Ready to clone voice...
+    done: "✓ Done"
+  training:
+    start: Start Training
+    progress: Training Progress
+    status_preparing: 'Training Status: Preparing...'
+    status_training: Training...
+    status_completed: Training completed
+    status_failed: Training failed
+    cancel_training: Cancel Training
+    create_task: 创建克隆任务
+    recording_initial: Recording... 0:00 / 10:00
+    recorded_prefix: Recorded
+    uploaded_prefix: Uploaded
+    file_prefix: File
+  warnings:
+    no_gpu: "⚠️ No GPU detected. Training will be VERY slow (8-24 hours). Consider using a machine with CUDA GPU."
+    waiting_asr: Waiting for ASR Bridge...
+    asr_not_ready: Voice recording will be available once ASR is ready.
+  actions:
+    save: Save Voice
+    cancel: Cancel
+    retry: Retry

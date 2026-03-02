@@ -94,7 +94,7 @@
 //! - **Phase 6**: Validation with new app
 
 // Initialize rust-i18n at crate root
-rust_i18n::i18n!("../locales");
+rust_i18n::i18n!("../locales", fallback = "en");
 
 pub mod registry;
 pub mod app_data;

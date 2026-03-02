@@ -3,6 +3,7 @@
 use crate::voice_data::{get_builtin_voices, Voice};
 use crate::voice_persistence;
 use makepad_widgets::*;
+use mofa_ui::app_data::MofaAppData;
 
 live_design! {
     use link::theme::*;
@@ -370,6 +371,10 @@ impl Widget for VoiceSelector {
             if let Some(first) = self.voices.first() {
                 self.selected_voice_id = Some(first.id.clone());
             }
+            // Update UI text with translations
+            if let Some(app_data) = scope.data.get::<MofaAppData>() {
+                self.update_ui_text(cx, app_data);
+            }
             self.initialized = true;
         }
 
@@ -481,6 +486,10 @@ impl Widget for VoiceSelector {
             self.reload_voices();
             if let Some(first) = self.voices.first() {
                 self.selected_voice_id = Some(first.id.clone());
+            }
+            // Update UI text with translations
+            if let Some(app_data) = scope.data.get::<MofaAppData>() {
+                self.update_ui_text(cx, app_data);
             }
             self.initialized = true;
         }
@@ -597,6 +606,15 @@ impl VoiceSelector {
         self.custom_voices = voice_persistence::load_custom_voices();
         // Append custom voices to the main list
         self.voices.extend(self.custom_voices.clone());
+    }
+
+    /// Update UI text with translations
+    fn update_ui_text(&mut self, cx: &mut Cx, app_data: &MofaAppData) {
+        // Update header title
+        let title = app_data.i18n().t("tts.voice.selector_label");
+        self.view
+            .label(ids!(header.title_row.title))
+            .set_text(cx, &title);
     }
 }
 

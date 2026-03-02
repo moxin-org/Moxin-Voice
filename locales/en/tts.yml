@@ -1,27 +1,126 @@
 # TTS screen strings
+# Used in the main Text-to-Speech interface (both default and MoYoYo layouts)
+
+# Main screen header and title
 screen:
-  title: "Text to Speech"
-  subtitle: "Generate natural speech from text"
+  title: "TTS (GPT-SoVITS)"                      # Main screen title
+  subtitle: "Generate natural speech from text"  # Screen subtitle/description
+  settings_button: "⚙ Settings"                  # Settings button label
+  app_title: "Moxin TTS"                         # Application title
+  app_subtitle: "Voice Cloning & Text-to-Speech" # Application subtitle
 
+# Sidebar navigation (MoYoYo layout)
+sidebar:
+  tts_icon: "🎙"                                 # TTS icon
+  tts_title: "TTS Voice"                         # TTS section title
+  text_to_speech: "📝 Text to Speech"            # Text-to-Speech nav item
+  voice_library: "🎤 Voice Library"              # Voice Library nav item
+  voice_clone: "📋 Voice Clone"                  # Voice Clone nav item
+  settings: "⚙ Settings"                         # Settings nav item
+  user_initial: "U"                              # User avatar initial
+  user_name: "User"                              # User display name
+
+# Text input section
 input:
-  placeholder: "Enter text to convert to speech..."
-  label: "Text Input"
+  placeholder: "Enter text to convert to speech..."  # English input placeholder
+  placeholder_zh: "请输入要转换的文本..."             # Chinese input placeholder
+  label: "Text Input"                                # Input field label (English)
+  label_zh: "文本转语音"                             # Input field label (Chinese)
+  default_text: "复杂的问题背后也许没有统一的答案,选择站在正方还是反方,其实取决于你对一系列价值判断的回答。"  # Default sample text
+  character_count: "{current} / {max} characters"    # Character counter (English)
+  character_count_zh: "{current} / {max} 字符"       # Character counter (Chinese)
 
+# Voice selection section
 voice:
-  selector_label: "Select Voice"
-  custom_voices: "Custom Voices"
-  preset_voices: "Preset Voices"
+  selector_label: "Select Voice"                 # Voice selector header
+  custom_voices: "Custom Voices"                 # Custom voices section label
+  preset_voices: "Preset Voices"                 # Preset voices section label
+  doubao: "Doubao"                               # Doubao voice name
+  library_title: "音色库"                        # Voice library title
+  search_placeholder: "搜索音色..."              # Search box placeholder
+  refresh: "刷新"                                # Refresh button
+  no_voices: "暂无音色，请先创建自定义音色"      # Empty state message
+  voice_name: "Voice Name"                       # Voice name label
+  language: "zh"                                 # Language code
+  builtin: "Built-in"                            # Built-in voice indicator
+  preview: "Preview"                             # Preview button
+  delete: "Delete"                               # Delete button
 
+# Control buttons
 controls:
-  generate: "Generate Speech"
-  play: "Play"
-  pause: "Pause"
-  stop: "Stop"
-  export: "Export Audio"
+  generate: "Generate Speech"                    # Generate button (English)
+  generate_zh: "生成语音"                        # Generate button (Chinese)
+  play: "Play"                                   # Play audio button
+  pause: "Pause"                                 # Pause audio button
+  stop: "Stop"                                   # Stop audio button
+  export: "Export Audio"                         # Export button
+  download: "Download"                           # Download button
   record: "Record"
 
 status:
   generating: "Generating speech..."
   playing: "Playing..."
-  ready: "Ready to generate"
+  ready: "Ready"
   error: "Generation failed"
+  initializing: "Initializing..."
+  starting_dataflow: "Starting TTS dataflow engine"
+
+log:
+  title: "System Log"
+  clear: "Clear"
+
+navigation:
+  previous: "<"
+  next: ">"
+  back: "← 返回"
+
+delete_modal:
+  title: "Delete Voice?"
+  message: "This action cannot be undone."
+  cancel: "Cancel"
+  confirm: "Delete"
+
+cancel_task_modal:
+  title: "Cancel Task?"
+  message: "The task will be stopped and cannot be resumed."
+  go_back: "Go Back"
+  confirm: "Cancel Task"
+
+toast:
+  download_success: "Downloaded successfully!"
+
+time:
+  default: "00:00"
+
+clone:
+  title: "音色克隆"
+  express_mode: "快速模式"
+  pro_mode: "高级模式"
+  create_task: "➕ 创建任务"
+  no_tasks: "暂无训练任务，点击「创建任务」开始"
+  task_name: "Task Name"
+  completed: "Completed"
+  progress: "Progress: {percent}%"
+  view: "查看"
+  cancel: "取消"
+  delete: "删除"
+
+task_detail:
+  title: "任务详情"
+  cancel_task: "取消任务"
+  task_info: "任务信息"
+  created_time: "创建时间"
+  start_time: "开始时间"
+  complete_time: "完成时间"
+  training_progress: "训练进度"
+  progress_percent: "{percent}%"
+
+  steps:
+    audio_slice: "音频切片"
+    asr: "语音识别"
+    text_features: "文本特征"
+    hubert_features: "HuBERT特征"
+    semantic_token: "语义Token"
+    sovits_training: "SoVITS训练"
+    gpt_training: "GPT训练"
+    inference_test: "推理测试"

@@ -9,6 +9,7 @@ use crate::task_persistence;
 use crate::voice_data::{CloningStatus, Voice};
 use crate::voice_persistence;
 use makepad_widgets::*;
+use mofa_ui::app_data::MofaAppData;
 use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1440,6 +1441,28 @@ pub struct VoiceCloneModal {
     gpu_check_done: bool,
     #[rust]
     has_gpu: bool,
+    #[rust]
+    ui_ready_text: String,
+    #[rust]
+    ui_no_file_text: String,
+    #[rust]
+    ui_done_text: String,
+    #[rust]
+    ui_recording_initial_text: String,
+    #[rust]
+    ui_recorded_prefix: String,
+    #[rust]
+    ui_uploaded_prefix: String,
+    #[rust]
+    ui_file_prefix: String,
+    #[rust]
+    ui_duration_label: String,
+    #[rust]
+    ui_sample_rate_label: String,
+    #[rust]
+    ui_channels_label: String,
+    #[rust]
+    ui_select_reference_audio_title: String,
 }
 
 impl LiveHook for VoiceCloneModal {
@@ -1447,6 +1470,17 @@ impl LiveHook for VoiceCloneModal {
         self.clone_mode = CloneMode::Express;
         self.max_training_duration = 600.0; // 10 minutes
         self.recording_for_training = false;
+        self.ui_ready_text = "Ready to clone voice...".to_string();
+        self.ui_no_file_text = "No file selected · drag audio here".to_string();
+        self.ui_done_text = "✓ Done".to_string();
+        self.ui_recording_initial_text = "Recording... 0:00 / 10:00".to_string();
+        self.ui_recorded_prefix = "Recorded".to_string();
+        self.ui_uploaded_prefix = "Uploaded".to_string();
+        self.ui_file_prefix = "File".to_string();
+        self.ui_duration_label = "Duration".to_string();
+        self.ui_sample_rate_label = "Sample rate".to_string();
+        self.ui_channels_label = "Channels".to_string();
+        self.ui_select_reference_audio_title = "Select Reference Audio".to_string();
     }
 }
 
@@ -2062,7 +2096,7 @@ impl VoiceCloneModal {
                     .log_scroll
                     .log_content
             ))
-            .set_text(cx, "Ready to clone voice...");
+            .set_text(cx, &self.ui_ready_text);
         self.view.redraw(cx);
     }
 
@@ -2080,12 +2114,348 @@ impl VoiceCloneModal {
         self.view.redraw(cx);
     }
 
+    /// Update all UI text with translations
+    pub fn update_ui_text(&mut self, cx: &mut Cx, app_data: &MofaAppData) {
+        let i18n = app_data.i18n();
+
+        self.ui_ready_text = i18n.t("voice_clone.progress.ready");
+        self.ui_no_file_text = i18n.t("voice_clone.audio.no_file");
+        self.ui_done_text = i18n.t("voice_clone.progress.done");
+        self.ui_recording_initial_text = i18n.t("voice_clone.training.recording_initial");
+        self.ui_recorded_prefix = i18n.t("voice_clone.training.recorded_prefix");
+        self.ui_uploaded_prefix = i18n.t("voice_clone.training.uploaded_prefix");
+        self.ui_file_prefix = i18n.t("voice_clone.training.file_prefix");
+        self.ui_duration_label = i18n.t("voice_clone.audio.duration");
+        self.ui_sample_rate_label = i18n.t("voice_clone.audio.sample_rate");
+        self.ui_channels_label = i18n.t("voice_clone.audio.channels");
+        self.ui_select_reference_audio_title = i18n.t("voice_clone.audio.select_reference_title");
+
+        self.view
+            .label(ids!(modal_container.modal_wrapper.modal_content.header.title))
+            .set_text(cx, &i18n.t("voice_clone.modal.title"));
+
+        self.view
+            .label(ids!(modal_container.modal_wrapper.modal_content.body.file_selector.label))
+            .set_text(cx, &i18n.t("voice_clone.audio.reference_label"));
+        self.view
+            .button(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .file_selector
+                    .file_row
+                    .select_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.audio.select_file"));
+
+        if self.selected_file.is_none() {
+            self.view
+                .label(ids!(
+                    modal_container
+                        .modal_wrapper
+                        .modal_content
+                        .body
+                        .file_selector
+                        .file_row
+                        .file_name
+                ))
+                .set_text(cx, &self.ui_no_file_text);
+        }
+
+        self.view
+            .label(ids!(modal_container.modal_wrapper.modal_content.body.language_selector.label))
+            .set_text(cx, &i18n.t("voice_clone.language.label"));
+        self.view
+            .button(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .language_selector
+                    .lang_row
+                    .zh_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.language.chinese"));
+        self.view
+            .button(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .language_selector
+                    .lang_row
+                    .en_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.language.english"));
+
+        self.view
+            .label(ids!(modal_container.modal_wrapper.modal_content.body.progress_log.label))
+            .set_text(cx, &i18n.t("voice_clone.progress.label"));
+
+        if self.log_messages.is_empty() {
+            self.view
+                .label(ids!(
+                    modal_container
+                        .modal_wrapper
+                        .modal_content
+                        .body
+                        .progress_log
+                        .log_scroll
+                        .log_content
+                ))
+                .set_text(cx, &self.ui_ready_text);
+        }
+
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .prompt_text_container
+                    .prompt_text_input
+                    .label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.reference_text.label"));
+        self.view
+            .text_input(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .prompt_text_container
+                    .prompt_text_input
+                    .input
+            ))
+            .apply_over(
+                cx,
+                live! { empty_text: (i18n.t("voice_clone.reference_text.placeholder")) },
+            );
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .prompt_text_container
+                    .transcription_loading_overlay
+                    .loading_content
+                    .loading_label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.reference_text.transcribing"));
+
+        self.view
+            .label(ids!(modal_container.modal_wrapper.modal_content.body.voice_name_input.label))
+            .set_text(cx, &i18n.t("voice_clone.voice_name.label"));
+        self.view
+            .text_input(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .voice_name_input
+                    .input
+            ))
+            .apply_over(
+                cx,
+                live! { empty_text: (i18n.t("voice_clone.voice_name.placeholder")) },
+            );
+
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .training_recording_section
+                    .label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.audio.training_audio"));
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .training_recording_section
+                    .instruction
+            ))
+            .set_text(cx, &i18n.t("voice_clone.audio.training_description"));
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .training_recording_section
+                    .record_row
+                    .recording_info
+                    .duration_label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.audio.click_to_record"));
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .training_recording_section
+                    .record_row
+                    .recording_info
+                    .progress_label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.audio.target_duration"));
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .training_recording_section
+                    .record_row
+                    .or_label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.audio.or"));
+        self.view
+            .button(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .training_recording_section
+                    .record_row
+                    .upload_training_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.audio.upload_button"));
+
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .voice_name_input
+                    .label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.voice_name.label"));
+        self.view
+            .text_input(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .voice_name_input
+                    .input
+            ))
+            .apply_over(
+                cx,
+                live! { empty_text: (i18n.t("voice_clone.voice_name.placeholder_trained")) },
+            );
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .language_selector
+                    .label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.language.label"));
+        self.view
+            .button(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .language_selector
+                    .lang_row
+                    .zh_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.language.chinese"));
+        self.view
+            .button(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .language_selector
+                    .lang_row
+                    .en_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.language.english"));
+
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .gpu_warning
+                    .message
+            ))
+            .set_text(cx, &i18n.t("voice_clone.warnings.no_gpu"));
+        self.view
+            .label(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .pro_mode_content
+                    .training_progress_section
+                    .stage_label
+            ))
+            .set_text(cx, &i18n.t("voice_clone.training.status_preparing"));
+
+        self.view
+            .button(ids!(
+                modal_container.modal_wrapper.modal_content.footer.express_actions.cancel_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.actions.cancel"));
+        self.view
+            .button(ids!(
+                modal_container.modal_wrapper.modal_content.footer.express_actions.save_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.actions.save"));
+        self.view
+            .button(ids!(
+                modal_container.modal_wrapper.modal_content.footer.pro_actions.cancel_training_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.training.cancel_training"));
+        self.view
+            .button(ids!(
+                modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
+            ))
+            .set_text(cx, &i18n.t("voice_clone.training.create_task"));
+
+        self.view
+            .label(ids!(asr_loading_overlay.loading_content.loading_message))
+            .set_text(cx, &i18n.t("voice_clone.warnings.waiting_asr"));
+        self.view
+            .label(ids!(asr_loading_overlay.loading_content.loading_submessage))
+            .set_text(cx, &i18n.t("voice_clone.warnings.asr_not_ready"));
+
+        self.view.redraw(cx);
+    }
+
     fn open_file_dialog(&mut self, cx: &mut Cx) {
         // Use rfd for native file dialog
         let dialog = rfd::FileDialog::new()
             .add_filter("Audio Files", &["wav", "mp3", "flac", "ogg"])
             .add_filter("WAV Files", &["wav"])
-            .set_title("Select Reference Audio");
+            .set_title(&self.ui_select_reference_audio_title);
 
         if let Some(path) = dialog.pick_file() {
             self.handle_file_selected(cx, path);
@@ -2129,8 +2499,13 @@ impl VoiceCloneModal {
 
                 // Update audio info label
                 let info_text = format!(
-                    "Duration: {:.1}s | Sample rate: {}Hz | Channels: {}",
-                    info.duration_secs, info.sample_rate, info.channels
+                    "{}: {:.1}s | {}: {}Hz | {}: {}",
+                    self.ui_duration_label,
+                    info.duration_secs,
+                    self.ui_sample_rate_label,
+                    info.sample_rate,
+                    self.ui_channels_label,
+                    info.channels
                 );
                 self.view
                     .label(ids!(
@@ -2181,7 +2556,7 @@ impl VoiceCloneModal {
                             .file_row
                             .file_name
                     ))
-                    .set_text(cx, "No file selected · drag audio here");
+                    .set_text(cx, &self.ui_no_file_text);
 
                 // Clear audio info label
                 self.view
@@ -2502,7 +2877,7 @@ impl VoiceCloneModal {
                     .button(ids!(
                         modal_container.modal_wrapper.modal_content.footer.save_btn
                     ))
-                    .set_text(cx, "✓ Done");
+                    .set_text(cx, &self.ui_done_text);
 
                 // Emit action
                 cx.widget_action(
@@ -2573,7 +2948,7 @@ impl VoiceCloneModal {
                     .file_row
                     .file_name
             ))
-            .set_text(cx, "No file selected · drag audio here");
+            .set_text(cx, &self.ui_no_file_text);
         self.view
             .label(ids!(
                 modal_container
@@ -3119,7 +3494,7 @@ impl VoiceCloneModal {
         self.view.label(ids!(
             modal_container.modal_wrapper.modal_content.body.pro_mode_content
             .training_recording_section.record_row.recording_info.duration_label
-        )).set_text(cx, "Recording... 0:00 / 10:00");
+        )).set_text(cx, &self.ui_recording_initial_text);
 
         self.view.view(ids!(
             modal_container.modal_wrapper.modal_content.body.pro_mode_content
@@ -3235,7 +3610,7 @@ impl VoiceCloneModal {
         self.view.label(ids!(
             modal_container.modal_wrapper.modal_content.body.pro_mode_content
             .training_recording_section.record_row.recording_info.duration_label
-        )).set_text(cx, &format!("Recorded: {:.1}s", duration));
+        )).set_text(cx, &format!("{}: {:.1}s", self.ui_recorded_prefix, duration));
 
         self.view.redraw(cx);
 
@@ -3431,13 +3806,13 @@ impl VoiceCloneModal {
                 self.view.label(ids!(
                     modal_container.modal_wrapper.modal_content.body.pro_mode_content
                     .training_recording_section.record_row.recording_info.duration_label
-                )).set_text(cx, &format!("Uploaded: {:.1}s", duration));
+                )).set_text(cx, &format!("{}: {:.1}s", self.ui_uploaded_prefix, duration));
 
                 // Show uploaded file info
                 self.view.label(ids!(
                     modal_container.modal_wrapper.modal_content.body.pro_mode_content
                     .training_recording_section.uploaded_file_info.label
-                )).set_text(cx, &format!("File: {}", file_name));
+                )).set_text(cx, &format!("{}: {}", self.ui_file_prefix, file_name));
                 self.view.view(ids!(
                     modal_container.modal_wrapper.modal_content.body.pro_mode_content
                     .training_recording_section.uploaded_file_info
@@ -3566,6 +3941,12 @@ impl VoiceCloneModal {
 }
 
 impl VoiceCloneModalRef {
+    pub fn update_ui_text(&self, cx: &mut Cx, app_data: &MofaAppData) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.update_ui_text(cx, app_data);
+        }
+    }
+
     /// Show the modal
     pub fn show(&self, cx: &mut Cx) {
         // Clean up old temp files from previous sessions (async, non-blocking)

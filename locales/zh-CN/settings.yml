@@ -1,0 +1,19 @@
+# 设置页面字符串
+page:
+  title: "设置"
+  subtitle: "配置应用程序偏好设置"
+  back: "返回"
+
+language:
+  section_title: "语言"
+  section_description: "选择您的首选语言"
+  current: "当前语言"
+  available: "可用语言"
+
+languages:
+  en: "English"
+  zh_cn: "中文 (简体)"
+
+feedback:
+  saved: "设置保存成功"
+  error: "保存设置失败"

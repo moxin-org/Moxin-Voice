@@ -4,11 +4,13 @@ use crate::audio_player::TTSPlayer;
 use crate::dora_integration::DoraIntegration;
 use crate::log_bridge;
 use crate::mofa_hero::{ConnectionStatus, MofaHeroAction, MofaHeroWidgetExt};
+use crate::settings_screen::{SettingsScreenAction, SettingsScreenWidgetExt};
 use crate::voice_clone_modal::{VoiceCloneModalAction, VoiceCloneModalWidgetExt};
 use crate::voice_data::TTSStatus;
 use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use hound::WavReader;
 use makepad_widgets::*;
+use mofa_ui::app_data::MofaAppData;
 use std::path::PathBuf;
 
 live_design! {
@@ -20,6 +22,7 @@ live_design! {
     use mofa_ui::widgets::mofa_hero::MofaHero;
     use crate::voice_selector::VoiceSelector;
     use crate::voice_clone_modal::VoiceCloneModal;
+    use crate::settings_screen::SettingsScreen;
 
     // Confirmation dialog for deleting voices
     ConfirmDeleteModal = <View> {
@@ -499,6 +502,39 @@ live_design! {
                 // System status bar (MofaHero)
                 hero = <MofaHero> {
                     width: Fill
+                }
+
+                // Settings button
+                settings_button_container = <View> {
+                    width: Fill, height: Fit
+                    padding: {left: 0, right: 0, top: 0, bottom: 0}
+                    align: {x: 1.0, y: 0.5}
+
+                    settings_button = <Button> {
+                        width: Fit, height: Fit
+                        padding: {left: 10, right: 10, top: 6, bottom: 6}
+                        text: "🌐 中文"
+
+                        draw_bg: {
+                            instance dark_mode: 0.0
+                            border_radius: 6.0
+                            fn pixel(self) -> vec4 {
+                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                let bg = mix((PRIMARY_500), (PRIMARY_600), self.dark_mode);
+                                sdf.fill(bg);
+                                return sdf.result;
+                            }
+                        }
+
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                            fn get_color(self) -> vec4 {
+                                return (WHITE);
+                            }
+                        }
+                    }
                 }
 
                 // Main content area - text input and voice selector
@@ -1080,6 +1116,11 @@ live_design! {
         }
         } // End content_wrapper
 
+        // Settings screen (overlay, hidden by default)
+        settings_screen = <SettingsScreen> {
+            visible: false
+        }
+
         // Voice clone modal (overlay)
         voice_clone_modal = <VoiceCloneModal> {}
 
@@ -1160,6 +1201,14 @@ pub struct TTSScreen {
     pending_delete_voice_id: Option<String>,
     #[rust]
     pending_delete_voice_name: Option<String>,
+
+    // Settings screen visibility
+    #[rust]
+    settings_visible: bool,
+
+    // UI text initialization flag
+    #[rust]
+    ui_text_initialized: bool,
 }
 
 impl Widget for TTSScreen {
@@ -1173,6 +1222,14 @@ impl Widget for TTSScreen {
         // Initialize audio player
         if self.audio_player.is_none() {
             self.audio_player = Some(TTSPlayer::new());
+        }
+
+        // Initialize UI text with translations
+        if !self.ui_text_initialized {
+            if let Some(app_data) = scope.data.get::<MofaAppData>() {
+                self.update_ui_text(cx, app_data);
+                self.ui_text_initialized = true;
+            }
         }
 
         // Initialize log bridge and timer
@@ -1339,6 +1396,45 @@ impl Widget for TTSScreen {
             }
         }
 
+        // Handle homepage language toggle button click
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .settings_button_container
+                    .settings_button
+            ))
+            .clicked(&actions)
+        {
+            if let Some(app_data) = scope.data.get_mut::<MofaAppData>() {
+                let current = app_data.i18n().current_language();
+                let next_lang = if current.starts_with("zh") { "en" } else { "zh-CN" };
+                self.apply_language_change(cx, app_data, next_lang);
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [settings] Homepage language toggled to: {}", next_lang),
+                );
+            }
+        }
+
+        // Handle settings screen actions
+        for action in &actions {
+            match action.as_widget_action().cast() {
+                SettingsScreenAction::Close => {
+                    self.hide_settings(cx);
+                }
+                SettingsScreenAction::LanguageChanged(lang) => {
+                    self.add_log(cx, &format!("[INFO] [settings] Language changed to: {}", lang));
+                    if let Some(app_data) = scope.data.get_mut::<MofaAppData>() {
+                        self.apply_language_change(cx, app_data, &lang);
+                    }
+                }
+                SettingsScreenAction::None => {}
+            }
+        }
+
         for action in &actions {
 
             // Handle voice selector actions
@@ -1383,6 +1479,11 @@ impl Widget for TTSScreen {
                     );
                 }
                 VoiceSelectorAction::CloneVoiceClicked => {
+                    if let Some(app_data) = scope.data.get_mut::<MofaAppData>() {
+                        self.view
+                            .voice_clone_modal(ids!(voice_clone_modal))
+                            .update_ui_text(cx, app_data);
+                    }
                     // Show the voice clone modal
                     self.view
                         .voice_clone_modal(ids!(voice_clone_modal))
@@ -1730,9 +1831,201 @@ impl Widget for TTSScreen {
 }
 
 impl TTSScreen {
+    fn apply_language_change(&mut self, cx: &mut Cx, app_data: &mut MofaAppData, lang: &str) {
+        app_data.i18n().set_language(lang);
+        if let Err(e) = crate::preferences::save_language_preference(lang) {
+            self.add_log(cx, &format!("[ERROR] [settings] Failed to save language preference: {}", e));
+        }
+
+        self.update_ui_text(cx, app_data);
+        self.view
+            .voice_clone_modal(ids!(voice_clone_modal))
+            .update_ui_text(cx, app_data);
+        self.view
+            .voice_selector(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .voice_section
+                    .voice_selector
+            ))
+            .reload_voices(cx);
+    }
+
+    fn homepage_toggle_label(current_lang: &str) -> &'static str {
+        if current_lang.starts_with("zh") {
+            "🌐 English"
+        } else {
+            "🌐 中文"
+        }
+    }
+
     fn add_log(&mut self, cx: &mut Cx, message: &str) {
         self.log_entries.push(message.to_string());
         self.update_log_display(cx);
+    }
+
+    /// Update UI text with translations
+    fn update_ui_text(&mut self, cx: &mut Cx, app_data: &MofaAppData) {
+        let i18n = app_data.i18n();
+
+        // Delete modal
+        self.view
+            .label(ids!(confirm_delete_modal.dialog.header.title))
+            .set_text(cx, &i18n.t("tts.delete_modal.title"));
+        self.view
+            .label(ids!(confirm_delete_modal.dialog.header.message))
+            .set_text(cx, &i18n.t("tts.delete_modal.message"));
+        self.view
+            .button(ids!(confirm_delete_modal.dialog.actions.cancel_btn))
+            .set_text(cx, &i18n.t("tts.delete_modal.cancel"));
+        self.view
+            .button(ids!(confirm_delete_modal.dialog.actions.delete_btn))
+            .set_text(cx, &i18n.t("tts.delete_modal.confirm"));
+
+        // Homepage language toggle button
+        let toggle_label = Self::homepage_toggle_label(&i18n.current_language());
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .settings_button_container
+                    .settings_button
+            ))
+            .set_text(cx, toggle_label);
+
+        // TTS title
+        self.view
+            .label(ids!(content_wrapper.main_content.tts_section.header.title))
+            .set_text(cx, &i18n.t("tts.screen.title"));
+
+        // Generate button
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .tts_section
+                    .controls
+                    .generate_btn
+            ))
+            .set_text(cx, &i18n.t("tts.controls.generate"));
+
+        // Log section
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .log_section
+                    .log_content_column
+                    .log_header
+                    .title
+            ))
+            .set_text(cx, &i18n.t("tts.log.title"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .log_section
+                    .log_content_column
+                    .log_header
+                    .clear_btn
+            ))
+            .set_text(cx, &i18n.t("tts.log.clear"));
+
+        // Navigation buttons
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .log_section
+                    .toggle_column
+                    .toggle_log_btn
+            ))
+            .set_text(cx, &i18n.t("tts.navigation.previous"));
+
+        // Status
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .tts_section
+                    .voice_info
+                    .status_label
+            ))
+            .set_text(cx, &i18n.t("tts.status.ready"));
+
+        // Download button
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .tts_section
+                    .controls
+                    .download_btn
+            ))
+            .set_text(cx, &i18n.t("tts.controls.download"));
+
+        // Time labels
+        let default_time = i18n.t("tts.time.default");
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .tts_section
+                    .controls
+                    .playback_controls
+                    .current_time
+            ))
+            .set_text(cx, &default_time);
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .tts_section
+                    .controls
+                    .playback_controls
+                    .total_time
+            ))
+            .set_text(cx, &default_time);
+    }
+
+    fn show_settings(&mut self, cx: &mut Cx) {
+        self.settings_visible = true;
+
+        // Hide main content
+        self.view
+            .view(ids!(content_wrapper))
+            .set_visible(cx, false);
+
+        // Show settings screen
+        let settings_screen = self.view.settings_screen(ids!(settings_screen));
+        settings_screen.set_visible(cx, true);
+
+        // Initialize settings screen
+        settings_screen.init(cx);
+
+        self.add_log(cx, "[INFO] [settings] Settings screen opened");
+        self.view.redraw(cx);
+    }
+
+    fn hide_settings(&mut self, cx: &mut Cx) {
+        self.settings_visible = false;
+
+        // Show main content
+        self.view
+            .view(ids!(content_wrapper))
+            .set_visible(cx, true);
+
+        // Hide settings screen
+        self.view
+            .settings_screen(ids!(settings_screen))
+            .set_visible(cx, false);
+
+        self.add_log(cx, "[INFO] [settings] Settings screen closed");
+        self.view.redraw(cx);
     }
 
     fn update_delete_modal_dark_mode(&mut self, cx: &mut Cx) {

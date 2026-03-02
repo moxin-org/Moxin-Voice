@@ -1,39 +1,86 @@
 # Voice cloning modal strings
+# Used in the voice cloning dialog for creating custom voices
+
+# Modal header
 modal:
-  title: "Clone Voice"
-  subtitle: "Create a custom voice from audio samples"
+  title: "Clone Voice"                           # Modal title
+  subtitle: "Create a custom voice from audio samples"  # Modal subtitle/description
 
+# Cloning mode selection
 modes:
-  express: "Express Mode"
-  express_description: "Quick cloning with 5-10 seconds of audio"
-  pro: "Pro Mode"
-  pro_description: "High-quality cloning with 3-10 minutes of audio"
+  express: "Express Mode"                        # Quick cloning mode name
+  express_description: "Quick cloning with 5-10 seconds of audio"  # Express mode description
+  pro: "Pro Mode"                                # Professional training mode name
+  pro_description: "High-quality cloning with 3-10 minutes of audio"  # Pro mode description
 
+# Audio file handling
 audio:
-  record_label: "Record Audio"
-  upload_label: "Upload Audio File"
-  duration: "Duration"
-  required_duration_express: "5-10 seconds required"
-  required_duration_pro: "3-10 minutes required"
+  reference_label: "Reference Audio (3-10 seconds)"  # Reference audio section label
+  select_reference_title: "Select Reference Audio"    # Native file dialog title
+  select_file: "Select File..."                  # File selection button
+  no_file: "No file selected · drag audio here"  # Empty state / drag-drop hint
+  record_label: "Record Audio"                   # Recording section label
+  upload_label: "Upload Audio File"              # Upload section label
+  upload_button: "Upload Audio File"             # Upload button text
+  duration: "Duration"                           # Duration label
+  sample_rate: "Sample rate"                     # Sample rate label
+  channels: "Channels"                           # Channels label
+  required_duration_express: "5-10 seconds required"  # Duration requirement for Express mode
+  required_duration_pro: "3-10 minutes required"      # Duration requirement for Pro mode
+  training_audio: "Training Audio"               # Training audio section label
+  training_description: "Record or upload audio (WAV, 10s-10min). Longer recordings (3-10 min) produce better results."  # Training instructions
+  click_to_record: "Click to start recording"    # Recording prompt
+  target_duration: "Target: 5-10 minutes"        # Target duration hint
+  or: "or"                                       # Separator between options
 
+# Voice naming
 voice_name:
-  label: "Voice Name"
-  placeholder: "Enter a name for this voice"
+  label: "Voice Name"                            # Voice name input label
+  placeholder: "Enter a name for this voice"     # Placeholder for Express mode
+  placeholder_trained: "Enter a name for this trained voice..."  # Placeholder for Pro mode
 
+# Reference text (what the audio says)
 reference_text:
-  label: "Reference Text"
-  placeholder: "Text spoken in the audio"
-  auto_detect: "Auto-detect with ASR"
+  label: "Reference Text (what the audio says)"  # Reference text input label
+  placeholder: "Enter the exact text spoken in the reference audio..."  # Input placeholder
+  auto_detect: "Auto-detect with ASR"            # ASR auto-detection button
+  transcribing: "Transcribing..."                # ASR in-progress message
 
+# Language selection
+language:
+  label: "Language"                              # Language selector label
+  chinese: "Chinese"                             # Chinese language option
+  english: "English"                             # English language option
+
+# Progress indicators
+progress:
+  label: "Progress"                              # Progress section label
+  ready: "Ready to clone voice..."               # Initial ready state message
+  done: "✓ Done"                                 # Save button text after completion
+
+# Training process (Pro mode)
 training:
-  start: "Start Training"
-  progress: "Training Progress"
-  status_preparing: "Preparing..."
-  status_training: "Training..."
-  status_completed: "Training completed"
-  status_failed: "Training failed"
+  start: "Start Training"                        # Start training button
+  progress: "Training Progress"                  # Training progress section label
+  status_preparing: "Training Status: Preparing..."  # Preparing status
+  status_training: "Training..."                 # Training in progress status
+  status_completed: "Training completed"         # Training completed status
+  status_failed: "Training failed"               # Training failed status
+  cancel_training: "Cancel Training"             # Cancel training button
+  create_task: "创建克隆任务"                    # Create cloning task button (Chinese)
+  recording_initial: "Recording... 0:00 / 10:00" # Initial long-recording text
+  recorded_prefix: "Recorded"                    # Prefix for recorded duration text
+  uploaded_prefix: "Uploaded"                    # Prefix for uploaded duration text
+  file_prefix: "File"                            # Prefix for uploaded filename text
 
+# Warning messages
+warnings:
+  no_gpu: "⚠️ No GPU detected. Training will be VERY slow (8-24 hours). Consider using a machine with CUDA GPU."  # GPU warning
+  waiting_asr: "Waiting for ASR Bridge..."       # ASR initialization message
+  asr_not_ready: "Voice recording will be available once ASR is ready."  # ASR not ready message
+
+# Action buttons
 actions:
-  save: "Save Voice"
-  cancel: "Cancel"
-  retry: "Retry"
+  save: "Save Voice"                             # Save voice button
+  cancel: "Cancel"                               # Cancel button
+  retry: "Retry"                                 # Retry button

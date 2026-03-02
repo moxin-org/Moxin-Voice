@@ -1,0 +1,212 @@
+---
+common:
+  buttons:
+    ok: 确定
+    cancel: 取消
+    close: 关闭
+    save: 保存
+    delete: 删除
+    edit: 编辑
+    add: 添加
+    remove: 移除
+    back: 返回
+    next: 下一步
+    confirm: 确认
+  labels:
+    loading: 加载中...
+    error: 错误
+    success: 成功
+    warning: 警告
+    info: 信息
+    participant: 参与者
+  status:
+    ready: 就绪
+    processing: 处理中...
+    completed: 已完成
+    failed: 失败
+tts:
+  screen:
+    title: TTS (GPT-SoVITS)
+    subtitle: 从文本生成自然语音
+    settings_button: "⚙ 设置"
+    app_title: Moxin TTS
+    app_subtitle: 语音克隆与文本转语音
+  sidebar:
+    tts_icon: "\U0001F399"
+    tts_title: TTS 语音
+    text_to_speech: "\U0001F4DD 文本转语音"
+    voice_library: "\U0001F3A4 音色库"
+    voice_clone: "\U0001F4CB 音色克隆"
+    settings: "⚙ 设置"
+    user_initial: 用
+    user_name: 用户
+  input:
+    placeholder: 输入要转换的文本...
+    placeholder_zh: 请输入要转换的文本...
+    label: 文本输入
+    label_zh: 文本转语音
+    default_text: 复杂的问题背后也许没有统一的答案,选择站在正方还是反方,其实取决于你对一系列价值判断的回答。
+    character_count: "{current} / {max} 字符"
+    character_count_zh: "{current} / {max} 字符"
+  voice:
+    selector_label: 选择音色
+    custom_voices: 自定义音色
+    preset_voices: 预设音色
+    doubao: 豆包
+    library_title: 音色库
+    search_placeholder: 搜索音色...
+    refresh: 刷新
+    no_voices: 暂无音色，请先创建自定义音色
+    voice_name: 音色名称
+    language: zh
+    builtin: 内置
+    preview: 预览
+    delete: 删除
+  controls:
+    generate: 生成语音
+    generate_zh: 生成语音
+    play: 播放
+    pause: 暂停
+    stop: 停止
+    export: 导出音频
+    download: 下载
+    record: 录音
+  status:
+    generating: 生成中...
+    playing: 播放中...
+    ready: 就绪
+    error: 生成失败
+    initializing: 初始化中...
+    starting_dataflow: 启动 TTS 数据流引擎
+  log:
+    title: 系统日志
+    clear: 清除
+  navigation:
+    previous: "<"
+    next: ">"
+    back: "← 返回"
+  delete_modal:
+    title: 删除音色？
+    message: 此操作无法撤销。
+    cancel: 取消
+    confirm: 删除
+  cancel_task_modal:
+    title: 取消任务？
+    message: 任务将被停止且无法恢复。
+    go_back: 返回
+    confirm: 取消任务
+  toast:
+    download_success: 下载成功！
+  time:
+    default: '00:00'
+  clone:
+    title: 音色克隆
+    express_mode: 快速模式
+    pro_mode: 高级模式
+    create_task: "➕ 创建任务"
+    no_tasks: 暂无训练任务，点击「创建任务」开始
+    task_name: 任务名称
+    completed: 已完成
+    progress: '进度: {percent}%'
+    view: 查看
+    cancel: 取消
+    delete: 删除
+  task_detail:
+    title: 任务详情
+    cancel_task: 取消任务
+    task_info: 任务信息
+    created_time: 创建时间
+    start_time: 开始时间
+    complete_time: 完成时间
+    training_progress: 训练进度
+    progress_percent: "{percent}%"
+    steps:
+      audio_slice: 音频切片
+      asr: 语音识别
+      text_features: 文本特征
+      hubert_features: HuBERT特征
+      semantic_token: 语义Token
+      sovits_training: SoVITS训练
+      gpt_training: GPT训练
+      inference_test: 推理测试
+settings:
+  page:
+    title: 设置
+    subtitle: 配置应用程序偏好设置
+    back: 返回
+  language:
+    section_title: 语言
+    section_description: 选择您的首选语言
+    current: 当前语言
+    available: 可用语言
+  languages:
+    en: English
+    zh_cn: 中文 (简体)
+  feedback:
+    saved: 设置保存成功
+    error: 保存设置失败
+voice_clone:
+  modal:
+    title: 克隆音色
+    subtitle: 从音频样本创建自定义音色
+  modes:
+    express: 快速模式
+    express_description: 使用 5-10 秒音频快速克隆
+    pro: 专业模式
+    pro_description: 使用 3-10 分钟音频进行高质量克隆
+  audio:
+    reference_label: 参考音频 (3-10 秒)
+    select_reference_title: 选择参考音频
+    select_file: 选择文件...
+    no_file: 未选择文件 · 拖拽音频到此处
+    record_label: 录制音频
+    upload_label: 上传音频文件
+    upload_button: 上传音频文件
+    duration: 时长
+    sample_rate: 采样率
+    channels: 声道
+    required_duration_express: 需要 5-10 秒
+    required_duration_pro: 需要 3-10 分钟
+    training_audio: 训练音频
+    training_description: 录制或上传音频 (WAV, 10秒-10分钟)。更长的录音 (3-10 分钟) 效果更好。
+    click_to_record: 点击开始录音
+    target_duration: '目标: 5-10 分钟'
+    or: 或
+  voice_name:
+    label: 音色名称
+    placeholder: 为此音色输入名称
+    placeholder_trained: 为此训练音色输入名称...
+  reference_text:
+    label: 参考文本 (音频说的内容)
+    placeholder: 输入参考音频中说的确切文本...
+    auto_detect: 使用 ASR 自动检测
+    transcribing: 转录中...
+  language:
+    label: 语言
+    chinese: 中文
+    english: 英语
+  progress:
+    label: 进度
+    ready: 准备克隆音色...
+    done: "✓ 完成"
+  training:
+    start: 开始训练
+    progress: 训练进度
+    status_preparing: '训练状态: 准备中...'
+    status_training: 训练中...
+    status_completed: 训练完成
+    status_failed: 训练失败
+    cancel_training: 取消训练
+    create_task: 创建克隆任务
+    recording_initial: 录制中... 0:00 / 10:00
+    recorded_prefix: 已录制
+    uploaded_prefix: 已上传
+    file_prefix: 文件
+  warnings:
+    no_gpu: "⚠️ 未检测到 GPU。训练将非常慢 (8-24 小时)。建议使用带有 CUDA GPU 的机器。"
+    waiting_asr: 等待 ASR 桥接...
+    asr_not_ready: ASR 就绪后将可以进行语音录制。
+  actions:
+    save: 保存音色
+    cancel: 取消
+    retry: 重试

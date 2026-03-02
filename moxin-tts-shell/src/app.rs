@@ -8,8 +8,7 @@ use mofa_dora_bridge::SharedDoraState;
 use mofa_ui::MofaAppData;
 use mofa_tts::MoFaTTSApp;
 use mofa_widgets::MofaApp;
-use parking_lot::RwLock;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use crate::Args;
 
@@ -74,7 +73,7 @@ pub struct App {
     ui: WidgetRef,
 
     #[rust]
-    app_data: Option<Arc<RwLock<MofaAppData>>>,
+    app_data: Option<MofaAppData>,
 }
 
 impl LiveRegister for App {
@@ -101,7 +100,12 @@ impl LiveRegister for App {
 
 impl AppMain for App {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
-        self.ui.handle_event(cx, event, &mut Scope::empty());
+        if let Some(app_data) = self.app_data.as_mut() {
+            self.ui
+                .handle_event(cx, event, &mut Scope::with_data(app_data));
+        } else {
+            self.ui.handle_event(cx, event, &mut Scope::empty());
+        }
         self.match_event(cx, event);
     }
 }
@@ -114,8 +118,7 @@ impl MatchEvent for App {
         let dora_state = SharedDoraState::new();
 
         // Initialize app data with dora_state
-        let app_data = Arc::new(RwLock::new(MofaAppData::new(dora_state)));
-        self.app_data = Some(app_data);
+        self.app_data = Some(MofaAppData::new(dora_state));
 
         // Note: TTSScreen will be automatically initialized by Makepad's live_design system
         // The screen can access shared state through the event system if needed

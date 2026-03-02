@@ -11,6 +11,7 @@ Moxin TTS is a modern, GPU-accelerated desktop application for text-to-speech sy
 
 - **🎨 Beautiful UI** - GPU-accelerated rendering with smooth animations
 - **🌓 Dark Mode** - Seamless dark theme with native Makepad performance
+- **🌍 Multi-Language Support** - English and Simplified Chinese with runtime language switching
 - **🎙️ Zero-Shot Voice Cloning** - Clone any voice with just 5-10 seconds of audio (Express mode)
 - **🔧 Few-Shot Training** - High-quality voice cloning with 3-10 minutes of audio (Pro mode)
 - **🎵 Text-to-Speech** - Natural-sounding speech synthesis with 14+ preset voices
@@ -277,6 +278,45 @@ dora list
 # Stop dataflow
 dora stop <dataflow-id>
 ```
+
+## 🌍 Internationalization (i18n)
+
+Moxin TTS supports multiple languages with runtime language switching.
+
+### Supported Languages
+
+- **English** (`en`) - Default language
+- **Simplified Chinese** (`zh-CN`) - 简体中文
+
+### Using Language Settings
+
+1. Launch the application
+2. Click the **Settings** button (⚙) in the navigation
+3. Select your preferred language from the language options
+4. The UI will update immediately without requiring a restart
+5. Your language preference is saved and persists across sessions
+
+### Language Detection
+
+On first launch, Moxin TTS automatically detects your system locale and sets the appropriate language if supported. If your system language is not yet supported, it defaults to English.
+
+### Adding New Languages
+
+Want to add support for your language? See our [Translation Guide](docs/TRANSLATION_GUIDE.md) for detailed instructions on:
+
+- Creating translation files
+- Translation guidelines and best practices
+- Testing your translations
+- Contributing translations back to the project
+
+Translation files are located in `locales/[language-code]/` and use YAML format for easy editing.
+
+### Technical Details
+
+- **i18n Library**: `rust-i18n` with YAML translation files
+- **Translation Storage**: Compiled into the binary for fast loading
+- **Preference Storage**: `~/.moxin-tts/preferences.json`
+- **Fallback**: Missing translations automatically fall back to English
 
 ## 🔧 Technology Stack
 

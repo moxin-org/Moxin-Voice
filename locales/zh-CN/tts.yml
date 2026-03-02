@@ -1,0 +1,119 @@
+# TTS 屏幕字符串
+screen:
+  title: "TTS (GPT-SoVITS)"
+  subtitle: "从文本生成自然语音"
+  settings_button: "⚙ 设置"
+  app_title: "Moxin TTS"
+  app_subtitle: "语音克隆与文本转语音"
+
+sidebar:
+  tts_icon: "🎙"
+  tts_title: "TTS 语音"
+  text_to_speech: "📝 文本转语音"
+  voice_library: "🎤 音色库"
+  voice_clone: "📋 音色克隆"
+  settings: "⚙ 设置"
+  user_initial: "用"
+  user_name: "用户"
+
+input:
+  placeholder: "输入要转换的文本..."
+  placeholder_zh: "请输入要转换的文本..."
+  label: "文本输入"
+  label_zh: "文本转语音"
+  default_text: "复杂的问题背后也许没有统一的答案,选择站在正方还是反方,其实取决于你对一系列价值判断的回答。"
+  character_count: "{current} / {max} 字符"
+  character_count_zh: "{current} / {max} 字符"
+
+voice:
+  selector_label: "选择音色"
+  custom_voices: "自定义音色"
+  preset_voices: "预设音色"
+  doubao: "豆包"
+  library_title: "音色库"
+  search_placeholder: "搜索音色..."
+  refresh: "刷新"
+  no_voices: "暂无音色，请先创建自定义音色"
+  voice_name: "音色名称"
+  language: "zh"
+  builtin: "内置"
+  preview: "预览"
+  delete: "删除"
+
+controls:
+  generate: "生成语音"
+  generate_zh: "生成语音"
+  play: "播放"
+  pause: "暂停"
+  stop: "停止"
+  export: "导出音频"
+  download: "下载"
+  record: "录音"
+
+status:
+  generating: "生成中..."
+  playing: "播放中..."
+  ready: "就绪"
+  error: "生成失败"
+  initializing: "初始化中..."
+  starting_dataflow: "启动 TTS 数据流引擎"
+
+log:
+  title: "系统日志"
+  clear: "清除"
+
+navigation:
+  previous: "<"
+  next: ">"
+  back: "← 返回"
+
+delete_modal:
+  title: "删除音色？"
+  message: "此操作无法撤销。"
+  cancel: "取消"
+  confirm: "删除"
+
+cancel_task_modal:
+  title: "取消任务？"
+  message: "任务将被停止且无法恢复。"
+  go_back: "返回"
+  confirm: "取消任务"
+
+toast:
+  download_success: "下载成功！"
+
+time:
+  default: "00:00"
+
+clone:
+  title: "音色克隆"
+  express_mode: "快速模式"
+  pro_mode: "高级模式"
+  create_task: "➕ 创建任务"
+  no_tasks: "暂无训练任务，点击「创建任务」开始"
+  task_name: "任务名称"
+  completed: "已完成"
+  progress: "进度: {percent}%"
+  view: "查看"
+  cancel: "取消"
+  delete: "删除"
+
+task_detail:
+  title: "任务详情"
+  cancel_task: "取消任务"
+  task_info: "任务信息"
+  created_time: "创建时间"
+  start_time: "开始时间"
+  complete_time: "完成时间"
+  training_progress: "训练进度"
+  progress_percent: "{percent}%"
+
+  steps:
+    audio_slice: "音频切片"
+    asr: "语音识别"
+    text_features: "文本特征"
+    hubert_features: "HuBERT特征"
+    semantic_token: "语义Token"
+    sovits_training: "SoVITS训练"
+    gpt_training: "GPT训练"
+    inference_test: "推理测试"

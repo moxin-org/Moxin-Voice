@@ -53,6 +53,7 @@ impl MofaApp for MoFaTTSApp {
 
         voice_selector::live_design(cx);
         voice_clone_modal::live_design(cx);
+        settings_screen::live_design(cx);
         screen::live_design(cx);
     }
 }

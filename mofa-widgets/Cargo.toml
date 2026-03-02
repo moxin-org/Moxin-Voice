@@ -9,3 +9,4 @@ cpal.workspace = true
 parking_lot.workspace = true
 log.workspace = true
 crossbeam-channel = "0.5"
+rust-i18n.workspace = true
