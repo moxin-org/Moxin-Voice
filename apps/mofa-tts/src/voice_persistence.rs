@@ -73,7 +73,11 @@ pub fn load_custom_voices() -> Vec<Voice> {
 
     match fs::read_to_string(&config_path) {
         Ok(content) => match serde_json::from_str::<CustomVoicesConfig>(&content) {
-            Ok(config) => config.voices,
+            Ok(config) => config
+                .voices
+                .into_iter()
+                .map(Voice::with_backfilled_timbre_tags)
+                .collect(),
             Err(e) => {
                 log::error!("Failed to parse custom voices config: {}", e);
                 Vec::new()
@@ -107,6 +111,8 @@ pub fn save_custom_voices(voices: &[Voice]) -> Result<(), String> {
 /// Add a new custom voice
 pub fn add_custom_voice(voice: Voice) -> Result<(), String> {
     let mut voices = load_custom_voices();
+    let voice = voice.with_backfilled_timbre_tags();
+    voice.validate_timbre_tags()?;
 
     // Check for duplicate ID
     if voices.iter().any(|v| v.id == voice.id) {
@@ -141,6 +147,8 @@ pub fn remove_custom_voice(voice_id: &str) -> Result<(), String> {
 /// Update a custom voice
 pub fn update_custom_voice(voice: Voice) -> Result<(), String> {
     let mut voices = load_custom_voices();
+    let voice = voice.with_backfilled_timbre_tags();
+    voice.validate_timbre_tags()?;
 
     if let Some(existing) = voices.iter_mut().find(|v| v.id == voice.id) {
         *existing = voice;
@@ -318,6 +326,7 @@ pub fn get_reference_audio_path(voice: &Voice) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::voice_data::{VoiceCategory, VoiceGenderAge, VoiceStyle};
 
     #[test]
     fn test_generate_voice_id() {
@@ -329,5 +338,30 @@ mod tests {
     fn test_voice_id_with_chinese() {
         let id = generate_voice_id("我的声音");
         assert!(id.starts_with("____")); // Chinese chars become underscores
+    }
+
+    #[test]
+    fn test_backfill_and_validate_voice_tags() {
+        let legacy_voice = Voice {
+            id: "legacy_voice".to_string(),
+            name: "Legacy Voice".to_string(),
+            description: "legacy".to_string(),
+            category: VoiceCategory::Female,
+            language: "zh".to_string(),
+            gender_age: None,
+            style: None,
+            preview_audio: None,
+            source: VoiceSource::Custom,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        };
+
+        let normalized = legacy_voice.with_backfilled_timbre_tags();
+        assert_eq!(normalized.gender_age, Some(VoiceGenderAge::Female));
+        assert_eq!(normalized.style, Some(VoiceStyle::Youth));
+        assert!(normalized.validate_timbre_tags().is_ok());
     }
 }

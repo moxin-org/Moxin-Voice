@@ -7,7 +7,7 @@ use crate::log_bridge;
 use crate::settings_screen::{SettingsScreenAction, SettingsScreenWidgetExt};
 use crate::training_executor::TrainingExecutor;
 use crate::voice_clone_modal::{CloneMode, VoiceCloneModalAction, VoiceCloneModalWidgetExt};
-use crate::voice_data::{TTSStatus, Voice};
+use crate::voice_data::{matches_timbre_filters, TTSStatus, Voice, VoiceGenderAge, VoiceStyle};
 use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use crate::task_persistence;
 use hound::WavReader;
@@ -668,6 +668,40 @@ live_design! {
         }
     }
 
+    // Filter chip button for timbre management (supports active/inactive state)
+    FilterChip = <Button> {
+        width: Fit, height: 32
+        padding: {left: 12, right: 12}
+
+        draw_bg: {
+            instance hover: 0.0
+            instance active: 0.0
+            instance dark_mode: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 16.0);
+                let normal = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                let hover_color = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                let active_color = (MOYOYO_PRIMARY);
+                let bg = mix(normal, hover_color, self.hover);
+                let bg = mix(bg, active_color, self.active);
+                sdf.fill(bg);
+                return sdf.result;
+            }
+        }
+
+        draw_text: {
+            instance active: 0.0
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                let normal = mix((MOYOYO_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                let active = vec4(1.0, 1.0, 1.0, 1.0);
+                return mix(normal, active, self.active);
+            }
+        }
+    }
+
     // TTS Screen - MoYoYo.tts style layout with sidebar
     pub TTSScreen = {{TTSScreen}} {
         width: Fill, height: Fill
@@ -1097,103 +1131,160 @@ live_design! {
                         // Page header
                         library_header = <View> {
                             width: Fill, height: Fit
-                            flow: Right
-                            align: {y: 0.5}
-                            spacing: 16
+                            flow: Down
+                            spacing: 12
 
-                            library_title = <Label> {
-                                width: Fit, height: Fit
-                                draw_text: {
-                                    instance dark_mode: 0.0
-                                    text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
-                                    fn get_color(self) -> vec4 {
-                                        return mix((MOYOYO_TEXT_PRIMARY), (MOYOYO_TEXT_PRIMARY_DARK), self.dark_mode);
+                            header_top = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                align: {y: 0.5}
+                                spacing: 16
+
+                                library_title = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOYOYO_TEXT_PRIMARY), (MOYOYO_TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "音色库"
+                                }
+
+                                <View> { width: Fill, height: 1 }  // Spacer
+
+                                // Search box
+                                search_input = <TextInput> {
+                                    width: 200, height: 40
+                                    padding: {left: 12, right: 12}
+                                    empty_text: "搜索音色..."
+                                    text: ""
+
+                                    draw_bg: {
+                                        instance dark_mode: 0.0
+                                        instance focus: 0.0
+                                        instance border_radius: 8.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                            sdf.fill(bg);
+                                            let border_normal = mix((MOYOYO_BORDER_LIGHT), (SLATE_700), self.dark_mode);
+                                            let border_focused = (MOYOYO_PRIMARY);
+                                            let border = mix(border_normal, border_focused, self.focus);
+                                            sdf.stroke(border, mix(1.0, 2.0, self.focus));
+                                            return sdf.result;
+                                        }
+                                    }
+
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 14.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOYOYO_TEXT_PRIMARY), (MOYOYO_TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
+                                    }
+
+                                    draw_cursor: {
+                                        uniform border_radius: 0.5
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            sdf.fill((MOYOYO_PRIMARY));
+                                            return sdf.result;
+                                        }
+                                    }
+
+                                    draw_selection: {
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 1.0);
+                                            sdf.fill(vec4(0.39, 0.40, 0.95, 0.25));
+                                            return sdf.result;
+                                        }
                                     }
                                 }
-                                text: "音色库"
+
+                                // Refresh button
+                                refresh_btn = <Button> {
+                                    width: Fit, height: 40
+                                    padding: {left: 16, right: 16}
+                                    text: "刷新"
+
+                                    draw_bg: {
+                                        instance hover: 0.0
+                                        instance dark_mode: 0.0
+                                        instance border_radius: 8.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            let base = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                            let hover_color = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                            sdf.fill(mix(base, hover_color, self.hover));
+                                            return sdf.result;
+                                        }
+                                    }
+
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOYOYO_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                }
                             }
 
-                            <View> { width: Fill, height: 1 }  // Spacer
+                            filter_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 10
+                                align: {y: 0.5}
 
-                            // Search box
-                            search_input = <TextInput> {
-                                width: 200, height: 40
-                                padding: {left: 12, right: 12}
-                                empty_text: "搜索音色..."
-                                text: ""
-
-                                draw_bg: {
-                                    instance dark_mode: 0.0
-                                    instance focus: 0.0
-                                    instance border_radius: 8.0
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                        let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                                        sdf.fill(bg);
-                                        let border_normal = mix((MOYOYO_BORDER_LIGHT), (SLATE_700), self.dark_mode);
-                                        let border_focused = (MOYOYO_PRIMARY);
-                                        let border = mix(border_normal, border_focused, self.focus);
-                                        sdf.stroke(border, mix(1.0, 2.0, self.focus));
-                                        return sdf.result;
+                                gender_label = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOYOYO_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                        }
                                     }
+                                    text: "性别年龄"
                                 }
 
-                                draw_text: {
-                                    instance dark_mode: 0.0
-                                    text_style: { font_size: 14.0 }
-                                    fn get_color(self) -> vec4 {
-                                        return mix((MOYOYO_TEXT_PRIMARY), (MOYOYO_TEXT_PRIMARY_DARK), self.dark_mode);
-                                    }
+                                gender_group = <View> {
+                                    width: Fit, height: Fit
+                                    flow: Right
+                                    spacing: 8
+                                    male_btn = <FilterChip> { text: "男声" }
+                                    female_btn = <FilterChip> { text: "女声" }
+                                    child_btn = <FilterChip> { text: "童声" }
                                 }
 
-                                draw_cursor: {
-                                    uniform border_radius: 0.5
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.border_radius);
-                                        sdf.fill((MOYOYO_PRIMARY));
-                                        return sdf.result;
+                                style_label = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOYOYO_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                        }
                                     }
+                                    text: "风格"
                                 }
 
-                                draw_selection: {
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 1.0);
-                                        sdf.fill(vec4(0.39, 0.40, 0.95, 0.25));
-                                        return sdf.result;
-                                    }
-                                }
-                            }
-
-                            // Refresh button
-                            refresh_btn = <Button> {
-                                width: Fit, height: 40
-                                padding: {left: 16, right: 16}
-                                text: "刷新"
-
-                                draw_bg: {
-                                    instance hover: 0.0
-                                    instance dark_mode: 0.0
-                                    instance border_radius: 8.0
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                        let base = mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                        let hover_color = mix((SLATE_200), (SLATE_600), self.dark_mode);
-                                        sdf.fill(mix(base, hover_color, self.hover));
-                                        return sdf.result;
-                                    }
+                                style_group = <View> {
+                                    width: Fit, height: Fit
+                                    flow: Right
+                                    spacing: 8
+                                    sweet_btn = <FilterChip> { text: "甜美" }
+                                    magnetic_btn = <FilterChip> { text: "磁性" }
+                                    youth_btn = <FilterChip> { text: "青年音" }
                                 }
 
-                                draw_text: {
-                                    instance dark_mode: 0.0
-                                    text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
-                                    fn get_color(self) -> vec4 {
-                                        return mix((MOYOYO_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                                    }
-                                }
+                                <View> { width: Fill, height: 1 }
                             }
                         }
 
@@ -2993,6 +3084,10 @@ pub struct TTSScreen {
     #[rust]
     library_search_query: String,
     #[rust]
+    library_gender_filters: Vec<VoiceGenderAge>,
+    #[rust]
+    library_style_filters: Vec<VoiceStyle>,
+    #[rust]
     library_loading: bool,
     #[rust]
     library_card_areas: Vec<(usize, Area, Area, Area)>, // (voice_idx, card_area, preview_btn_area, delete_btn_area)
@@ -3059,6 +3154,8 @@ impl Widget for TTSScreen {
             // Initialize voice library state
             self.library_voices = Vec::new();
             self.library_search_query = String::new();
+            self.library_gender_filters = Vec::new();
+            self.library_style_filters = Vec::new();
             self.library_loading = false;
             self.library_card_areas = Vec::new();
             
@@ -3074,6 +3171,7 @@ impl Widget for TTSScreen {
 
             // Load initial data
             self.load_voice_library(cx);
+            self.update_library_filter_buttons(cx);
             self.load_clone_tasks(cx);
             
             // Add initial log entries
@@ -3232,7 +3330,7 @@ impl Widget for TTSScreen {
 
                             // Register the trained voice so it appears in Voice Library
                             // and the voice selector.
-                            use crate::voice_data::{Voice, VoiceCategory, VoiceSource};
+                            use crate::voice_data::{Voice, VoiceCategory, VoiceGenderAge, VoiceSource, VoiceStyle};
                             use crate::voice_persistence;
                             let new_voice = Voice {
                                 id: task_id.clone(),
@@ -3240,6 +3338,8 @@ impl Widget for TTSScreen {
                                 description: format!("Trained voice - {}", task_name),
                                 category: VoiceCategory::Character,
                                 language: "zh".to_string(),
+                                gender_age: Some(VoiceGenderAge::Child),
+                                style: Some(VoiceStyle::Youth),
                                 preview_audio: Some(reference_audio.to_string_lossy().to_string()),
                                 source: VoiceSource::Trained,
                                 reference_audio_path: Some(reference_audio.to_string_lossy().to_string()),
@@ -3405,6 +3505,7 @@ impl Widget for TTSScreen {
                     .content_area
                     .library_page
                     .library_header
+                    .header_top
                     .refresh_btn
             ))
             .clicked(&actions)
@@ -3422,6 +3523,7 @@ impl Widget for TTSScreen {
                     .content_area
                     .library_page
                     .library_header
+                    .header_top
                     .search_input
             ))
             .changed(&actions)
@@ -3429,6 +3531,114 @@ impl Widget for TTSScreen {
             self.library_search_query = search_text;
             self.update_library_display(cx);
             self.add_log(cx, &format!("[INFO] [library] Search query: {}", self.library_search_query));
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .filter_row
+                    .gender_group
+                    .male_btn
+            ))
+            .clicked(&actions)
+        {
+            self.toggle_gender_filter(cx, VoiceGenderAge::Male);
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .filter_row
+                    .gender_group
+                    .female_btn
+            ))
+            .clicked(&actions)
+        {
+            self.toggle_gender_filter(cx, VoiceGenderAge::Female);
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .filter_row
+                    .gender_group
+                    .child_btn
+            ))
+            .clicked(&actions)
+        {
+            self.toggle_gender_filter(cx, VoiceGenderAge::Child);
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .filter_row
+                    .style_group
+                    .sweet_btn
+            ))
+            .clicked(&actions)
+        {
+            self.toggle_style_filter(cx, VoiceStyle::Sweet);
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .filter_row
+                    .style_group
+                    .magnetic_btn
+            ))
+            .clicked(&actions)
+        {
+            self.toggle_style_filter(cx, VoiceStyle::Magnetic);
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .filter_row
+                    .style_group
+                    .youth_btn
+            ))
+            .clicked(&actions)
+        {
+            self.toggle_style_filter(cx, VoiceStyle::Youth);
         }
 
         // Handle Voice Clone page mode selector buttons
@@ -5343,21 +5553,91 @@ impl TTSScreen {
         self.show_toast(cx, "Voice library refreshed");
     }
 
+    fn toggle_gender_filter(&mut self, cx: &mut Cx, gender: VoiceGenderAge) {
+        if self.library_gender_filters.contains(&gender) {
+            self.library_gender_filters.retain(|item| item != &gender);
+        } else {
+            self.library_gender_filters.push(gender);
+        }
+        self.update_library_filter_buttons(cx);
+        self.update_library_display(cx);
+        self.add_log(cx, &format!("[INFO] [library] Gender filter toggled: {}", gender));
+    }
+
+    fn toggle_style_filter(&mut self, cx: &mut Cx, style: VoiceStyle) {
+        if self.library_style_filters.contains(&style) {
+            self.library_style_filters.retain(|item| item != &style);
+        } else {
+            self.library_style_filters.push(style);
+        }
+        self.update_library_filter_buttons(cx);
+        self.update_library_display(cx);
+        self.add_log(cx, &format!("[INFO] [library] Style filter toggled: {}", style));
+    }
+
+    fn update_library_filter_buttons(&mut self, cx: &mut Cx) {
+        let male_active = self.library_gender_filters.contains(&VoiceGenderAge::Male) as i64 as f64;
+        let female_active = self.library_gender_filters.contains(&VoiceGenderAge::Female) as i64 as f64;
+        let child_active = self.library_gender_filters.contains(&VoiceGenderAge::Child) as i64 as f64;
+
+        let sweet_active = self.library_style_filters.contains(&VoiceStyle::Sweet) as i64 as f64;
+        let magnetic_active = self.library_style_filters.contains(&VoiceStyle::Magnetic) as i64 as f64;
+        let youth_active = self.library_style_filters.contains(&VoiceStyle::Youth) as i64 as f64;
+
+        self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area.library_page
+                .library_header.filter_row.gender_group.male_btn
+        )).apply_over(cx, live! { draw_bg: { active: (male_active) } draw_text: { active: (male_active) } });
+
+        self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area.library_page
+                .library_header.filter_row.gender_group.female_btn
+        )).apply_over(cx, live! { draw_bg: { active: (female_active) } draw_text: { active: (female_active) } });
+
+        self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area.library_page
+                .library_header.filter_row.gender_group.child_btn
+        )).apply_over(cx, live! { draw_bg: { active: (child_active) } draw_text: { active: (child_active) } });
+
+        self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area.library_page
+                .library_header.filter_row.style_group.sweet_btn
+        )).apply_over(cx, live! { draw_bg: { active: (sweet_active) } draw_text: { active: (sweet_active) } });
+
+        self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area.library_page
+                .library_header.filter_row.style_group.magnetic_btn
+        )).apply_over(cx, live! { draw_bg: { active: (magnetic_active) } draw_text: { active: (magnetic_active) } });
+
+        self.view.button(ids!(
+            content_wrapper.main_content.left_column.content_area.library_page
+                .library_header.filter_row.style_group.youth_btn
+        )).apply_over(cx, live! { draw_bg: { active: (youth_active) } draw_text: { active: (youth_active) } });
+    }
+
     /// Filter voices based on search query
     fn get_filtered_voices(&self) -> Vec<Voice> {
-        if self.library_search_query.is_empty() {
-            self.library_voices.clone()
-        } else {
-            let query = self.library_search_query.to_lowercase();
-            self.library_voices
-                .iter()
-                .filter(|v| {
-                    v.name.to_lowercase().contains(&query)
-                        || v.language.to_lowercase().contains(&query)
-                })
-                .cloned()
-                .collect()
-        }
+        let query = self.library_search_query.to_lowercase();
+        self.library_voices
+            .iter()
+            .filter(|voice| {
+                let matches_text = if query.is_empty() {
+                    true
+                } else {
+                    voice.name.to_lowercase().contains(&query)
+                        || voice.language.to_lowercase().contains(&query)
+                        || voice.description.to_lowercase().contains(&query)
+                };
+
+                let matches_timbre = matches_timbre_filters(
+                    voice,
+                    &self.library_gender_filters,
+                    &self.library_style_filters,
+                );
+                matches_text && matches_timbre
+            })
+            .cloned()
+            .collect()
     }
 
     /// Update library display
@@ -5381,7 +5661,8 @@ impl TTSScreen {
 
         // Update empty state text based on whether it's a search result or truly empty
         if is_empty {
-            let empty_text = if self.library_search_query.is_empty() {
+            let has_timbre_filter = !self.library_gender_filters.is_empty() || !self.library_style_filters.is_empty();
+            let empty_text = if self.library_search_query.is_empty() && !has_timbre_filter {
                 "暂无音色，点击「刷新」加载"
             } else {
                 "未找到匹配的音色"
@@ -5400,12 +5681,19 @@ impl TTSScreen {
         }
 
         // Log the display status
-        if self.library_search_query.is_empty() {
+        if self.library_search_query.is_empty()
+            && self.library_gender_filters.is_empty()
+            && self.library_style_filters.is_empty()
+        {
             self.add_log(cx, &format!("[INFO] [library] Displaying {} voices", filtered_count));
         } else {
             self.add_log(cx, &format!(
-                "[INFO] [library] Search results: {} of {} voices match '{}'",
-                filtered_count, total_count, self.library_search_query
+                "[INFO] [library] Filter results: {} of {} voices (query='{}', gender={}, style={})",
+                filtered_count,
+                total_count,
+                self.library_search_query,
+                self.library_gender_filters.len(),
+                self.library_style_filters.len()
             ));
         }
 
