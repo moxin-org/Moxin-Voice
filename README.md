@@ -200,6 +200,7 @@ Moxin TTS is organized as a Cargo workspace with 5 core crates:
 - **[BUILDING.md](moxin-tts-shell/BUILDING.md)** - Detailed build instructions
 - **[CONTEXT_RESUME.md](doc/CONTEXT_RESUME.md)** - Project context and progress
 - **[Implementation Summary](moxin-tts-shell/IMPLEMENTATION_SUMMARY.md)** - Phase 1-4 summary
+- **[TTS Timbre Options](docs/TTS_TIMBRE_OPTIONS.md)** - 语速/音调参数、默认值、边界与回退策略
 
 ## 🎯 Current Status
 

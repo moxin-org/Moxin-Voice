@@ -50,6 +50,17 @@ controls:
   download: "下载"
   record: "录音"
 
+timbre:
+  section_title: "输出音色"
+  speed_label: "语速"
+  pitch_label: "音调"
+  speed_slow: "慢"
+  speed_normal: "中"
+  speed_fast: "快"
+  pitch_low: "低"
+  pitch_normal: "中"
+  pitch_high: "高"
+
 status:
   generating: "生成中..."
   playing: "播放中..."

@@ -26,6 +26,7 @@ from dora_common.logging import send_log as common_send_log, get_log_level_from_
 VOICE_PREFIX = "VOICE:"
 VOICE_CUSTOM_PREFIX = "VOICE:CUSTOM|"
 VOICE_TRAINED_PREFIX = "VOICE:TRAINED|"
+TTSCFG_PREFIX = "TTSCFG|"
 
 
 def send_log(node, level, message, config_level="INFO"):
@@ -64,6 +65,76 @@ def validate_language_config(lang_code, param_name, node, log_level):
 
     # Return the invalid code as-is (will cause TTS to fail with clear error)
     return lang_code
+
+
+def _clamp_speed_factor(value):
+    """Clamp speed factor to safe synthesis bounds."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(parsed):
+        return None
+    return max(0.5, min(2.0, parsed))
+
+
+def _clamp_pitch_semitones(value):
+    """Clamp pitch shift in semitones to a bounded range."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(-12, min(12, parsed))
+
+
+def _parse_ttscfg_prefix(raw_text, node, log_level):
+    """Parse TTSCFG wrapper: TTSCFG|<speed_factor>|<pitch_semitones>|<payload>."""
+    if not isinstance(raw_text, str) or not raw_text.startswith(TTSCFG_PREFIX):
+        return raw_text, None, 0
+
+    parts = raw_text.split("|", 3)
+    if len(parts) != 4:
+        send_log(node, "WARNING", f"Invalid TTSCFG format: {raw_text[:100]}", log_level)
+        return raw_text, None, 0
+
+    _, speed_raw, pitch_raw, payload = parts
+    speed_factor = _clamp_speed_factor(speed_raw)
+    pitch_semitones = _clamp_pitch_semitones(pitch_raw)
+
+    if speed_factor is None:
+        send_log(node, "WARNING", f"Invalid speed factor in TTSCFG: '{speed_raw}', using default", log_level)
+    else:
+        send_log(node, "DEBUG", f"TTSCFG speed_factor={speed_factor}", log_level)
+    if str(pitch_semitones) != str(pitch_raw):
+        send_log(node, "WARNING", f"Invalid pitch semitones in TTSCFG: '{pitch_raw}', clamped to {pitch_semitones}", log_level)
+    else:
+        send_log(node, "DEBUG", f"TTSCFG pitch_semitones={pitch_semitones}", log_level)
+
+    return payload, speed_factor, pitch_semitones
+
+
+def _resample_audio(audio_array, target_len):
+    """Resample mono float audio to target length with linear interpolation."""
+    if audio_array is None or len(audio_array) < 2 or target_len <= 0:
+        return audio_array
+
+    source_len = len(audio_array)
+    source_x = np.linspace(0.0, 1.0, source_len, endpoint=False)
+    target_x = np.linspace(0.0, 1.0, target_len, endpoint=False)
+    return np.interp(target_x, source_x, audio_array).astype(np.float32)
+
+
+def _apply_pitch_shift(audio_array, semitones):
+    """Apply a lightweight pitch shift by resampling (duration will also change)."""
+    if audio_array is None or len(audio_array) < 2 or semitones == 0:
+        return audio_array
+
+    factor = 2.0 ** (float(semitones) / 12.0)
+    if not np.isfinite(factor) or factor <= 0.0:
+        return audio_array
+
+    target_len = max(1, int(len(audio_array) / factor))
+    return _resample_audio(audio_array, target_len)
 
 
 def _validate_models_path(logger, models_env_var="PRIMESPEECH_MODEL_DIR") -> Optional[Path]:
@@ -296,7 +367,11 @@ def main():
                     # Fallback: treat as plain text if not valid JSON
                     print(f"DEBUG: Not valid JSON, treating as plain text: {e}", file=sys.stderr, flush=True)
                     raw_text = raw_data
-                
+
+                raw_text, requested_speed_factor, requested_pitch_semitones = _parse_ttscfg_prefix(
+                    raw_text, node, config.LOG_LEVEL
+                )
+
                 # Parse VOICE: prefix for dynamic voice switching
                 # Format 1 (built-in): "VOICE:voice_name|actual_text"
                 # Format 2 (custom):   "VOICE:CUSTOM|ref_audio_path|prompt_text|language|actual_text"
@@ -594,10 +669,14 @@ def main():
 
                     print(f"DEBUG: [S4] Getting config values...", file=sys.stderr, flush=True)
                     language = voice_config.get("text_lang", "zh")
-                    speed = voice_config.get("speed_factor", 1.0)
+                    speed = (
+                        requested_speed_factor
+                        if requested_speed_factor is not None
+                        else voice_config.get("speed_factor", 1.0)
+                    )
                     fragment_interval = voice_config.get("fragment_interval")
 
-                    print(f"DEBUG: [SYNTHESIS PREP] text='{text[:50]}...', language={language}, speed={speed}, streaming={hasattr(tts_engine, 'enable_streaming') and tts_engine.enable_streaming}", file=sys.stderr, flush=True)
+                    print(f"DEBUG: [SYNTHESIS PREP] text='{text[:50]}...', language={language}, speed={speed}, pitch={requested_pitch_semitones}, streaming={hasattr(tts_engine, 'enable_streaming') and tts_engine.enable_streaming}", file=sys.stderr, flush=True)
 
                     if hasattr(tts_engine, 'enable_streaming') and tts_engine.enable_streaming:
                         # Streaming synthesis
@@ -613,16 +692,21 @@ def main():
                         for sample_rate, audio_fragment in tts_engine.synthesize_streaming(text, language=language, speed=speed):
                             print(f"DEBUG: [STREAMING] Got fragment {fragment_num+1}: sample_rate={sample_rate}, audio_len={len(audio_fragment) if audio_fragment is not None else 0}, dtype={audio_fragment.dtype if audio_fragment is not None else 'None'}", file=sys.stderr, flush=True)
                             fragment_num += 1
-                            fragment_duration = len(audio_fragment) / sample_rate
-                            total_audio_duration += fragment_duration
 
                             # Guard against empty fragments
                             if audio_fragment is None or len(audio_fragment) == 0:
                                 send_log(node, "WARNING", f"Skipping empty audio fragment {fragment_num}", config.LOG_LEVEL)
                             else:
+                                if requested_pitch_semitones != 0:
+                                    audio_fragment = _apply_pitch_shift(audio_fragment, requested_pitch_semitones)
+
                                 # Ensure type is float32 for consistency
                                 if audio_fragment.dtype != np.float32:
                                     audio_fragment = audio_fragment.astype(np.float32)
+
+                                fragment_duration = len(audio_fragment) / sample_rate
+                                total_audio_duration += fragment_duration
+
                                 node.send_output(
                                     "audio",
                                     pa.array([audio_fragment]),
@@ -631,6 +715,8 @@ def main():
                                         "session_status": metadata.get("session_status", "unknown"),  # Pass through session status
                                         "sample_rate": sample_rate,
                                         "duration": fragment_duration,
+                                        "speed_factor": speed,
+                                        "pitch_semitones": requested_pitch_semitones,
                                     }
                                 )
                         
@@ -656,6 +742,9 @@ def main():
                         sample_rate, audio_array = tts_engine.synthesize(text, **synth_kwargs)
                         print(f"DEBUG: [BATCH] Got result: sample_rate={sample_rate}, audio_len={len(audio_array) if audio_array is not None else 0}, dtype={audio_array.dtype if audio_array is not None else 'None'}", file=sys.stderr, flush=True)
 
+                        if requested_pitch_semitones != 0 and audio_array is not None and len(audio_array) > 0:
+                            audio_array = _apply_pitch_shift(audio_array, requested_pitch_semitones)
+
                         synthesis_time = time.time() - start_time
                         audio_duration = len(audio_array) / sample_rate
                         print(f"DEBUG: [BATCH] Calculated duration={audio_duration:.2f}s, synthesis_time={synthesis_time:.3f}s", file=sys.stderr, flush=True)
@@ -679,6 +768,8 @@ def main():
                                 "session_status": metadata.get("session_status", "unknown"),  # Pass through session status
                                 "sample_rate": sample_rate,
                                 "duration": audio_duration,
+                                "speed_factor": speed,
+                                "pitch_semitones": requested_pitch_semitones,
                             }
                         )
                         send_log(node, "INFO", f"📤 AUDIO SENT: {len(audio_array)} samples ({audio_duration:.2f}s)", config.LOG_LEVEL)

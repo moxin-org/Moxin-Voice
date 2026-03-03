@@ -57,6 +57,17 @@ controls:
   download: "Download"                           # Download button
   record: "Record"
 
+timbre:
+  section_title: "Output Timbre"
+  speed_label: "Speed"
+  pitch_label: "Pitch"
+  speed_slow: "Slow"
+  speed_normal: "Normal"
+  speed_fast: "Fast"
+  pitch_low: "Low"
+  pitch_normal: "Normal"
+  pitch_high: "High"
+
 status:
   generating: "Generating speech..."
   playing: "Playing..."

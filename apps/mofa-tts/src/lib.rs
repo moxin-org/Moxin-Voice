@@ -21,6 +21,7 @@ pub mod voice_selector;
 pub mod task_persistence;
 pub mod preferences;
 pub mod settings_screen;
+pub mod timbre;
 
 // Re-export shared components from mofa-ui
 pub use mofa_ui::log_bridge;

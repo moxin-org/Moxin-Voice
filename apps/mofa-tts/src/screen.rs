@@ -5,6 +5,7 @@ use crate::dora_integration::DoraIntegration;
 use crate::log_bridge;
 use crate::mofa_hero::{ConnectionStatus, MofaHeroAction, MofaHeroWidgetExt};
 use crate::settings_screen::{SettingsScreenAction, SettingsScreenWidgetExt};
+use crate::timbre::{build_prompt_with_timbre, OutputPitch, OutputSpeed};
 use crate::voice_clone_modal::{VoiceCloneModalAction, VoiceCloneModalWidgetExt};
 use crate::voice_data::TTSStatus;
 use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
@@ -316,6 +317,42 @@ live_design! {
             text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
             fn get_color(self) -> vec4 {
                 return (WHITE);
+            }
+        }
+    }
+
+    // Option button for output timbre controls
+    TimbreOptionButton = <Button> {
+        width: Fit, height: 30
+        padding: {left: 10, right: 10, top: 4, bottom: 4}
+
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance active: 0.0
+            instance hover: 0.0
+            border_radius: 6.0
+
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+
+                let inactive = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                let hovered = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                let selected = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);
+
+                let base = mix(inactive, selected, self.active);
+                sdf.fill(mix(base, hovered, self.hover * (1.0 - self.active)));
+                return sdf.result;
+            }
+        }
+
+        draw_text: {
+            instance dark_mode: 0.0
+            instance active: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                let inactive = mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                return mix(inactive, (WHITE), self.active);
             }
         }
     }
@@ -692,6 +729,7 @@ live_design! {
                     controls_panel = <View> {
                         width: 280, height: Fill
                         flow: Down
+                        spacing: 12
 
                         // Voice selector (fills available space)
                         voice_section = <RoundedView> {
@@ -715,6 +753,95 @@ live_design! {
 
                             voice_selector = <VoiceSelector> {
                                 height: Fill
+                            }
+                        }
+
+                        // Output timbre settings
+                        timbre_section = <RoundedView> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 10
+                            padding: {left: 12, right: 12, top: 12, bottom: 12}
+                            show_bg: true
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                border_radius: 6.0
+                                border_size: 1.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((PANEL_BG), (PANEL_BG_DARK), self.dark_mode);
+                                    let border = mix((BORDER), (SLATE_600), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, self.border_size);
+                                    return sdf.result;
+                                }
+                            }
+
+                            section_title = <Label> {
+                                width: Fill, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "Output Timbre"
+                            }
+
+                            speed_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 6
+
+                                speed_label = <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 11.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "Speed"
+                                }
+
+                                speed_options = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Right
+                                    spacing: 6
+                                    speed_slow_btn = <TimbreOptionButton> { text: "Slow" }
+                                    speed_normal_btn = <TimbreOptionButton> { text: "Normal" }
+                                    speed_fast_btn = <TimbreOptionButton> { text: "Fast" }
+                                }
+                            }
+
+                            pitch_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 6
+
+                                pitch_label = <Label> {
+                                    width: Fill, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 11.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "Pitch"
+                                }
+
+                                pitch_options = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Right
+                                    spacing: 6
+                                    pitch_low_btn = <TimbreOptionButton> { text: "Low" }
+                                    pitch_normal_btn = <TimbreOptionButton> { text: "Normal" }
+                                    pitch_high_btn = <TimbreOptionButton> { text: "High" }
+                                }
                             }
                         }
                     }
@@ -1209,6 +1336,12 @@ pub struct TTSScreen {
     // UI text initialization flag
     #[rust]
     ui_text_initialized: bool,
+
+    // Output timbre options
+    #[rust]
+    output_speed: OutputSpeed,
+    #[rust]
+    output_pitch: OutputPitch,
 }
 
 impl Widget for TTSScreen {
@@ -1228,6 +1361,7 @@ impl Widget for TTSScreen {
         if !self.ui_text_initialized {
             if let Some(app_data) = scope.data.get::<MofaAppData>() {
                 self.update_ui_text(cx, app_data);
+                self.apply_timbre_selection_state(cx);
                 self.ui_text_initialized = true;
             }
         }
@@ -1275,6 +1409,11 @@ impl Widget for TTSScreen {
             self.view
                 .view(ids!(content_wrapper.main_content.splitter))
                 .apply_over(cx, live! { width: 0 });
+
+            // Initialize timbre option state
+            self.output_speed = OutputSpeed::default();
+            self.output_pitch = OutputPitch::default();
+            self.apply_timbre_selection_state(cx);
         }
 
         // Initialize Dora (lazy, now controlled by MofaHero)
@@ -1671,6 +1810,8 @@ impl Widget for TTSScreen {
             }
         }
 
+        self.handle_timbre_option_actions(cx, &actions);
+
         // Handle text input changes
         if self
             .view
@@ -1831,6 +1972,15 @@ impl Widget for TTSScreen {
 }
 
 impl TTSScreen {
+    fn t_or(i18n: &mofa_ui::I18nManager, key: &str, fallback: &str) -> String {
+        let value = i18n.t(key);
+        if value == key {
+            fallback.to_string()
+        } else {
+            value
+        }
+    }
+
     fn apply_language_change(&mut self, cx: &mut Cx, app_data: &mut MofaAppData, lang: &str) {
         app_data.i18n().set_language(lang);
         if let Err(e) = crate::preferences::save_language_preference(lang) {
@@ -1867,6 +2017,245 @@ impl TTSScreen {
         self.update_log_display(cx);
     }
 
+    fn handle_timbre_option_actions(&mut self, cx: &mut Cx, actions: &Actions) {
+        let mut changed = false;
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_slow_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_speed = OutputSpeed::Slow;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_normal_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_speed = OutputSpeed::Normal;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_fast_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_speed = OutputSpeed::Fast;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_low_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_pitch = OutputPitch::Low;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_normal_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_pitch = OutputPitch::Normal;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_high_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_pitch = OutputPitch::High;
+            changed = true;
+        }
+
+        if changed {
+            self.apply_timbre_selection_state(cx);
+            self.add_log(
+                cx,
+                &format!(
+                    "[INFO] [tts] Output timbre updated: speed={}, pitch={}",
+                    self.output_speed.code(),
+                    self.output_pitch.code()
+                ),
+            );
+        }
+    }
+
+    fn apply_timbre_selection_state(&mut self, cx: &mut Cx) {
+        let dark_mode = self.dark_mode;
+
+        let mut apply_state = |this: &mut TTSScreen, path: &[LiveId], active: bool| {
+            this.view
+                .button(path)
+                .apply_over(
+                    cx,
+                    live! {
+                        draw_bg: { dark_mode: (dark_mode), active: (if active { 1.0 } else { 0.0 }) }
+                        draw_text: { dark_mode: (dark_mode), active: (if active { 1.0 } else { 0.0 }) }
+                    },
+                );
+        };
+
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_slow_btn
+            ),
+            self.output_speed == OutputSpeed::Slow,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_normal_btn
+            ),
+            self.output_speed == OutputSpeed::Normal,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_fast_btn
+            ),
+            self.output_speed == OutputSpeed::Fast,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_low_btn
+            ),
+            self.output_pitch == OutputPitch::Low,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_normal_btn
+            ),
+            self.output_pitch == OutputPitch::Normal,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_high_btn
+            ),
+            self.output_pitch == OutputPitch::High,
+        );
+
+        self.view.redraw(cx);
+    }
+
     /// Update UI text with translations
     fn update_ui_text(&mut self, cx: &mut Cx, app_data: &MofaAppData) {
         let i18n = app_data.i18n();
@@ -1898,6 +2287,7 @@ impl TTSScreen {
             .set_text(cx, toggle_label);
 
         // TTS title
+        let timbre_title = Self::t_or(i18n, "tts.timbre.section_title", "Output Timbre");
         self.view
             .label(ids!(
                 content_wrapper
@@ -1923,6 +2313,124 @@ impl TTSScreen {
                     .generate_btn
             ))
             .set_text(cx, &i18n.t("tts.controls.generate"));
+
+        // Output timbre section
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .section_title
+            ))
+            .set_text(cx, &timbre_title);
+        let speed_label = Self::t_or(i18n, "tts.timbre.speed_label", "Speed");
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_label
+            ))
+            .set_text(cx, &speed_label);
+        let pitch_label = Self::t_or(i18n, "tts.timbre.pitch_label", "Pitch");
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_label
+            ))
+            .set_text(cx, &pitch_label);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_slow_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputSpeed::Slow.label_key(), "Slow"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_normal_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputSpeed::Normal.label_key(), "Normal"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_fast_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputSpeed::Fast.label_key(), "Fast"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_low_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputPitch::Low.label_key(), "Low"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_normal_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputPitch::Normal.label_key(), "Normal"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .controls_panel
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_high_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputPitch::High.label_key(), "High"));
+        self.apply_timbre_selection_state(cx);
 
         // Input placeholder
         let placeholder = if i18n.current_language().starts_with("zh") {
@@ -2813,7 +3321,7 @@ impl TTSScreen {
         // The dora-primespeech node will parse this format
         // For custom voices, use extended format: VOICE:CUSTOM|<ref_audio_path>|<prompt_text>|<language>|<text>
         // For trained voices, use: VOICE:TRAINED|<gpt_weights>|<sovits_weights>|<ref_audio>|<prompt_text>|<language>|<text>
-        let prompt = if let Some(voice) = voice_info {
+        let base_prompt = if let Some(voice) = voice_info {
             if voice.source == crate::voice_data::VoiceSource::Trained {
                 // Trained voice (Pro Mode) - need to send model weights, reference audio, and prompt text
                 if let (Some(gpt_weights), Some(sovits_weights), Some(ref_audio), Some(prompt_text)) =
@@ -2880,6 +3388,18 @@ impl TTSScreen {
             // Voice not found, use default
             format!("VOICE:{}|{}", voice_id, text)
         };
+
+        let prompt = build_prompt_with_timbre(&base_prompt, self.output_speed, self.output_pitch);
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [tts] Timbre params => speed:{} ({:.2}), pitch:{} ({} st)",
+                self.output_speed.code(),
+                self.output_speed.factor(),
+                self.output_pitch.code(),
+                self.output_pitch.semitones()
+            ),
+        );
 
         // Send prompt to dora
         let send_result = self
@@ -3075,6 +3595,58 @@ impl TTSScreenRef {
                         .voice_selector
                 ))
                 .update_dark_mode(cx, dark_mode);
+
+            // Apply dark mode to output timbre section
+            inner
+                .view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .controls_panel
+                        .timbre_section
+                ))
+                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            inner
+                .view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .controls_panel
+                        .timbre_section
+                        .section_title
+                ))
+                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+            inner
+                .view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .controls_panel
+                        .timbre_section
+                        .speed_row
+                        .speed_label
+                ))
+                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+            inner
+                .view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .controls_panel
+                        .timbre_section
+                        .pitch_row
+                        .pitch_label
+                ))
+                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+            inner.apply_timbre_selection_state(cx);
 
             // Apply dark mode to log markdown
             let log_markdown = inner.view.markdown(ids!(

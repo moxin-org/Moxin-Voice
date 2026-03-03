@@ -140,4 +140,16 @@ mod tests {
         assert_eq!(I18nManager::map_locale_to_supported(Some("fr_FR")), "en");
         assert_eq!(I18nManager::map_locale_to_supported(None), "en");
     }
+
+    #[test]
+    fn tts_timbre_keys_are_available() {
+        let manager = I18nManager::new();
+        manager.set_language("en");
+        assert_ne!(manager.t("tts.timbre.speed_slow"), "tts.timbre.speed_slow");
+        assert_ne!(manager.t("tts.timbre.pitch_high"), "tts.timbre.pitch_high");
+
+        manager.set_language("zh-CN");
+        assert_ne!(manager.t("tts.timbre.speed_slow"), "tts.timbre.speed_slow");
+        assert_ne!(manager.t("tts.timbre.pitch_high"), "tts.timbre.pitch_high");
+    }
 }
