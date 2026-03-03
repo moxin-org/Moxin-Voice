@@ -1431,6 +1431,7 @@ impl Widget for TTSScreen {
                         }
                     }
                 }
+                VoiceSelectorAction::FilterCategoryChanged(_) | VoiceSelectorAction::FilterLanguageChanged(_) => {}
                 VoiceSelectorAction::None => {}
             }
 
@@ -1490,6 +1491,9 @@ impl Widget for TTSScreen {
                 }
                 VoiceCloneModalAction::Closed => {
                     // Modal closed, nothing to do
+                }
+                VoiceCloneModalAction::TaskCreated(_task) => {
+                    self.add_log(cx, "[INFO] [tts] Clone task created");
                 }
                 VoiceCloneModalAction::None => {}
             }

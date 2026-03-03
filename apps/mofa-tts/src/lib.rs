@@ -3,6 +3,7 @@
 // Local modules
 pub mod audio_player; // Keep local: simplified TTS-specific version
 pub mod dora_integration;
+pub mod i18n;
 
 // Screen modules - conditionally compiled based on features
 #[cfg(not(feature = "moyoyo-ui"))]
@@ -19,6 +20,7 @@ pub mod voice_data;
 pub mod voice_persistence;
 pub mod voice_selector;
 pub mod task_persistence;
+pub mod tts_history;
 
 // Re-export shared components from mofa-ui
 pub use mofa_ui::log_bridge;
@@ -53,6 +55,12 @@ impl MofaApp for MoFaTTSApp {
         voice_clone_modal::live_design(cx);
         screen::live_design(cx);
     }
+}
+
+/// Initialize the TTS app - must be called before using the app
+pub fn init() {
+    // Initialize i18n translations
+    i18n::init_translations();
 }
 
 /// Register all TTS widgets with Makepad

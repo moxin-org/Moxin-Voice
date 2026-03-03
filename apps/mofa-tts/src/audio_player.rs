@@ -4,8 +4,6 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use makepad_widgets::SignalToUI;
-use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -19,9 +17,6 @@ enum AudioCommand {
     #[allow(dead_code)]
     Stop,            // Reserved for explicit thread shutdown
 }
-
-/// Playback completion signal
-static PLAYBACK_FINISHED_SIGNAL: Lazy<SignalToUI> = Lazy::new(SignalToUI::new);
 
 /// Circular audio buffer for thread-safe audio streaming
 struct CircularAudioBuffer {
@@ -125,6 +120,7 @@ pub struct SharedAudioState {
 pub struct TTSPlayer {
     command_tx: Sender<AudioCommand>,
     state: Arc<Mutex<SharedAudioState>>,
+    playback_finished: Arc<AtomicBool>,
     #[allow(dead_code)]
     sample_rate: u32, // Stored for future API needs
 }
@@ -141,10 +137,12 @@ impl TTSPlayer {
             output_waveform: vec![0.0; 512],
         }));
 
+        let playback_finished = Arc::new(AtomicBool::new(false));
         let state_clone = Arc::clone(&state);
+        let playback_finished_clone = Arc::clone(&playback_finished);
 
         std::thread::spawn(move || {
-            if let Err(e) = run_audio_thread(sample_rate, command_rx, state_clone) {
+            if let Err(e) = run_audio_thread(sample_rate, command_rx, state_clone, playback_finished_clone) {
                 eprintln!("Audio thread error: {}", e);
             }
         });
@@ -152,18 +150,23 @@ impl TTSPlayer {
         Self {
             command_tx,
             state,
+            playback_finished,
             sample_rate,
         }
     }
 
     /// Check if playback has finished (call this in handle_event to detect completion)
     pub fn check_playback_finished(&self) -> bool {
-        PLAYBACK_FINISHED_SIGNAL.check_and_clear()
+        self.playback_finished.swap(false, Ordering::AcqRel)
     }
 
     /// Add audio samples to the buffer for streaming playback
     pub fn write_audio(&self, samples: &[f32]) {
+        if samples.is_empty() {
+            return;
+        }
         let _ = self.command_tx.send(AudioCommand::Write(samples.to_vec()));
+        let _ = self.command_tx.send(AudioCommand::Resume);
     }
 
     /// Reset playback (clear buffer)
@@ -193,6 +196,7 @@ fn run_audio_thread(
     sample_rate: u32,
     command_rx: Receiver<AudioCommand>,
     state: Arc<Mutex<SharedAudioState>>,
+    playback_finished: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let buffer_seconds = 60.0; // Large buffer for TTS
     let buffer = Arc::new(Mutex::new(CircularAudioBuffer::new(
@@ -238,6 +242,7 @@ fn run_audio_thread(
         buffer: Arc<Mutex<CircularAudioBuffer>>,
         is_playing: Arc<AtomicBool>,
         state: Arc<Mutex<SharedAudioState>>,
+        playback_finished: Arc<AtomicBool>,
         output_channels: usize,
         _sample_pos: f32,
         playback_rate: f32,
@@ -260,7 +265,7 @@ fn run_audio_thread(
                         // Buffer is empty - playback finished
                         is_playing.store(false, Ordering::Relaxed);
                         // Signal UI thread that playback has finished
-                        PLAYBACK_FINISHED_SIGNAL.set();
+                        playback_finished.store(true, Ordering::Release);
                         for sample in data.iter_mut() {
                             *sample = T::from_sample(0.0);
                         }
@@ -312,6 +317,7 @@ fn run_audio_thread(
             buffer_clone,
             is_playing_clone,
             Arc::clone(&state),
+            Arc::clone(&playback_finished),
             output_channels,
             sample_pos,
             playback_rate,
@@ -322,6 +328,7 @@ fn run_audio_thread(
             buffer_clone,
             is_playing_clone,
             Arc::clone(&state),
+            Arc::clone(&playback_finished),
             output_channels,
             sample_pos,
             playback_rate,
@@ -332,6 +339,7 @@ fn run_audio_thread(
             buffer_clone,
             is_playing_clone,
             Arc::clone(&state),
+            Arc::clone(&playback_finished),
             output_channels,
             sample_pos,
             playback_rate,
@@ -342,6 +350,7 @@ fn run_audio_thread(
             buffer_clone,
             is_playing_clone,
             Arc::clone(&state),
+            Arc::clone(&playback_finished),
             output_channels,
             sample_pos,
             playback_rate,
@@ -355,18 +364,27 @@ fn run_audio_thread(
         match command_rx.recv() {
             Ok(AudioCommand::Write(samples)) => {
                 let mut buf = buffer.lock();
-                buf.write(&samples);
-                // Auto-start if buffered enough
-                if buf.available() > sample_rate as usize / 2 {
+                if !samples.is_empty() {
+                    buf.write(&samples);
+                    playback_finished.store(false, Ordering::Release);
+                }
+                // Auto-start immediately whenever new samples arrive.
+                if buf.available() > 0 {
                     is_playing.store(true, Ordering::Relaxed);
                 }
             }
             Ok(AudioCommand::Reset) => {
                 is_playing.store(false, Ordering::Relaxed);
                 buffer.lock().reset();
+                playback_finished.store(false, Ordering::Release);
             }
             Ok(AudioCommand::Pause) => is_playing.store(false, Ordering::Relaxed),
-            Ok(AudioCommand::Resume) => is_playing.store(true, Ordering::Relaxed),
+            Ok(AudioCommand::Resume) => {
+                if buffer.lock().available() > 0 {
+                    playback_finished.store(false, Ordering::Release);
+                    is_playing.store(true, Ordering::Relaxed);
+                }
+            }
             Ok(AudioCommand::Stop) => break,
             Err(_) => break,
         }
