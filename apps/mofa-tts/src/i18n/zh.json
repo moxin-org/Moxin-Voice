@@ -1,0 +1,103 @@
+{
+  "app": {
+    "title": "魔音TTS"
+  },
+  "nav": {
+    "text_to_speech": "语音合成",
+    "voice_library": "音色库",
+    "voice_clone": "声音克隆",
+    "settings": "设置"
+  },
+  "voice": {
+    "select": "选择音色",
+    "search": "搜索音色...",
+    "filter": {
+      "all": "全部",
+      "male": "男声",
+      "female": "女声",
+      "character": "角色",
+      "custom": "我的",
+      "trained": "已训练"
+    },
+    "language": {
+      "all": "全部",
+      "chinese": "中文",
+      "english": "英文"
+    },
+    "clone": "克隆音色",
+    "delete": "删除",
+    "preview": "预览"
+  },
+  "tts": {
+    "generate": "生成",
+    "generating": "生成中...",
+    "play": "播放",
+    "pause": "暂停",
+    "stop": "停止",
+    "export": "导出",
+    "exporting": "导出中...",
+    "input_placeholder": "请输入要转换的文字...",
+    "speed": "语速",
+    "pitch": "音调",
+    "volume": "音量",
+    "no_result": "暂无结果"
+  },
+  "clone": {
+    "express_mode": "快速模式",
+    "express_desc": "5-10秒音频克隆声音",
+    "pro_mode": "专业模式",
+    "pro_desc": "3-10分钟训练高质量克隆",
+    "record_audio": "录制音频",
+    "upload_audio": "上传音频",
+    "start_recording": "开始录制",
+    "stop_recording": "停止录制",
+    "training": "训练中",
+    "train": "训练",
+    "training_progress": "训练进度",
+    "cancel": "取消"
+  },
+  "settings": {
+    "title": "设置",
+    "voice_settings": "语音合成设置",
+    "default_speed": "默认语速",
+    "default_pitch": "默认音调",
+    "default_volume": "默认音量",
+    "output_format": "输出格式",
+    "general": "通用设置",
+    "language": "语言",
+    "theme": "主题",
+    "theme_light": "浅色",
+    "theme_dark": "深色",
+    "data_path": "数据路径",
+    "about": "关于",
+    "version": "版本",
+    "check_update": "检查更新"
+  },
+  "common": {
+    "confirm": "确认",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "close": "关闭",
+    "back": "返回",
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "warning": "警告",
+    "info": "提示"
+  },
+  "status": {
+    "ready": "就绪",
+    "processing": "处理中",
+    "error": "错误",
+    "dora_running": "Dora 运行中",
+    "dora_stopped": "Dora 已停止"
+  },
+  "error": {
+    "dora_not_running": "请先启动 Dora",
+    "no_voice_selected": "请选择音色",
+    "no_text_input": "请输入文字",
+    "audio_export_failed": "音频导出失败",
+    "training_failed": "训练失败"
+  }
+}

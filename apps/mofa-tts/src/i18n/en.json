@@ -1,0 +1,103 @@
+{
+  "app": {
+    "title": "Moxin TTS"
+  },
+  "nav": {
+    "text_to_speech": "Text to Speech",
+    "voice_library": "Voice Library",
+    "voice_clone": "Voice Clone",
+    "settings": "Settings"
+  },
+  "voice": {
+    "select": "Select Voice",
+    "search": "Search voices...",
+    "filter": {
+      "all": "All",
+      "male": "Male",
+      "female": "Female",
+      "character": "Character",
+      "custom": "My",
+      "trained": "Trained"
+    },
+    "language": {
+      "all": "All",
+      "chinese": "Chinese",
+      "english": "English"
+    },
+    "clone": "Clone Voice",
+    "delete": "Delete",
+    "preview": "Preview"
+  },
+  "tts": {
+    "generate": "Generate",
+    "generating": "Generating...",
+    "play": "Play",
+    "pause": "Pause",
+    "stop": "Stop",
+    "export": "Export",
+    "exporting": "Exporting...",
+    "input_placeholder": "Enter text to convert to speech...",
+    "speed": "Speed",
+    "pitch": "Pitch",
+    "volume": "Volume",
+    "no_result": "No result yet"
+  },
+  "clone": {
+    "express_mode": "Express Mode",
+    "express_desc": "Clone voice with 5-10 seconds of audio",
+    "pro_mode": "Pro Mode",
+    "pro_desc": "High-quality voice with 3-10 minutes training",
+    "record_audio": "Record Audio",
+    "upload_audio": "Upload Audio",
+    "start_recording": "Start Recording",
+    "stop_recording": "Stop Recording",
+    "training": "Training",
+    "train": "Train",
+    "training_progress": "Training Progress",
+    "cancel": "Cancel"
+  },
+  "settings": {
+    "title": "Settings",
+    "voice_settings": "Voice Settings",
+    "default_speed": "Default Speed",
+    "default_pitch": "Default Pitch",
+    "default_volume": "Default Volume",
+    "output_format": "Output Format",
+    "general": "General",
+    "language": "Language",
+    "theme": "Theme",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "data_path": "Data Path",
+    "about": "About",
+    "version": "Version",
+    "check_update": "Check for Updates"
+  },
+  "common": {
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "close": "Close",
+    "back": "Back",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "warning": "Warning",
+    "info": "Info"
+  },
+  "status": {
+    "ready": "Ready",
+    "processing": "Processing",
+    "error": "Error",
+    "dora_running": "Dora Running",
+    "dora_stopped": "Dora Stopped"
+  },
+  "error": {
+    "dora_not_running": "Please start Dora first",
+    "no_voice_selected": "Please select a voice",
+    "no_text_input": "Please enter text",
+    "audio_export_failed": "Failed to export audio",
+    "training_failed": "Training failed"
+  }
+}
