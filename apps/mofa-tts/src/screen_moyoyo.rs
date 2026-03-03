@@ -84,7 +84,6 @@ live_design! {
 
     ParamAdjustBtn = <Button> {
         width: 28, height: 24
-        cursor: Hand
         draw_bg: {
             instance dark_mode: 0.0
             instance hover: 0.0
@@ -583,6 +582,29 @@ live_design! {
                     }
                 }
             }
+        }
+    }
+
+    ModelTagChip = <RoundedView> {
+        width: Fit, height: Fit
+        visible: false
+        padding: {left: 10, right: 10, top: 4, bottom: 4}
+        draw_bg: {
+            border_radius: 10.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                sdf.fill((SLATE_100));
+                return sdf.result;
+            }
+        }
+        tag_label = <Label> {
+            width: Fit, height: Fit
+            draw_text: {
+                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                fn get_color(self) -> vec4 { return (SLATE_600); }
+            }
+            text: "Tag"
         }
     }
 
@@ -4410,7 +4432,6 @@ live_design! {
 
                     voice_search_input = <TextInput> {
                         width: Fill, height: 42
-                        cursor: Text
                         empty_text: "Start typing to search..."
                         text: ""
                         draw_bg: {
@@ -4669,7 +4690,6 @@ live_design! {
 
                 voice_picker_empty = <Label> {
                     width: Fill, height: Fit
-                    visible: false
                     margin: {left: 20, right: 20, top: 24}
                     draw_text: {
                         instance dark_mode: 0.0
@@ -4879,33 +4899,9 @@ live_design! {
                             flow: Right
                             spacing: 8
 
-                            tag_1 = <RoundedView> {
-                                width: Fit, height: Fit
-                                visible: false
-                                padding: {left: 10, right: 10, top: 4, bottom: 4}
-                                draw_bg: {
-                                    border_radius: 10.0
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                        sdf.fill((SLATE_100));
-                                        return sdf.result;
-                                    }
-                                }
-                                tag_label = <Label> {
-                                    width: Fit, height: Fit
-                                    draw_text: {
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
-                                        fn get_color(self) -> vec4 {
-                                            return (SLATE_600);
-                                        }
-                                    }
-                                    text: "Tag"
-                                }
-                            }
-
-                            tag_2 = <tag_1> {}
-                            tag_3 = <tag_1> {}
+                            tag_1 = <ModelTagChip> {}
+                            tag_2 = <ModelTagChip> {}
+                            tag_3 = <ModelTagChip> {}
                         }
                     }
                 }
@@ -11369,7 +11365,6 @@ impl TTSScreen {
                 cx,
                 live! {
                     draw_bg: { dark_mode: (self.dark_mode) }
-                    draw_text: { dark_mode: (self.dark_mode) }
                     popup_menu: {
                         draw_bg: { dark_mode: (self.dark_mode) }
                         menu_item: {
@@ -11392,7 +11387,6 @@ impl TTSScreen {
                 cx,
                 live! {
                     draw_bg: { dark_mode: (self.dark_mode) }
-                    draw_text: { dark_mode: (self.dark_mode) }
                     popup_menu: {
                         draw_bg: { dark_mode: (self.dark_mode) }
                         menu_item: {
@@ -11415,7 +11409,6 @@ impl TTSScreen {
                 cx,
                 live! {
                     draw_bg: { dark_mode: (self.dark_mode) }
-                    draw_text: { dark_mode: (self.dark_mode) }
                     popup_menu: {
                         draw_bg: { dark_mode: (self.dark_mode) }
                         menu_item: {
@@ -11438,7 +11431,6 @@ impl TTSScreen {
                 cx,
                 live! {
                     draw_bg: { dark_mode: (self.dark_mode) }
-                    draw_text: { dark_mode: (self.dark_mode) }
                     popup_menu: {
                         draw_bg: { dark_mode: (self.dark_mode) }
                         menu_item: {
