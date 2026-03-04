@@ -104,6 +104,91 @@ impl fmt::Display for VoiceStyle {
     }
 }
 
+/// Voice trait categories shown in Select Voice panel.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceTraitCategory {
+    ProfessionalBroadcast,
+    FeaturedCharacter,
+}
+
+impl VoiceTraitCategory {
+    pub fn key(self) -> &'static str {
+        match self {
+            VoiceTraitCategory::ProfessionalBroadcast => "professional_broadcast",
+            VoiceTraitCategory::FeaturedCharacter => "featured_character",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            VoiceTraitCategory::ProfessionalBroadcast => "专业播音",
+            VoiceTraitCategory::FeaturedCharacter => "特色人物",
+        }
+    }
+
+    pub fn from_key(value: &str) -> Result<Self, String> {
+        match value {
+            "professional_broadcast" => Ok(VoiceTraitCategory::ProfessionalBroadcast),
+            "featured_character" => Ok(VoiceTraitCategory::FeaturedCharacter),
+            _ => Err(format!(
+                "Invalid trait category '{}', expected one of: professional_broadcast/featured_character",
+                value
+            )),
+        }
+    }
+}
+
+impl fmt::Display for VoiceTraitCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.key())
+    }
+}
+
+impl Default for VoiceTraitCategory {
+    fn default() -> Self {
+        SELECT_VOICE_DEFAULT_TRAIT_CATEGORY
+    }
+}
+
+pub const SELECT_VOICE_DEFAULT_TRAIT_CATEGORY: VoiceTraitCategory =
+    VoiceTraitCategory::ProfessionalBroadcast;
+
+const SELECT_VOICE_TRAIT_CATEGORIES: [VoiceTraitCategory; 2] = [
+    VoiceTraitCategory::ProfessionalBroadcast,
+    VoiceTraitCategory::FeaturedCharacter,
+];
+
+const PROFESSIONAL_BROADCAST_VOICE_IDS: [&str; 3] = ["BYS", "Luo Xiang", "Shen Yi"];
+const FEATURED_CHARACTER_VOICE_IDS: [&str; 4] = ["Ma Yun", "Yang Mi", "Zhou Jielun", "Trump"];
+
+pub fn select_voice_trait_categories() -> &'static [VoiceTraitCategory] {
+    &SELECT_VOICE_TRAIT_CATEGORIES
+}
+
+pub fn select_voice_trait_voice_ids(category: VoiceTraitCategory) -> &'static [&'static str] {
+    match category {
+        VoiceTraitCategory::ProfessionalBroadcast => &PROFESSIONAL_BROADCAST_VOICE_IDS,
+        VoiceTraitCategory::FeaturedCharacter => &FEATURED_CHARACTER_VOICE_IDS,
+    }
+}
+
+pub fn matches_select_voice_trait_category(voice: &Voice, category: VoiceTraitCategory) -> bool {
+    select_voice_trait_voice_ids(category)
+        .iter()
+        .any(|id| voice.id == *id)
+}
+
+pub fn restore_select_voice_trait_category(saved_key: Option<&str>) -> VoiceTraitCategory {
+    match saved_key {
+        Some("child") => SELECT_VOICE_DEFAULT_TRAIT_CATEGORY,
+        Some(value) => {
+            VoiceTraitCategory::from_key(value).unwrap_or(SELECT_VOICE_DEFAULT_TRAIT_CATEGORY)
+        }
+        None => SELECT_VOICE_DEFAULT_TRAIT_CATEGORY,
+    }
+}
+
 /// Voice information
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Voice {
@@ -282,8 +367,8 @@ pub fn get_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "BYS".to_string(),
-            name: "BYS".to_string(),
-            description: "Chinese - casual and friendly".to_string(),
+            name: "白岩松 (Bai Yansong)".to_string(),
+            description: "Chinese male - news anchor, steady and professional".to_string(),
             category: VoiceCategory::Character,
             language: "zh".to_string(),
             gender_age: Some(VoiceGenderAge::Child),
@@ -395,7 +480,7 @@ pub fn get_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "Trump".to_string(),
-            name: "Trump".to_string(),
+            name: "trump罗翔 (Trump Luo Xiang)".to_string(),
             description: "English male - distinctive speaking style".to_string(),
             category: VoiceCategory::Male,
             language: "en".to_string(),
@@ -482,7 +567,7 @@ impl Voice {
         self.source == VoiceSource::Custom
     }
 
-     /// Check if this is a trained voice (few-shot)
+    /// Check if this is a trained voice (few-shot)
     pub fn is_trained(&self) -> bool {
         self.source == VoiceSource::Trained
     }
@@ -541,7 +626,8 @@ pub fn matches_timbre_filters(
     gender_filters: &[VoiceGenderAge],
     style_filters: &[VoiceStyle],
 ) -> bool {
-    let gender_match = gender_filters.is_empty() || gender_filters.contains(&voice.effective_gender_age());
+    let gender_match =
+        gender_filters.is_empty() || gender_filters.contains(&voice.effective_gender_age());
     let style_match = style_filters.is_empty() || style_filters.contains(&voice.effective_style());
     gender_match && style_match
 }
@@ -559,6 +645,11 @@ mod tests {
         assert!(VoiceGenderAge::from_key("elderly_male").is_err());
         assert_eq!(VoiceStyle::from_key("sweet").unwrap(), VoiceStyle::Sweet);
         assert!(VoiceStyle::from_key("warm").is_err());
+        assert_eq!(
+            VoiceTraitCategory::from_key("professional_broadcast").unwrap(),
+            VoiceTraitCategory::ProfessionalBroadcast
+        );
+        assert!(VoiceTraitCategory::from_key("child").is_err());
     }
 
     #[test]
@@ -620,5 +711,80 @@ mod tests {
             &[VoiceGenderAge::Female],
             &[VoiceStyle::Magnetic]
         ));
+    }
+
+    #[test]
+    fn test_select_voice_trait_category_mapping_is_exact() {
+        let voices = get_builtin_voices();
+
+        let professional_ids: Vec<String> = voices
+            .iter()
+            .filter(|voice| {
+                matches_select_voice_trait_category(
+                    voice,
+                    VoiceTraitCategory::ProfessionalBroadcast,
+                )
+            })
+            .map(|voice| voice.id.clone())
+            .collect();
+        assert_eq!(
+            professional_ids,
+            vec![
+                "Luo Xiang".to_string(),
+                "BYS".to_string(),
+                "Shen Yi".to_string()
+            ]
+        );
+
+        let featured_ids: Vec<String> = voices
+            .iter()
+            .filter(|voice| {
+                matches_select_voice_trait_category(voice, VoiceTraitCategory::FeaturedCharacter)
+            })
+            .map(|voice| voice.id.clone())
+            .collect();
+        assert_eq!(
+            featured_ids,
+            vec![
+                "Yang Mi".to_string(),
+                "Zhou Jielun".to_string(),
+                "Ma Yun".to_string(),
+                "Trump".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_restore_select_voice_trait_category_fallback() {
+        assert_eq!(
+            restore_select_voice_trait_category(Some("professional_broadcast")),
+            VoiceTraitCategory::ProfessionalBroadcast
+        );
+        assert_eq!(
+            restore_select_voice_trait_category(Some("featured_character")),
+            VoiceTraitCategory::FeaturedCharacter
+        );
+        assert_eq!(
+            restore_select_voice_trait_category(Some("child")),
+            SELECT_VOICE_DEFAULT_TRAIT_CATEGORY
+        );
+        assert_eq!(
+            restore_select_voice_trait_category(Some("unknown_category")),
+            SELECT_VOICE_DEFAULT_TRAIT_CATEGORY
+        );
+        assert_eq!(
+            restore_select_voice_trait_category(None),
+            SELECT_VOICE_DEFAULT_TRAIT_CATEGORY
+        );
+    }
+
+    #[test]
+    fn test_select_voice_trait_category_labels() {
+        let labels: Vec<&'static str> = select_voice_trait_categories()
+            .iter()
+            .map(|category| category.label())
+            .collect();
+        assert_eq!(labels, vec!["专业播音", "特色人物"]);
+        assert!(!labels.contains(&"童声"));
     }
 }

@@ -56,7 +56,7 @@ safetensors = "*"
 einops = "*"
 
 # Dora dataflow framework
-dora-rs = "==0.3.12"
+dora-rs = "==0.4.1"
 
 # Audio processing
 pyarrow = "*"
@@ -123,7 +123,7 @@ pip install -e node-hub/dora-speechmonitor
 """
 
 # Install Dora CLI via cargo
-install-dora-cli = "cargo install dora-cli --locked"
+install-dora-cli = "cargo install dora-cli --version 0.4.1 --locked"
 
 # Build Rust nodes
 build-rust = { depends-on = ["build-maas-client", "build-conference-bridge", "build-conference-controller"] }

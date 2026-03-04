@@ -5,6 +5,7 @@ use crate::audio_player::TTSPlayer;
 use crate::dora_integration::DoraIntegration;
 use crate::log_bridge;
 use crate::settings_screen::{SettingsScreenAction, SettingsScreenWidgetExt};
+use crate::timbre::{build_prompt_with_timbre, OutputPitch, OutputSpeed};
 use crate::training_executor::TrainingExecutor;
 use crate::voice_clone_modal::{CloneMode, VoiceCloneModalAction, VoiceCloneModalWidgetExt};
 use crate::voice_data::{matches_timbre_filters, TTSStatus, Voice, VoiceGenderAge, VoiceStyle};
@@ -702,6 +703,42 @@ live_design! {
         }
     }
 
+    // Option button for output timbre controls
+    TimbreOptionButton = <Button> {
+        width: Fit, height: 30
+        padding: {left: 10, right: 10, top: 4, bottom: 4}
+
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance active: 0.0
+            instance hover: 0.0
+            border_radius: 6.0
+
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+
+                let inactive = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                let hovered = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                let selected = (MOYOYO_PRIMARY);
+
+                let base = mix(inactive, selected, self.active);
+                sdf.fill(mix(base, hovered, self.hover * (1.0 - self.active)));
+                return sdf.result;
+            }
+        }
+
+        draw_text: {
+            instance dark_mode: 0.0
+            instance active: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                let inactive = mix((MOYOYO_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                return mix(inactive, (WHITE), self.active);
+            }
+        }
+    }
+
     // TTS Screen - MoYoYo.tts style layout with sidebar
     pub TTSScreen = {{TTSScreen}} {
         width: Fill, height: Fill
@@ -928,6 +965,36 @@ live_design! {
                             }
                             text: "文本转语音"
                         }
+
+                        <View> { width: Fill, height: 1 }
+
+                        language_toggle_btn = <Button> {
+                            width: Fit, height: 36
+                            padding: {left: 12, right: 12}
+                            text: "🌐 English"
+
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance hover: 0.0
+                                instance border_radius: 8.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let base = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                    let hover_color = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                    sdf.fill(mix(base, hover_color, self.hover));
+                                    return sdf.result;
+                                }
+                            }
+
+                            draw_text: {
+                                instance dark_mode: 0.0
+                                text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+                                fn get_color(self) -> vec4 {
+                                    return mix((MOYOYO_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                }
+                            }
+                        }
                     }
 
                     // Cards container - horizontal layout
@@ -1007,6 +1074,82 @@ live_design! {
                                         sdf.fill(vec4(0.39, 0.40, 0.95, 0.2));
                                         return sdf.result;
                                     }
+                                }
+                            }
+                        }
+
+                        // Output timbre section
+                        timbre_section = <View> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 10
+                            padding: {left: 20, right: 20, top: 0, bottom: 14}
+
+                            section_title = <Label> {
+                                width: Fill, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((MOYOYO_TEXT_PRIMARY), (MOYOYO_TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "输出音色"
+                            }
+
+                            speed_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                align: {y: 0.5}
+                                spacing: 8
+
+                                speed_label = <Label> {
+                                    width: 44, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOYOYO_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "语速"
+                                }
+
+                                speed_options = <View> {
+                                    width: Fit, height: Fit
+                                    flow: Right
+                                    spacing: 6
+                                    speed_slow_btn = <TimbreOptionButton> { text: "慢" }
+                                    speed_normal_btn = <TimbreOptionButton> { text: "中" }
+                                    speed_fast_btn = <TimbreOptionButton> { text: "快" }
+                                }
+                            }
+
+                            pitch_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                align: {y: 0.5}
+                                spacing: 8
+
+                                pitch_label = <Label> {
+                                    width: 44, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOYOYO_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "音调"
+                                }
+
+                                pitch_options = <View> {
+                                    width: Fit, height: Fit
+                                    flow: Right
+                                    spacing: 6
+                                    pitch_low_btn = <TimbreOptionButton> { text: "低" }
+                                    pitch_normal_btn = <TimbreOptionButton> { text: "中" }
+                                    pitch_high_btn = <TimbreOptionButton> { text: "高" }
                                 }
                             }
                         }
@@ -3120,6 +3263,14 @@ pub struct TTSScreen {
 
     #[rust]
     spinner_phase: f64,
+
+    // UI text and output timbre options
+    #[rust]
+    ui_text_initialized: bool,
+    #[rust]
+    output_speed: OutputSpeed,
+    #[rust]
+    output_pitch: OutputPitch,
 }
 
 // Import CloneTask and CloneTaskStatus from task_persistence
@@ -3136,6 +3287,15 @@ impl Widget for TTSScreen {
         // Initialize audio player
         if self.audio_player.is_none() {
             self.audio_player = Some(TTSPlayer::new());
+        }
+
+        // Initialize UI text with translations
+        if !self.ui_text_initialized {
+            if let Some(app_data) = scope.data.get::<MofaAppData>() {
+                self.update_ui_text(cx, app_data);
+                self.apply_timbre_selection_state(cx);
+                self.ui_text_initialized = true;
+            }
         }
 
         // Initialize log bridge and timer
@@ -3165,6 +3325,8 @@ impl Widget for TTSScreen {
             self.clone_card_areas = Vec::new();
             self.current_clone_mode = CloneMode::Express;
             self.training_executor = Some(TrainingExecutor::new());
+            self.output_speed = OutputSpeed::default();
+            self.output_pitch = OutputPitch::default();
 
             // Mark any interrupted (Processing) tasks as Failed
             let _ = task_persistence::mark_stale_tasks_as_failed();
@@ -3209,8 +3371,9 @@ impl Widget for TTSScreen {
                 .apply_over(cx, live! { width: 0 });
 
             if let Some(app_data) = scope.data.get::<MofaAppData>() {
-                self.update_sidebar_texts(cx, app_data);
+                self.update_ui_text(cx, app_data);
             }
+            self.apply_timbre_selection_state(cx);
         }
 
         // Initialize Dora and auto-start dataflow
@@ -3477,6 +3640,14 @@ impl Widget for TTSScreen {
             self.switch_page(cx, AppPage::VoiceClone);
         }
 
+        if self
+            .view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_settings))
+            .clicked(&actions)
+        {
+            self.switch_page(cx, AppPage::Settings);
+        }
+
         // Handle settings screen actions
         for action in &actions {
             match action.as_widget_action().cast() {
@@ -3492,6 +3663,31 @@ impl Widget for TTSScreen {
                     }
                 }
                 SettingsScreenAction::None => {}
+            }
+        }
+
+        // Handle homepage language toggle button
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .page_header
+                    .language_toggle_btn
+            ))
+            .clicked(&actions)
+        {
+            if let Some(app_data) = scope.data.get_mut::<MofaAppData>() {
+                let current = app_data.i18n().current_language();
+                let next_lang = if current.starts_with("zh") { "en" } else { "zh-CN" };
+                self.apply_language_change(cx, app_data, next_lang);
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [settings] Homepage language toggled to: {}", next_lang),
+                );
             }
         }
 
@@ -4135,6 +4331,8 @@ impl Widget for TTSScreen {
             }
         }
 
+        self.handle_timbre_option_actions(cx, &actions);
+
         // Handle text input changes
         if self
             .view
@@ -4432,6 +4630,23 @@ impl Widget for TTSScreen {
 }
 
 impl TTSScreen {
+    fn t_or(i18n: &mofa_ui::I18nManager, key: &str, fallback: &str) -> String {
+        let value = i18n.t(key);
+        if value == key {
+            fallback.to_string()
+        } else {
+            value
+        }
+    }
+
+    fn homepage_toggle_label(current_lang: &str) -> &'static str {
+        if current_lang.starts_with("zh") {
+            "🌐 English"
+        } else {
+            "🌐 中文"
+        }
+    }
+
     fn apply_language_change(&mut self, cx: &mut Cx, app_data: &mut MofaAppData, lang: &str) {
         app_data.i18n().set_language(lang);
         if let Err(e) = crate::preferences::save_language_preference(lang) {
@@ -4441,10 +4656,23 @@ impl TTSScreen {
             );
         }
 
-        self.update_sidebar_texts(cx, app_data);
+        self.update_ui_text(cx, app_data);
         self.view
             .voice_clone_modal(ids!(voice_clone_modal))
             .update_ui_text(cx, app_data);
+        self.view
+            .voice_selector(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .voice_section
+                    .voice_selector
+            ))
+            .reload_voices(cx);
         self.view.redraw(cx);
     }
 
@@ -4463,14 +4691,9 @@ impl TTSScreen {
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_clone))
             .set_text(cx, &i18n.t("tts.sidebar.voice_clone"));
 
-        let settings_label = if i18n.current_language().starts_with("zh") {
-            "🌐 English"
-        } else {
-            "🌐 中文"
-        };
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_settings))
-            .set_text(cx, settings_label);
+            .set_text(cx, &i18n.t("tts.sidebar.settings"));
 
         self.view
             .label(ids!(app_layout.sidebar.sidebar_footer.user_avatar.avatar_letter))
@@ -4480,9 +4703,657 @@ impl TTSScreen {
             .set_text(cx, &i18n.t("tts.sidebar.user_name"));
     }
 
+    fn update_ui_text(&mut self, cx: &mut Cx, app_data: &MofaAppData) {
+        let i18n = app_data.i18n();
+        self.update_sidebar_texts(cx, app_data);
+
+        // TTS page
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .page_header
+                    .page_title
+            ))
+            .set_text(cx, &i18n.t("tts.input.label_zh"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .page_header
+                    .language_toggle_btn
+            ))
+            .set_text(cx, Self::homepage_toggle_label(&i18n.current_language()));
+
+        let placeholder = if i18n.current_language().starts_with("zh") {
+            i18n.t("tts.input.placeholder_zh")
+        } else {
+            i18n.t("tts.input.placeholder")
+        };
+        self.view
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .input_container
+                    .text_input
+            ))
+            .apply_over(cx, live! { empty_text: (placeholder) });
+
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .bottom_bar
+                    .generate_section
+                    .generate_btn
+            ))
+            .set_text(cx, &i18n.t("tts.controls.generate"));
+
+        // Output timbre section
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .section_title
+            ))
+            .set_text(cx, &Self::t_or(i18n, "tts.timbre.section_title", "Output Timbre"));
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_label
+            ))
+            .set_text(cx, &Self::t_or(i18n, "tts.timbre.speed_label", "Speed"));
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_label
+            ))
+            .set_text(cx, &Self::t_or(i18n, "tts.timbre.pitch_label", "Pitch"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_slow_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputSpeed::Slow.label_key(), "Slow"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_normal_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputSpeed::Normal.label_key(), "Normal"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_fast_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputSpeed::Fast.label_key(), "Fast"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_low_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputPitch::Low.label_key(), "Low"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_normal_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputPitch::Normal.label_key(), "Normal"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_high_btn
+            ))
+            .set_text(cx, &Self::t_or(i18n, OutputPitch::High.label_key(), "High"));
+
+        // Library page
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .header_top
+                    .library_title
+            ))
+            .set_text(cx, &i18n.t("tts.voice.library_title"));
+        self.view
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .header_top
+                    .search_input
+            ))
+            .apply_over(cx, live! { empty_text: (i18n.t("tts.voice.search_placeholder")) });
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .header_top
+                    .refresh_btn
+            ))
+            .set_text(cx, &i18n.t("tts.voice.refresh"));
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .empty_state
+                    .empty_text
+            ))
+            .set_text(cx, &i18n.t("tts.voice.no_voices"));
+
+        // Clone page
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .clone_title_section
+                    .clone_title
+            ))
+            .set_text(cx, &i18n.t("tts.clone.title"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .clone_title_section
+                    .mode_selector
+                    .quick_mode_btn
+            ))
+            .set_text(cx, &i18n.t("tts.clone.express_mode"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .clone_title_section
+                    .mode_selector
+                    .advanced_mode_btn
+            ))
+            .set_text(cx, &i18n.t("tts.clone.pro_mode"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .create_task_btn
+            ))
+            .set_text(cx, &i18n.t("tts.clone.create_task"));
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_empty_state
+                    .clone_empty_text
+            ))
+            .set_text(cx, &i18n.t("tts.clone.no_tasks"));
+
+        // Task detail page
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .detail_title
+            ))
+            .set_text(cx, &i18n.t("tts.task_detail.title"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .back_btn
+            ))
+            .set_text(cx, &i18n.t("tts.navigation.back"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .detail_cancel_btn
+            ))
+            .set_text(cx, &i18n.t("tts.task_detail.cancel_task"));
+
+        // Generic labels
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .voice_info
+                    .voice_name_container
+                    .status_label
+            ))
+            .set_text(cx, &i18n.t("tts.status.ready"));
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .download_btn
+            ))
+            .set_text(cx, &i18n.t("tts.controls.download"));
+        self.view
+            .label(ids!(confirm_delete_modal.dialog.header.title))
+            .set_text(cx, &i18n.t("tts.delete_modal.title"));
+        self.view
+            .label(ids!(confirm_delete_modal.dialog.header.message))
+            .set_text(cx, &i18n.t("tts.delete_modal.message"));
+        self.view
+            .button(ids!(confirm_delete_modal.dialog.footer.cancel_btn))
+            .set_text(cx, &i18n.t("tts.delete_modal.cancel"));
+        self.view
+            .button(ids!(confirm_delete_modal.dialog.footer.confirm_btn))
+            .set_text(cx, &i18n.t("tts.delete_modal.confirm"));
+        self.view
+            .label(ids!(confirm_cancel_modal.dialog.header.title))
+            .set_text(cx, &i18n.t("tts.cancel_task_modal.title"));
+        self.view
+            .label(ids!(confirm_cancel_modal.dialog.header.message))
+            .set_text(cx, &i18n.t("tts.cancel_task_modal.message"));
+        self.view
+            .button(ids!(confirm_cancel_modal.dialog.footer.back_btn))
+            .set_text(cx, &i18n.t("tts.cancel_task_modal.go_back"));
+        self.view
+            .button(ids!(confirm_cancel_modal.dialog.footer.confirm_btn))
+            .set_text(cx, &i18n.t("tts.cancel_task_modal.confirm"));
+
+        self.apply_timbre_selection_state(cx);
+        self.update_char_count(cx);
+    }
+
     fn add_log(&mut self, cx: &mut Cx, message: &str) {
         self.log_entries.push(message.to_string());
         self.update_log_display(cx);
+    }
+
+    fn handle_timbre_option_actions(&mut self, cx: &mut Cx, actions: &Actions) {
+        let mut changed = false;
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_slow_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_speed = OutputSpeed::Slow;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_normal_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_speed = OutputSpeed::Normal;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_fast_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_speed = OutputSpeed::Fast;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_low_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_pitch = OutputPitch::Low;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_normal_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_pitch = OutputPitch::Normal;
+            changed = true;
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_high_btn
+            ))
+            .clicked(actions)
+        {
+            self.output_pitch = OutputPitch::High;
+            changed = true;
+        }
+
+        if changed {
+            self.apply_timbre_selection_state(cx);
+            self.add_log(
+                cx,
+                &format!(
+                    "[INFO] [tts] Output timbre updated: speed={}, pitch={}",
+                    self.output_speed.code(),
+                    self.output_pitch.code()
+                ),
+            );
+        }
+    }
+
+    fn apply_timbre_selection_state(&mut self, cx: &mut Cx) {
+        let dark_mode = self.dark_mode;
+        let mut apply_state = |this: &mut TTSScreen, path: &[LiveId], active: bool| {
+            this.view
+                .button(path)
+                .apply_over(
+                    cx,
+                    live! {
+                        draw_bg: { dark_mode: (dark_mode), active: (if active { 1.0 } else { 0.0 }) }
+                        draw_text: { dark_mode: (dark_mode), active: (if active { 1.0 } else { 0.0 }) }
+                    },
+                );
+        };
+
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_slow_btn
+            ),
+            self.output_speed == OutputSpeed::Slow,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_normal_btn
+            ),
+            self.output_speed == OutputSpeed::Normal,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .speed_row
+                    .speed_options
+                    .speed_fast_btn
+            ),
+            self.output_speed == OutputSpeed::Fast,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_low_btn
+            ),
+            self.output_pitch == OutputPitch::Low,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_normal_btn
+            ),
+            self.output_pitch == OutputPitch::Normal,
+        );
+        apply_state(
+            self,
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .timbre_section
+                    .pitch_row
+                    .pitch_options
+                    .pitch_high_btn
+            ),
+            self.output_pitch == OutputPitch::High,
+        );
     }
 
     /// Switch to a different page and update UI accordingly
@@ -4686,7 +5557,12 @@ impl TTSScreen {
             ))
             .text();
         let count = text.chars().count();
-        let label = format!("{} / 5,000 characters", count);
+        let lang = crate::preferences::load_language_preference();
+        let label = if lang.starts_with("zh") {
+            format!("{} / 5,000 字符", count)
+        } else {
+            format!("{} / 5,000 characters", count)
+        };
         self.view
             .label(ids!(
                 main_content
@@ -5278,7 +6154,7 @@ impl TTSScreen {
         // The dora-primespeech node will parse this format
         // For custom voices, use extended format: VOICE:CUSTOM|<ref_audio_path>|<prompt_text>|<language>|<text>
         // For trained voices, use: VOICE:TRAINED|<gpt_weights>|<sovits_weights>|<ref_audio>|<prompt_text>|<language>|<text>
-        let prompt = if let Some(voice) = voice_info {
+        let base_prompt = if let Some(voice) = voice_info {
             if voice.source == crate::voice_data::VoiceSource::Trained {
                 // Trained voice (Pro Mode) - need to send model weights, reference audio, and prompt text
                 if let (Some(gpt_weights), Some(sovits_weights), Some(ref_audio), Some(prompt_text)) =
@@ -5345,6 +6221,18 @@ impl TTSScreen {
             // Voice not found, use default
             format!("VOICE:{}|{}", voice_id, text)
         };
+
+        let prompt = build_prompt_with_timbre(&base_prompt, self.output_speed, self.output_pitch);
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [tts] Timbre params => speed:{} ({:.2}), pitch:{} ({} st)",
+                self.output_speed.code(),
+                self.output_speed.factor(),
+                self.output_pitch.code(),
+                self.output_pitch.semitones()
+            ),
+        );
 
         // Debug: log the formatted prompt (use char boundary safe truncation)
         let prompt_preview = if prompt.chars().count() > 100 {
@@ -6156,6 +7044,7 @@ impl TTSScreenRef {
                 .voice_clone_modal(ids!(voice_clone_modal))
                 .update_dark_mode(cx, dark_mode);
 
+            inner.apply_timbre_selection_state(cx);
             inner.view.redraw(cx);
         }
     }

@@ -10,6 +10,7 @@ set -e  # Exit on error
 # Configuration
 ENV_NAME="mofa-studio"
 PYTHON_VERSION="3.12"
+DORA_VERSION="0.4.1"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."  # Assumes script is in examples/setup-new-chatbot
 NODE_HUB_DIR="$PROJECT_ROOT/node-hub"
@@ -284,14 +285,20 @@ install_dependencies() {
     pip install huggingface-hub==0.34.4
     pip install "datasets<3.0.0" accelerate sentencepiece protobuf simplejson sortedcontainers tensorboard matplotlib
     
-    # Install dora-rs from GitHub (PyPI source distributions have build issues)
-    print_info "Installing dora-rs..."
+    # Install dora-rs at a pinned version to keep protocol compatibility.
+    # Prefer PyPI (works without GitHub access), fall back to GitHub source.
+    print_info "Installing dora-rs==$DORA_VERSION..."
     # Ensure macOS Rust targets are available for building dora-rs
     if [[ "$OSTYPE" == "darwin"* ]] && command -v rustup &> /dev/null; then
         rustup target add x86_64-apple-darwin 2>/dev/null || true
         rustup target add aarch64-apple-darwin 2>/dev/null || true
     fi
-    pip install "git+https://github.com/dora-rs/dora.git#subdirectory=apis/python/node"
+    if pip install --prefer-binary "dora-rs==${DORA_VERSION}"; then
+        print_success "Installed dora-rs==$DORA_VERSION from PyPI"
+    else
+        print_warning "PyPI install failed, falling back to GitHub source..."
+        pip install "git+https://github.com/dora-rs/dora.git@v${DORA_VERSION}#subdirectory=apis/python/node"
+    fi
     
     # Install numba/llvmlite from conda-forge (avoids LLVM build requirement)
     print_info "Installing numba from conda-forge..."
@@ -337,13 +344,13 @@ install_dora_cli() {
     
     # Check if cargo is available
     if command -v cargo &> /dev/null; then
-        print_info "Installing latest dora-cli via cargo..."
+        print_info "Installing dora-cli v$DORA_VERSION via cargo..."
         # Ensure macOS targets are available for Rust builds
         if [[ "$OSTYPE" == "darwin"* ]]; then
             rustup target add x86_64-apple-darwin 2>/dev/null || true
             rustup target add aarch64-apple-darwin 2>/dev/null || true
         fi
-        cargo install dora-cli --locked
+        cargo install dora-cli --version "$DORA_VERSION" --locked
 
         # Check if installation was successful
         if [ -f "$HOME/.cargo/bin/dora" ]; then
@@ -356,7 +363,7 @@ install_dora_cli() {
         fi
     else
         print_warning "Cargo not found. Cannot install dora-cli via cargo."
-        print_info "Install Rust from https://rustup.rs/ to get the latest dora-cli"
+        print_info "Install Rust from https://rustup.rs/ to install dora-cli v$DORA_VERSION"
         print_info "Using dora from pip installation instead"
     fi
 }

@@ -10,7 +10,7 @@ use crate::parser::{DataflowParser, ParsedDataflow};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -59,8 +59,6 @@ pub struct DataflowController {
     state: Arc<RwLock<DataflowState>>,
     /// Environment variables to apply
     env_vars: HashMap<String, String>,
-    /// Dora daemon process (if we started it)
-    daemon_process: Option<Child>,
 }
 
 impl DataflowController {
@@ -82,7 +80,6 @@ impl DataflowController {
             parsed: Some(parsed),
             state: Arc::new(RwLock::new(DataflowState::Stopped)),
             env_vars: HashMap::new(),
-            daemon_process: None,
         })
     }
 
@@ -125,34 +122,79 @@ impl DataflowController {
     pub fn ensure_daemon(&mut self) -> BridgeResult<()> {
         // Check if daemon is already running by using `dora list`
         // If it succeeds, daemon is running
-        let status = Command::new("dora")
+        let is_running = Command::new("dora")
             .arg("list")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
 
-        match status {
-            Ok(s) if s.success() => {
-                debug!("Dora daemon already running");
-                Ok(())
+        if is_running {
+            debug!("Dora daemon already running");
+            return Ok(());
+        }
+
+        info!("Starting dora daemon...");
+        let output = Command::new("dora")
+            .arg("up")
+            .output()
+            .map_err(|e| BridgeError::StartFailed(format!("Failed to execute `dora up`: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let detail = if !stderr.is_empty() { stderr } else { stdout };
+            let detail = if detail.is_empty() {
+                "unknown error".to_string()
+            } else {
+                detail
+            };
+            return Err(BridgeError::StartFailed(format!(
+                "Failed to start dora daemon: {}",
+                detail
+            )));
+        }
+
+        // `dora up` may return before coordinator is fully ready.
+        // Poll readiness so caller gets deterministic startup behavior.
+        let start = Instant::now();
+        let timeout = Duration::from_secs(10);
+        let mut last_error = String::new();
+
+        while start.elapsed() < timeout {
+            match Command::new("dora")
+                .arg("list")
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .output()
+            {
+                Ok(check) if check.status.success() => {
+                    debug!("Dora daemon is ready");
+                    return Ok(());
+                }
+                Ok(check) => {
+                    let err = String::from_utf8_lossy(&check.stderr).trim().to_string();
+                    if !err.is_empty() {
+                        last_error = err;
+                    }
+                }
+                Err(e) => {
+                    last_error = e.to_string();
+                }
             }
-            _ => {
-                info!("Starting dora daemon...");
-                let child = Command::new("dora")
-                    .arg("up")
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()
-                    .map_err(|e| {
-                        BridgeError::StartFailed(format!("Failed to start daemon: {}", e))
-                    })?;
+            std::thread::sleep(Duration::from_millis(200));
+        }
 
-                self.daemon_process = Some(child);
-
-                // Wait for daemon to be ready
-                std::thread::sleep(Duration::from_millis(1000));
-                Ok(())
-            }
+        if last_error.is_empty() {
+            Err(BridgeError::StartFailed(
+                "Dora daemon did not become ready within 10s".to_string(),
+            ))
+        } else {
+            Err(BridgeError::StartFailed(format!(
+                "Dora daemon did not become ready within 10s (last error: {})",
+                last_error
+            )))
         }
     }
 
@@ -376,11 +418,6 @@ impl Drop for DataflowController {
             if let Err(e) = self.stop() {
                 error!("Failed to stop dataflow on drop: {}", e);
             }
-        }
-
-        // Kill daemon if we started it
-        if let Some(mut daemon) = self.daemon_process.take() {
-            let _ = daemon.kill();
         }
     }
 }

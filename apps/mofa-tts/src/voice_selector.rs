@@ -1,7 +1,8 @@
 //! Voice selector component - displays list of available voices
 
 use crate::voice_data::{
-    get_builtin_voices, matches_timbre_filters, Voice, VoiceGenderAge, VoiceStyle,
+    get_builtin_voices, matches_select_voice_trait_category, matches_timbre_filters, Voice,
+    VoiceGenderAge, VoiceStyle, VoiceTraitCategory,
 };
 use crate::voice_persistence;
 use makepad_widgets::*;
@@ -361,7 +362,6 @@ live_design! {
                 }
                 male_btn = <FilterChip> { text: "男声" }
                 female_btn = <FilterChip> { text: "女声" }
-                child_btn = <FilterChip> { text: "童声" }
             }
 
             style_row = <View> {
@@ -384,6 +384,27 @@ live_design! {
                 sweet_btn = <FilterChip> { text: "甜美" }
                 magnetic_btn = <FilterChip> { text: "磁性" }
                 youth_btn = <FilterChip> { text: "青年音" }
+            }
+
+            trait_row = <View> {
+                width: Fill, height: Fit
+                flow: Right
+                spacing: 6
+                align: {y: 0.5}
+
+                trait_label = <Label> {
+                    width: Fit, height: Fit
+                    draw_text: {
+                        instance dark_mode: 0.0
+                        text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                        fn get_color(self) -> vec4 {
+                            return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                        }
+                    }
+                    text: "声音特质"
+                }
+                professional_broadcast_btn = <FilterChip> { text: "专业播音" }
+                featured_character_btn = <FilterChip> { text: "特色人物" }
             }
         }
 
@@ -448,6 +469,8 @@ pub struct VoiceSelector {
     gender_filters: Vec<VoiceGenderAge>,
     #[rust]
     style_filters: Vec<VoiceStyle>,
+    #[rust]
+    selected_trait_filter: Option<VoiceTraitCategory>,
 }
 
 impl Widget for VoiceSelector {
@@ -457,11 +480,9 @@ impl Widget for VoiceSelector {
         // Initialize voices on first event
         if !self.initialized {
             self.reload_voices();
-            // Select first voice by default
-            if let Some(first) = self.voices.first() {
-                self.selected_voice_id = Some(first.id.clone());
-            }
+            self.sync_selected_voice_for_current_filter();
             self.update_filter_buttons(cx);
+            self.update_selected_voice_badge(cx);
             // Update UI text with translations
             if let Some(app_data) = scope.data.get::<MofaAppData>() {
                 self.update_ui_text(cx, app_data);
@@ -470,7 +491,7 @@ impl Widget for VoiceSelector {
         }
 
         // Handle portal list item clicks using stored areas (BEFORE Actions early return)
-        for (item_id, item_area, preview_area, delete_area) in self.item_areas.iter().cloned() {
+        for (item_id, item_area, preview_area, delete_area) in self.item_areas.clone() {
             if item_id >= self.voices.len() {
                 continue;
             }
@@ -540,15 +561,8 @@ impl Widget for VoiceSelector {
             match event.hits(cx, item_area) {
                 Hit::FingerUp(fe) if fe.was_tap() => {
                     let voice_id = self.voices[item_id].id.clone();
-                    let voice_name = self.voices[item_id].name.clone();
                     self.selected_voice_id = Some(voice_id.clone());
-
-                    // Update selected voice label in header badge
-                    self.view
-                        .label(ids!(
-                            header.badge_row.selected_voice_badge.selected_voice_label
-                        ))
-                        .set_text(cx, &voice_name);
+                    self.update_selected_voice_badge(cx);
 
                     cx.widget_action(
                         self.widget_uid(),
@@ -567,16 +581,11 @@ impl Widget for VoiceSelector {
                 self.toggle_gender_filter(cx, VoiceGenderAge::Male);
             }
         }
+
         let female_area = self.view.button(ids!(filters.gender_row.female_btn)).area();
         if let Hit::FingerUp(fe) = event.hits(cx, female_area) {
             if fe.was_tap() {
                 self.toggle_gender_filter(cx, VoiceGenderAge::Female);
-            }
-        }
-        let child_area = self.view.button(ids!(filters.gender_row.child_btn)).area();
-        if let Hit::FingerUp(fe) = event.hits(cx, child_area) {
-            if fe.was_tap() {
-                self.toggle_gender_filter(cx, VoiceGenderAge::Child);
             }
         }
 
@@ -586,16 +595,41 @@ impl Widget for VoiceSelector {
                 self.toggle_style_filter(cx, VoiceStyle::Sweet);
             }
         }
-        let magnetic_area = self.view.button(ids!(filters.style_row.magnetic_btn)).area();
+
+        let magnetic_area = self
+            .view
+            .button(ids!(filters.style_row.magnetic_btn))
+            .area();
         if let Hit::FingerUp(fe) = event.hits(cx, magnetic_area) {
             if fe.was_tap() {
                 self.toggle_style_filter(cx, VoiceStyle::Magnetic);
             }
         }
+
         let youth_area = self.view.button(ids!(filters.style_row.youth_btn)).area();
         if let Hit::FingerUp(fe) = event.hits(cx, youth_area) {
             if fe.was_tap() {
                 self.toggle_style_filter(cx, VoiceStyle::Youth);
+            }
+        }
+
+        let professional_broadcast_area = self
+            .view
+            .button(ids!(filters.trait_row.professional_broadcast_btn))
+            .area();
+        if let Hit::FingerUp(fe) = event.hits(cx, professional_broadcast_area) {
+            if fe.was_tap() {
+                self.toggle_trait_filter(cx, VoiceTraitCategory::ProfessionalBroadcast);
+            }
+        }
+
+        let featured_character_area = self
+            .view
+            .button(ids!(filters.trait_row.featured_character_btn))
+            .area();
+        if let Hit::FingerUp(fe) = event.hits(cx, featured_character_area) {
+            if fe.was_tap() {
+                self.toggle_trait_filter(cx, VoiceTraitCategory::FeaturedCharacter);
             }
         }
         // Note: All click handling is now done above using event.hits()
@@ -606,10 +640,9 @@ impl Widget for VoiceSelector {
         // Initialize if needed (in case draw happens before handle_event)
         if !self.initialized {
             self.reload_voices();
-            if let Some(first) = self.voices.first() {
-                self.selected_voice_id = Some(first.id.clone());
-            }
+            self.sync_selected_voice_for_current_filter();
             self.update_filter_buttons(cx);
+            self.update_selected_voice_badge(cx);
             // Update UI text with translations
             if let Some(app_data) = scope.data.get::<MofaAppData>() {
                 self.update_ui_text(cx, app_data);
@@ -739,7 +772,14 @@ impl VoiceSelector {
             .iter()
             .enumerate()
             .filter_map(|(idx, voice)| {
-                if matches_timbre_filters(voice, &self.gender_filters, &self.style_filters) {
+                let matches_timbre =
+                    matches_timbre_filters(voice, &self.gender_filters, &self.style_filters);
+                let matches_trait = self
+                    .selected_trait_filter
+                    .map(|category| matches_select_voice_trait_category(voice, category))
+                    .unwrap_or(true);
+
+                if matches_timbre && matches_trait {
                     Some(idx)
                 } else {
                     None
@@ -748,12 +788,51 @@ impl VoiceSelector {
             .collect()
     }
 
+    fn sync_selected_voice_for_current_filter(&mut self) {
+        let filtered_indices = self.filtered_voice_indices();
+        if filtered_indices.is_empty() {
+            self.selected_voice_id = None;
+            return;
+        }
+
+        let selected_is_visible = self.selected_voice_id.as_ref().is_some_and(|voice_id| {
+            filtered_indices
+                .iter()
+                .any(|idx| self.voices[*idx].id == *voice_id)
+        });
+
+        if !selected_is_visible {
+            self.selected_voice_id = Some(self.voices[filtered_indices[0]].id.clone());
+        }
+    }
+
+    fn update_selected_voice_badge(&mut self, cx: &mut Cx) {
+        let selected_name = self
+            .selected_voice_id
+            .as_ref()
+            .and_then(|voice_id| {
+                self.voices
+                    .iter()
+                    .find(|voice| voice.id == *voice_id)
+                    .map(|voice| voice.name.clone())
+            })
+            .unwrap_or_else(|| "未选择".to_string());
+
+        self.view
+            .label(ids!(
+                header.badge_row.selected_voice_badge.selected_voice_label
+            ))
+            .set_text(cx, &selected_name);
+    }
+
     fn toggle_gender_filter(&mut self, cx: &mut Cx, filter: VoiceGenderAge) {
         if self.gender_filters.contains(&filter) {
             self.gender_filters.retain(|item| item != &filter);
         } else {
             self.gender_filters.push(filter);
         }
+        self.sync_selected_voice_for_current_filter();
+        self.update_selected_voice_badge(cx);
         self.update_filter_buttons(cx);
         self.view.redraw(cx);
     }
@@ -764,6 +843,20 @@ impl VoiceSelector {
         } else {
             self.style_filters.push(filter);
         }
+        self.sync_selected_voice_for_current_filter();
+        self.update_selected_voice_badge(cx);
+        self.update_filter_buttons(cx);
+        self.view.redraw(cx);
+    }
+
+    fn toggle_trait_filter(&mut self, cx: &mut Cx, filter: VoiceTraitCategory) {
+        if self.selected_trait_filter == Some(filter) {
+            self.selected_trait_filter = None;
+        } else {
+            self.selected_trait_filter = Some(filter);
+        }
+        self.sync_selected_voice_for_current_filter();
+        self.update_selected_voice_badge(cx);
         self.update_filter_buttons(cx);
         self.view.redraw(cx);
     }
@@ -771,10 +864,15 @@ impl VoiceSelector {
     fn update_filter_buttons(&mut self, cx: &mut Cx) {
         let male_active = self.gender_filters.contains(&VoiceGenderAge::Male) as i64 as f64;
         let female_active = self.gender_filters.contains(&VoiceGenderAge::Female) as i64 as f64;
-        let child_active = self.gender_filters.contains(&VoiceGenderAge::Child) as i64 as f64;
         let sweet_active = self.style_filters.contains(&VoiceStyle::Sweet) as i64 as f64;
         let magnetic_active = self.style_filters.contains(&VoiceStyle::Magnetic) as i64 as f64;
         let youth_active = self.style_filters.contains(&VoiceStyle::Youth) as i64 as f64;
+        let professional_active = (self.selected_trait_filter
+            == Some(VoiceTraitCategory::ProfessionalBroadcast))
+            as i64 as f64;
+        let featured_active = (self.selected_trait_filter
+            == Some(VoiceTraitCategory::FeaturedCharacter)) as i64
+            as f64;
         let dark_mode = self.dark_mode;
 
         self.view
@@ -783,40 +881,73 @@ impl VoiceSelector {
         self.view
             .label(ids!(filters.style_row.style_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(filters.trait_row.trait_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
-        self.view.button(ids!(filters.gender_row.male_btn)).apply_over(cx, live! {
-            draw_bg: { dark_mode: (dark_mode), active: (male_active) }
-            draw_text: { dark_mode: (dark_mode), active: (male_active) }
-        });
+        self.view
+            .button(ids!(filters.gender_row.male_btn))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode), active: (male_active) }
+                    draw_text: { dark_mode: (dark_mode), active: (male_active) }
+                },
+            );
         self.view
             .button(ids!(filters.gender_row.female_btn))
-            .apply_over(cx, live! {
-                draw_bg: { dark_mode: (dark_mode), active: (female_active) }
-                draw_text: { dark_mode: (dark_mode), active: (female_active) }
-            });
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode), active: (female_active) }
+                    draw_text: { dark_mode: (dark_mode), active: (female_active) }
+                },
+            );
         self.view
-            .button(ids!(filters.gender_row.child_btn))
-            .apply_over(cx, live! {
-                draw_bg: { dark_mode: (dark_mode), active: (child_active) }
-                draw_text: { dark_mode: (dark_mode), active: (child_active) }
-            });
-
-        self.view.button(ids!(filters.style_row.sweet_btn)).apply_over(cx, live! {
-            draw_bg: { dark_mode: (dark_mode), active: (sweet_active) }
-            draw_text: { dark_mode: (dark_mode), active: (sweet_active) }
-        });
+            .button(ids!(filters.style_row.sweet_btn))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode), active: (sweet_active) }
+                    draw_text: { dark_mode: (dark_mode), active: (sweet_active) }
+                },
+            );
         self.view
             .button(ids!(filters.style_row.magnetic_btn))
-            .apply_over(cx, live! {
-                draw_bg: { dark_mode: (dark_mode), active: (magnetic_active) }
-                draw_text: { dark_mode: (dark_mode), active: (magnetic_active) }
-            });
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode), active: (magnetic_active) }
+                    draw_text: { dark_mode: (dark_mode), active: (magnetic_active) }
+                },
+            );
         self.view
             .button(ids!(filters.style_row.youth_btn))
-            .apply_over(cx, live! {
-                draw_bg: { dark_mode: (dark_mode), active: (youth_active) }
-                draw_text: { dark_mode: (dark_mode), active: (youth_active) }
-            });
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode), active: (youth_active) }
+                    draw_text: { dark_mode: (dark_mode), active: (youth_active) }
+                },
+            );
+        self.view
+            .button(ids!(filters.trait_row.professional_broadcast_btn))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode), active: (professional_active) }
+                    draw_text: { dark_mode: (dark_mode), active: (professional_active) }
+                },
+            );
+        self.view
+            .button(ids!(filters.trait_row.featured_character_btn))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode), active: (featured_active) }
+                    draw_text: { dark_mode: (dark_mode), active: (featured_active) }
+                },
+            );
     }
 
     /// Update UI text with translations
@@ -826,6 +957,15 @@ impl VoiceSelector {
         self.view
             .label(ids!(header.title_row.title))
             .set_text(cx, &title);
+        self.view
+            .label(ids!(filters.gender_row.gender_label))
+            .set_text(cx, "性别年龄");
+        self.view
+            .label(ids!(filters.style_row.style_label))
+            .set_text(cx, "风格");
+        self.view
+            .label(ids!(filters.trait_row.trait_label))
+            .set_text(cx, "声音特质");
     }
 }
 
@@ -874,6 +1014,9 @@ impl VoiceSelectorRef {
     pub fn reload_voices(&self, cx: &mut Cx) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.reload_voices();
+            inner.sync_selected_voice_for_current_filter();
+            inner.update_selected_voice_badge(cx);
+            inner.update_filter_buttons(cx);
             inner.view.redraw(cx);
         }
     }
@@ -883,6 +1026,8 @@ impl VoiceSelectorRef {
         if let Some(mut inner) = self.borrow_mut() {
             inner.custom_voices.push(voice.clone());
             inner.voices.push(voice);
+            inner.sync_selected_voice_for_current_filter();
+            inner.update_selected_voice_badge(cx);
             inner.view.redraw(cx);
         }
     }
@@ -899,9 +1044,11 @@ impl VoiceSelectorRef {
 
             // If the deleted voice was selected, select another
             if inner.selected_voice_id.as_ref() == Some(&voice_id.to_string()) {
-                inner.selected_voice_id = inner.voices.first().map(|v| v.id.clone());
+                inner.selected_voice_id = None;
             }
 
+            inner.sync_selected_voice_for_current_filter();
+            inner.update_selected_voice_badge(cx);
             inner.view.redraw(cx);
         }
 
