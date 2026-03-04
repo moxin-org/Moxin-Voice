@@ -1,8 +1,8 @@
 //! Voice selector component - displays list of available voices
 
 use crate::voice_data::{
-    get_builtin_voices, matches_select_voice_trait_category, matches_timbre_filters, Voice,
-    VoiceGenderAge, VoiceStyle, VoiceTraitCategory,
+    get_builtin_voices, matches_select_voice_trait_category, matches_timbre_filters,
+    LanguageFilter, Voice, VoiceFilter, VoiceGenderAge, VoiceStyle, VoiceTraitCategory,
 };
 use crate::voice_persistence;
 use makepad_widgets::*;
@@ -428,6 +428,8 @@ pub enum VoiceSelectorAction {
     RequestStartDora,                          // Request parent to show "please start dora" message
     RequestDeleteConfirmation(String, String), // (voice_id, voice_name) - Request parent to show delete confirmation
     DeleteVoiceClicked(String), // voice_id (custom voices only) - Actually delete the voice
+    FilterCategoryChanged(VoiceFilter),
+    FilterLanguageChanged(LanguageFilter),
 }
 
 #[derive(Live, LiveHook, Widget)]

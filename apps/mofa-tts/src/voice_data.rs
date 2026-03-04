@@ -3,6 +3,27 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Voice filter for category filtering
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+pub enum VoiceFilter {
+    #[default]
+    All,
+    Male,
+    Female,
+    Character,
+    Custom,
+    Trained,
+}
+
+/// Language filter
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+pub enum LanguageFilter {
+    #[default]
+    All,
+    Chinese,
+    English,
+}
+
 /// Voice source - distinguishes between built-in, zero-shot custom, and few-shot trained voices
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 pub enum VoiceSource {
@@ -575,6 +596,37 @@ impl Voice {
     /// Check if this voice uses custom models (either zero-shot or trained)
     pub fn has_custom_models(&self) -> bool {
         self.gpt_weights.is_some() || self.sovits_weights.is_some()
+    }
+
+    /// Check if voice matches the given category filter
+    pub fn matches_filter(&self, filter: &VoiceFilter) -> bool {
+        match filter {
+            VoiceFilter::All => true,
+            VoiceFilter::Male => self.category == VoiceCategory::Male,
+            VoiceFilter::Female => self.category == VoiceCategory::Female,
+            VoiceFilter::Character => self.category == VoiceCategory::Character,
+            VoiceFilter::Custom => self.source == VoiceSource::Custom,
+            VoiceFilter::Trained => self.source == VoiceSource::Trained,
+        }
+    }
+
+    /// Check if voice matches the given language filter
+    pub fn matches_language(&self, filter: &LanguageFilter) -> bool {
+        match filter {
+            LanguageFilter::All => true,
+            LanguageFilter::Chinese => self.language == "zh",
+            LanguageFilter::English => self.language == "en",
+        }
+    }
+
+    /// Check if voice matches search query
+    pub fn matches_search(&self, query: &str) -> bool {
+        if query.is_empty() {
+            return true;
+        }
+        let query_lower = query.to_lowercase();
+        self.name.to_lowercase().contains(&query_lower)
+            || self.description.to_lowercase().contains(&query_lower)
     }
 
     /// Validate timbre tag values exposed by create/update interfaces.
