@@ -1,6 +1,6 @@
 # macOS 设置指南
 
-本指南专门针对 macOS 用户运行 Moxin TTS 项目。
+本指南专门针对 macOS 用户运行 Moxin Voice 项目。
 
 ## 前置要求
 

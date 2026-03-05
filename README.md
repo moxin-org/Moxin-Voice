@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
 
-Moxin TTS is a modern, GPU-accelerated desktop application for text-to-speech synthesis and voice cloning. Built entirely in Rust using the [Makepad](https://github.com/makepad/makepad) UI framework, it provides a beautiful, responsive interface with native performance. Powered by GPT-SoVITS v2 for state-of-the-art voice cloning and synthesis.
+Moxin Voice is a modern, GPU-accelerated desktop application for text-to-speech synthesis and voice cloning. Built entirely in Rust using the [Makepad](https://github.com/makepad/makepad) UI framework, it provides a beautiful, responsive interface with native performance. Powered by GPT-SoVITS v2 for state-of-the-art voice cloning and synthesis.
 
 ## ✨ Features
 
@@ -123,7 +123,7 @@ python download_models.py --voice "Luo Xiang"
 #### 3. Running the Application
 
 ```bash
-cargo run -p moxin-voice
+cargo run -p moxin-voice-shell
 ```
 
 Models are stored in:
@@ -137,14 +137,17 @@ Models are stored in:
 
 ```bash
 # Clone the repository
-git clone https://github.com/alan0x/moxin-voice.git
-cd moxin-voice
+git clone https://github.com/moxin-org/Moxin-Voice.git
+cd Moxin-Voice
 
 # Build in release mode
-cargo build -p moxin-voice --release
+cargo build -p moxin-voice-shell --release
+
+# Start the Dora daemon
+dora up
 
 # Run the application
-cargo run -p moxin-voice --release
+cargo run -p moxin-voice-shell --release
 ```
 
 The application window will open at 1200x800 pixels by default.
@@ -152,11 +155,14 @@ The application window will open at 1200x800 pixels by default.
 ### Development Build
 
 ```bash
+# Start the Dora daemon
+dora up
+
 # Fast debug build
-cargo build -p moxin-voice
+cargo build -p moxin-voice-shell
 
 # Run with debug logging
-cargo run -p moxin-voice -- --log-level debug
+cargo run -p moxin-voice-shell -- --log-level debug
 ```
 
 ## 📦 Project Structure
@@ -226,42 +232,6 @@ Moxin TTS is a **functional standalone application** with the following capabili
 - **Quality**: Exceptional fidelity
 - **Process**: Upload/record → Train model → Clone
 
-## 🛠️ Development
-
-### Build Commands
-
-```bash
-# Development build
-cargo build -p moxin-voice
-
-# Release build (optimized)
-cargo build -p moxin-voice --release
-
-# Run with custom log level
-cargo run -p moxin-voice -- --log-level debug
-
-# Clean build artifacts
-cargo clean
-```
-
-### Run Dora Dataflow
-
-```bash
-# Start the Dora daemon
-dora up
-
-# Navigate to TTS dataflow
-cd apps/moxin-voice/dataflow
-
-# Start the dataflow
-dora start tts-dataflow.yml
-
-# Check status
-dora list
-
-# Stop dataflow
-dora stop <dataflow-id>
-```
 
 ## 🔧 Technology Stack
 
@@ -292,7 +262,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ```
-Copyright 2026 Moxin TTS Authors
+Copyright 2026 Moxin Voice Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -311,8 +281,8 @@ You may obtain a copy of the License at
 
 ## 📧 Contact
 
-- **Repository**: https://github.com/alan0x/moxin-voice
-- **Issues**: https://github.com/alan0x/moxin-voice/issues
+- **Repository**: https://github.com/moxin-org/Moxin-Voice.git
+- **Issues**: https://github.com/moxin-org/Moxin-Voice.git/issues
 - **Developer**: alan0x
 
 ---

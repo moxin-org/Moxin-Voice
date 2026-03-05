@@ -1,5 +1,5 @@
 [package]
-name = "moxin-voice"
+name = "moxin-voice-shell"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -32,5 +32,5 @@ ctrlc = "3.4"
 clap = { version = "4.4", features = ["derive"] }
 
 [[bin]]
-name = "moxin-voice"
+name = "moxin-voice-shell"
 path = "src/main.rs"

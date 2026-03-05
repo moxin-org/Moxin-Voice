@@ -1,10 +1,10 @@
-# CLAUDE.md - Moxin TTS 项目上下文
+# CLAUDE.md - Moxin Voice 项目上下文
 
 > 本文档用于 Claude 在新对话中快速恢复项目上下文
 
 **创建日期**: 2026-02-14
 **文档版本**: 1.0
-**项目仓库**: https://github.com/alan0x/moxin-voice
+**项目仓库**: https://github.com/moxin-org/Moxin-Voice.git
 
 ---
 
@@ -12,7 +12,7 @@
 
 ### 项目简介
 
-**Moxin TTS** 是一个现代化的、GPU 加速的桌面应用程序，专注于文本转语音（TTS）和语音克隆功能。它完全使用 Rust 构建，采用 Makepad UI 框架，由 GPT-SoVITS v2 驱动，提供先进的语音克隆和合成能力。
+**Moxin Voice** 是一个现代化的、GPU 加速的桌面应用程序，专注于文本转语音（TTS）和语音克隆功能。它完全使用 Rust 构建，采用 Makepad UI 框架，由 GPT-SoVITS v2 驱动，提供先进的语音克隆和合成能力。
 
 ### 项目起源
 
@@ -257,16 +257,16 @@ python download_models.py --list-voices            # 查看可用语音
 
 ```bash
 # 开发构建（快速，带调试符号）
-cargo build -p moxin-voice
+cargo build -p moxin-voice-shell
 
 # Release 构建（优化，生产用）
-cargo build -p moxin-voice --release
+cargo build -p moxin-voice-shell --release
 
 # 运行
-cargo run -p moxin-voice
+cargo run -p moxin-voice-shell
 
 # 运行带详细日志
-cargo run -p moxin-voice -- --log-level debug
+cargo run -p moxin-voice-shell -- --log-level debug
 
 # 清理构建产物
 cargo clean
@@ -299,7 +299,7 @@ dora down
 ```bash
 # 当前远程仓库
 git remote -v
-# origin: https://github.com/alan0x/moxin-voice.git
+# origin: https://github.com/moxin-org/Moxin-Voice.git
 
 # 当前分支
 git branch
@@ -529,13 +529,13 @@ moxin-audio-input: Failed to initialize Dora node
 
 ```bash
 # 1. 重新编译
-cargo clean && cargo build -p moxin-voice --release
+cargo clean && cargo build -p moxin-voice-shell --release
 
 # 2. 运行测试脚本
 ./test_dora_fix.sh
 
 # 3. 运行应用并测试
-RUST_LOG=debug cargo run -p moxin-voice
+RUST_LOG=debug cargo run -p moxin-voice-shell
 # 点击 "Start Dataflow" 并观察日志
 ```
 
@@ -746,7 +746,7 @@ dora list
   - [ ] Git 分支：`main`
   - [ ] Rust 可用：`cargo --version`
   - [ ] Python 环境：`conda activate moxin-studio`
-- [ ] 代码可编译：`cargo build -p moxin-voice`
+- [ ] 代码可编译：`cargo build -p moxin-voice-shell`
 - [ ] 如需详细历史，查阅 `doc/CONTEXT_RESUME.md`
 
 ### 常用命令速查
@@ -756,12 +756,12 @@ dora list
 cd /Users/alan0x/Documents/projects/moxin-voice
 
 # 编译
-cargo build -p moxin-voice                    # Debug
-cargo build -p moxin-voice --release          # Release
+cargo build -p moxin-voice-shell                    # Debug
+cargo build -p moxin-voice-shell --release          # Release
 
 # 运行
-cargo run -p moxin-voice
-cargo run -p moxin-voice -- --log-level debug # 带日志
+cargo run -p moxin-voice-shell
+cargo run -p moxin-voice-shell -- --log-level debug # 带日志
 
 # Git
 git status
@@ -829,8 +829,8 @@ git commit -m "docs: update CLAUDE.md with current status"
 
 ## 🔗 相关链接
 
-- **GitHub 仓库**: https://github.com/alan0x/moxin-voice
-- **Issues**: https://github.com/alan0x/moxin-voice/issues
+- **GitHub 仓库**: https://github.com/moxin-org/Moxin-Voice.git
+- **Issues**: https://github.com/moxin-org/Moxin-Voice.git/issues
 - **上游项目**: https://github.com/moxin-org/moxin-studio
 - **开发者**: alan0x
 

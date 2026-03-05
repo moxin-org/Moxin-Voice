@@ -6,7 +6,7 @@
 use makepad_widgets::*;
 use moxin_dora_bridge::SharedDoraState;
 use moxin_ui::MoxinAppData;
-use moxin_tts::MoxinTTSApp;
+use moxin_voice::MoxinTTSApp;
 use moxin_widgets::MoxinApp;
 use parking_lot::RwLock;
 use std::sync::{Arc, OnceLock};
@@ -39,7 +39,7 @@ live_design! {
     use moxin_widgets::theme::DARK_BG;
 
     // Import TTS screen
-    use moxin_tts::screen::TTSScreen;
+    use moxin_voice::screen::TTSScreen;
 
     // ========================================================================
     // App Window - Simplified (no sidebar, no tabs)

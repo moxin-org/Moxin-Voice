@@ -86,13 +86,13 @@ cd models/setup-local-models
 
   ```bash
   cd ../..
-  cargo build -p moxin-voice
+  cargo build -p moxin-voice-shell
   ```
 
 - [ ] 运行应用
 
   ```bash
-  cargo run -p moxin-voice
+  cargo run -p moxin-voice-shell
   ```
 
 ## 🧪 测试验证
@@ -113,7 +113,7 @@ cd models/setup-local-models
 
 - [ ] 应用启动测试
   ```bash
-  cargo run -p moxin-voice
+  cargo run -p moxin-voice-shell
   ```
 
 ## ⚡ 性能优化（Apple Silicon）
@@ -175,7 +175,7 @@ cd models/setup-local-models
 
 - [ ] 成功运行 `./check_macos_deps.sh` 无错误
 - [ ] 成功运行 `python test_dependencies.py` 无错误
-- [ ] 成功启动应用 `cargo run -p moxin-voice`
+- [ ] 成功启动应用 `cargo run -p moxin-voice-shell`
 - [ ] 看到应用窗口并能使用 TTS 功能
 
 ## 🐛 遇到问题？
@@ -199,7 +199,7 @@ cd models/setup-local-models
 
 ## 🎉 完成！
 
-恭喜！你已经成功设置了 Moxin TTS。
+恭喜！你已经成功设置了 Moxin Voice。
 
 下一步：
 
