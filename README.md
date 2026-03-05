@@ -24,12 +24,12 @@ Moxin TTS is a modern, GPU-accelerated desktop application for text-to-speech sy
 Moxin TTS uses a modular workspace structure focused on TTS functionality:
 
 ```
-moxin-tts/
-├── moxin-tts-shell/      # Standalone TTS application entry
-├── apps/mofa-tts/        # TTS application logic
-├── mofa-widgets/         # Shared UI components
-├── mofa-ui/              # Application infrastructure
-├── mofa-dora-bridge/     # Dora dataflow integration
+moxin-voice/
+├── moxin-voice-shell/      # Standalone TTS application entry
+├── apps/moxin-voice/        # TTS application logic
+├── moxin-widgets/         # Shared UI components
+├── moxin-ui/              # Application infrastructure
+├── moxin-dora-bridge/     # Dora dataflow integration
 └── node-hub/             # Python Dora nodes (TTS & ASR)
     ├── dora-primespeech/ # GPT-SoVITS TTS engine
     └── dora-asr/         # Speech recognition
@@ -47,6 +47,7 @@ moxin-tts/
 ### macOS Users
 
 **Quick Setup** (5 minutes):
+
 ```bash
 # Install system dependencies
 ./install_macos_deps.sh
@@ -75,7 +76,7 @@ cd models/setup-local-models
 ./setup_isolated_env.sh
 ```
 
-This creates a conda environment `mofa-studio` with:
+This creates a conda environment `moxin-studio` with:
 
 - Python 3.12
 - PyTorch 2.2.0, NumPy 1.26.4, Transformers 4.45.0
@@ -85,7 +86,7 @@ This creates a conda environment `mofa-studio` with:
 After the conda environment is created, install all Python and Rust components:
 
 ```bash
-conda activate mofa-studio
+conda activate moxin-studio
 ./install_all_packages.sh
 ```
 
@@ -121,26 +122,10 @@ python download_models.py --voice "Luo Xiang"
 
 #### 3. Running the Application
 
-**Default Layout (Original MoFA style):**
-
 ```bash
-cargo run -p moxin-tts
+cargo run -p moxin-voice
 ```
 
-**MoYoYo.tts Style Layout (Modern sidebar design):**
-
-```bash
-cargo run -p moxin-tts --features moyoyo-ui
-```
-
-The application provides two distinct UI layouts:
-
-- **Default**: Original MoFA-style layout with system monitor and log panel
-- **MoYoYo UI**: Modern sidebar layout inspired by MoYoYo.tts, featuring a cleaner interface with a left navigation sidebar and simplified main content area
-
-You can switch between layouts by using the `--features moyoyo-ui` flag when running the application.
-
-For more details on the MoYoYo.tts UI implementation, see [doc/MOYOYO_UI_IMPLEMENTATION.md](doc/MOYOYO_UI_IMPLEMENTATION.md).
 Models are stored in:
 
 | Location                      | Contents                      |
@@ -152,14 +137,14 @@ Models are stored in:
 
 ```bash
 # Clone the repository
-git clone https://github.com/alan0x/moxin-tts.git
-cd moxin-tts
+git clone https://github.com/alan0x/moxin-voice.git
+cd moxin-voice
 
 # Build in release mode
-cargo build -p moxin-tts --release
+cargo build -p moxin-voice --release
 
 # Run the application
-cargo run -p moxin-tts --release
+cargo run -p moxin-voice --release
 ```
 
 The application window will open at 1200x800 pixels by default.
@@ -168,23 +153,23 @@ The application window will open at 1200x800 pixels by default.
 
 ```bash
 # Fast debug build
-cargo build -p moxin-tts
+cargo build -p moxin-voice
 
 # Run with debug logging
-cargo run -p moxin-tts -- --log-level debug
+cargo run -p moxin-voice -- --log-level debug
 ```
 
 ## 📦 Project Structure
 
 Moxin TTS is organized as a Cargo workspace with 5 core crates:
 
-| Crate              | Type    | Description                               |
-| ------------------ | ------- | ----------------------------------------- |
-| `moxin-tts-shell`  | Binary  | Standalone TTS application entry point    |
-| `mofa-tts`         | Library | TTS UI and application logic              |
-| `mofa-widgets`     | Library | Shared UI components (theme, audio, etc.) |
-| `mofa-ui`          | Library | Application infrastructure and widgets    |
-| `mofa-dora-bridge` | Library | Dora dataflow integration bridge          |
+| Crate               | Type    | Description                               |
+| ------------------- | ------- | ----------------------------------------- |
+| `moxin-voice-shell` | Binary  | Standalone TTS application entry point    |
+| `moxin-voice`       | Library | TTS UI and application logic              |
+| `moxin-widgets`     | Library | Shared UI components (theme, audio, etc.) |
+| `moxin-ui`          | Library | Application infrastructure and widgets    |
+| `moxin-dora-bridge` | Library | Dora dataflow integration bridge          |
 
 ### Python Nodes (node-hub/)
 
@@ -196,9 +181,9 @@ Moxin TTS is organized as a Cargo workspace with 5 core crates:
 
 ### Key Documentation
 
-- **[BUILDING.md](moxin-tts-shell/BUILDING.md)** - Detailed build instructions
+- **[BUILDING.md](moxin-voice-shell/BUILDING.md)** - Detailed build instructions
 - **[CONTEXT_RESUME.md](doc/CONTEXT_RESUME.md)** - Project context and progress
-- **[Implementation Summary](moxin-tts-shell/IMPLEMENTATION_SUMMARY.md)** - Phase 1-4 summary
+- **[Implementation Summary](moxin-voice-shell/IMPLEMENTATION_SUMMARY.md)** - Phase 1-4 summary
 
 ## 🎯 Current Status
 
@@ -208,7 +193,7 @@ Moxin TTS is a **functional standalone application** with the following capabili
 
 **Phase 1-4 Complete**:
 
-- ✅ Standalone application shell (moxin-tts-shell)
+- ✅ Standalone application shell (moxin-voice-shell)
 - ✅ TTS screen with voice selection and text input
 - ✅ Zero-shot voice cloning UI (Express mode)
 - ✅ Few-shot training UI (Pro mode)
@@ -247,13 +232,13 @@ Moxin TTS is a **functional standalone application** with the following capabili
 
 ```bash
 # Development build
-cargo build -p moxin-tts
+cargo build -p moxin-voice
 
 # Release build (optimized)
-cargo build -p moxin-tts --release
+cargo build -p moxin-voice --release
 
 # Run with custom log level
-cargo run -p moxin-tts -- --log-level debug
+cargo run -p moxin-voice -- --log-level debug
 
 # Clean build artifacts
 cargo clean
@@ -266,7 +251,7 @@ cargo clean
 dora up
 
 # Navigate to TTS dataflow
-cd apps/mofa-tts/dataflow
+cd apps/moxin-voice/dataflow
 
 # Start the dataflow
 dora start tts-dataflow.yml
@@ -297,7 +282,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Test thoroughly (`cargo test`, `cargo build -p moxin-tts`)
+4. Test thoroughly (`cargo test`, `cargo build -p moxin-voice`)
 5. Commit your changes (`git commit -m 'Add amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
@@ -321,13 +306,13 @@ You may obtain a copy of the License at
 - **[Makepad](https://github.com/makepad/makepad)** - For the incredible GPU-accelerated UI framework
 - **[GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)** - For the excellent voice cloning technology
 - **[Dora Robotics Framework](https://github.com/dora-rs/dora)** - For the dataflow architecture
-- **[MoFA Studio](https://github.com/mofa-org/mofa-studio)** - Original multi-app platform (upstream)
+- **[Moxin Studio](https://github.com/moxin-org/moxin-studio)** - Original multi-app platform (upstream)
 - **Rust Community** - For excellent tooling and libraries
 
 ## 📧 Contact
 
-- **Repository**: https://github.com/alan0x/moxin-tts
-- **Issues**: https://github.com/alan0x/moxin-tts/issues
+- **Repository**: https://github.com/alan0x/moxin-voice
+- **Issues**: https://github.com/alan0x/moxin-voice/issues
 - **Developer**: alan0x
 
 ---

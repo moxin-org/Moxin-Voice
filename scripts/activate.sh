@@ -1,16 +1,16 @@
 #!/bin/bash
-# MoFA Studio - Pixi Activation Script
+# Moxin Studio - Pixi Activation Script
 # This script runs when the pixi environment is activated
 
 # Set TTS backend based on platform
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS - default to auto-detection
     export BACKEND="${BACKEND:-auto}"
-    echo "MoFA Studio: TTS backend set to $BACKEND (macOS detected)"
+    echo "Moxin Studio: TTS backend set to $BACKEND (macOS detected)"
 else
     # Linux/Windows - use CPU backend
     export BACKEND="${BACKEND:-cpu}"
-    echo "MoFA Studio: TTS backend set to $BACKEND"
+    echo "Moxin Studio: TTS backend set to $BACKEND"
 fi
 
 # Add cargo bin to PATH for dora-cli

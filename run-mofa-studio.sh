@@ -1,5 +1,5 @@
 #!/bin/bash
-# MoFA Studio Launcher
+# Moxin Studio Launcher
 # Ensures pixi environment is activated before launching
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -19,5 +19,5 @@ if [ ! -d ".pixi/envs/default" ]; then
     pixi run setup
 fi
 
-# Launch mofa-studio within pixi environment
+# Launch moxin-studio within pixi environment
 exec pixi run cargo run --release "$@"

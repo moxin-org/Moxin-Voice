@@ -14,7 +14,7 @@ cd examples/setup-new-chatbot
 The script will:
 
 1. Verify prerequisites (Conda, Python, Git; Cargo optional)
-2. Create a conda env `mofa-studio` with Python 3.12
+2. Create a conda env `moxin-studio` with Python 3.12
 3. Install pinned versions of NumPy (1.26.4), PyTorch (2.2.0), Transformers (4.45.0)
 4. Install all voice-chat Python nodes (ASR, PrimeSpeech, Text Segmenter, Qwen3, SpeechMonitor)
 5. Build Rust components (maas-client, openai-websocket) if Cargo is present
@@ -23,7 +23,7 @@ The script will:
 Activate the environment afterwards:
 
 ```bash
-conda activate mofa-studio
+conda activate moxin-studio
 python test_dependencies.py
 ```
 
@@ -34,7 +34,7 @@ python test_dependencies.py
 Install the pinned dependencies manually by activating the environment and running the platform script:
 
 ```bash
-conda activate mofa-studio
+conda activate moxin-studio
 
 # Linux
 ./install_all_packages.sh
@@ -96,7 +96,7 @@ export PYTORCH_ENABLE_MPS_FALLBACK="1"   # macOS Metal fallback
 
 ## 5. Next Steps
 
-1. Keep the environment activated (`conda activate mofa-studio`).
+1. Keep the environment activated (`conda activate moxin-studio`).
 2. Download required models using `examples/model-manager/README.md` (FunASR, PrimeSpeech, Kokoro, Qwen MLX, etc.).
 3. Run the voice-chat dataflows under `examples/mac-aec-chat/` following their README.
 

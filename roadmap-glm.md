@@ -1,4 +1,4 @@
-# MoFA Studio - Architecture Roadmap
+# Moxin Studio - Architecture Roadmap
 
 **Analysis Date:** 2025-01-04
 **Overall Grade:** C+ (68/100)
@@ -8,11 +8,12 @@
 
 ## Executive Summary
 
-MoFA Studio demonstrates solid architectural foundations with clear app isolation concepts and good workspace organization. However, the implementation suffers from critical code duplication (8%), monolithic files, and scalability concerns that must be addressed to support growth beyond 2-3 apps.
+Moxin Studio demonstrates solid architectural foundations with clear app isolation concepts and good workspace organization. However, the implementation suffers from critical code duplication (8%), monolithic files, and scalability concerns that must be addressed to support growth beyond 2-3 apps.
 
 **Key Metrics:**
+
 - Main Components: 4 crates (1 binary, 3 libraries)
-- Apps: 2 (mofa-fm, mofa-settings)
+- Apps: 2 (moxin-fm, moxin-settings)
 - Shared Widgets: 7 reusable components
 - Largest File: app.rs (1,120 lines) - **CRITICAL ISSUE**
 
@@ -24,15 +25,16 @@ MoFA Studio demonstrates solid architectural foundations with clear app isolatio
 
 **Impact:** 626 duplicated lines (8% of codebase)
 
-| File | Locations | Lines Duplicated |
-|------|-----------|-------------------|
-| `participant_panel.rs` | shell/widgets/ & mofa-widgets/ | 246 × 2 = 492 |
-| `log_panel.rs` | shell/widgets/ & mofa-widgets/ | 67 × 2 = 134 |
+| File                   | Locations                       | Lines Duplicated |
+| ---------------------- | ------------------------------- | ---------------- |
+| `participant_panel.rs` | shell/widgets/ & moxin-widgets/ | 246 × 2 = 492    |
+| `log_panel.rs`         | shell/widgets/ & moxin-widgets/ | 67 × 2 = 134     |
 
 **Action Items:**
-- [ ] Delete `mofa-studio-shell/src/widgets/participant_panel.rs`
-- [ ] Delete `mofa-studio-shell/src/widgets/log_panel.rs`
-- [ ] Update imports to use `mofa_widgets::` versions
+
+- [ ] Delete `moxin-studio-shell/src/widgets/participant_panel.rs`
+- [ ] Delete `moxin-studio-shell/src/widgets/log_panel.rs`
+- [ ] Update imports to use `moxin_widgets::` versions
 - [ ] Verify functionality after removal
 
 **Timeline:** 1-2 hours
@@ -44,8 +46,9 @@ MoFA Studio demonstrates solid architectural foundations with clear app isolatio
 **Impact:** 1,120 lines in single file, handles everything
 
 Current structure:
+
 ```rust
-// mofa-studio-shell/src/app.rs
+// moxin-studio-shell/src/app.rs
 - Live design macros (~400 lines)
 - Multiple widget definitions (~200 lines)
 - Event handling (~200 lines)
@@ -55,8 +58,9 @@ Current structure:
 ```
 
 **Target structure:**
+
 ```
-mofa-studio-shell/src/app/
+moxin-studio-shell/src/app/
 ├── mod.rs              (50 lines)  - Module exports
 ├── app.rs              (200 lines) - App struct, core logic
 ├── dashboard.rs        (200 lines) - Dashboard widget
@@ -68,6 +72,7 @@ mofa-studio-shell/src/app/
 ```
 
 **Action Items:**
+
 - [ ] Create `app/` directory structure
 - [ ] Extract dashboard widget to `dashboard.rs`
 - [ ] Extract tab logic to `tab_manager.rs`
@@ -87,16 +92,18 @@ mofa-studio-shell/src/app/
 **Impact:** Same fonts defined in 5+ files
 
 Files with duplicate font definitions:
-- `mofa-studio-shell/src/app.rs`
-- `mofa-studio-shell/src/widgets/sidebar.rs`
-- `mofa-studio-shell/src/widgets/mofa_hero.rs`
-- `mofa-widgets/theme.rs` (correct location)
+
+- `moxin-studio-shell/src/app.rs`
+- `moxin-studio-shell/src/widgets/sidebar.rs`
+- `moxin-studio-shell/src/widgets/moxin_hero.rs`
+- `moxin-widgets/theme.rs` (correct location)
 - Plus 5+ more files
 
 **Action Items:**
+
 - [ ] Audit all font definitions: `rg "FONT_REGULAR|FONT_BOLD|FONT_FAMILY" --type rust`
-- [ ] Remove all except `mofa-widgets/theme.rs`
-- [ ] Update imports: `use mofa_widgets::theme::{FONT_REGULAR, FONT_BOLD}`
+- [ ] Remove all except `moxin-widgets/theme.rs`
+- [ ] Update imports: `use moxin_widgets::theme::{FONT_REGULAR, FONT_BOLD}`
 - [ ] Verify all widgets still render correctly
 
 **Timeline:** 2-4 hours
@@ -108,18 +115,20 @@ Files with duplicate font definitions:
 ### 4. Shell Violates Black-Box App Principle
 
 **Current (violates architecture):**
+
 ```rust
-// mofa-studio-shell/src/app.rs
-use mofa_fm::screen::MoFaFMScreen;
-use mofa_settings::screen::SettingsScreen;
+// moxin-studio-shell/src/app.rs
+use moxin_fm::screen::MoxinFMScreen;
+use moxin_settings::screen::SettingsScreen;
 
 live_design! {
-    fm_page = <MoFaFMScreen> { ... }
+    fm_page = <MoxinFMScreen> { ... }
     settings_page = <SettingsScreen> { ... }
 }
 ```
 
 **Target (plugin-based):**
+
 ```rust
 // Define app trait
 pub trait App {
@@ -137,10 +146,11 @@ pub struct AppRegistry {
 ```
 
 **Action Items:**
+
 - [ ] Design `App` trait in shared location
 - [ ] Create `AppRegistry` in shell
-- [ ] Implement trait for mofa-fm
-- [ ] Implement trait for mofa-settings
+- [ ] Implement trait for moxin-fm
+- [ ] Implement trait for moxin-settings
 - [ ] Update shell to use registry
 - [ ] Remove direct app imports from shell
 
@@ -151,6 +161,7 @@ pub struct AppRegistry {
 ### 5. Hardcoded App Limits
 
 **Current Problem:**
+
 ```rust
 // Hardcoded 20 app slots
 app1_btn = <SidebarMenuButton> { text: "App 1" }
@@ -160,6 +171,7 @@ app20_btn = <SidebarMenuButton> { text: "App 20" }
 ```
 
 **Target (dynamic apps):**
+
 ```rust
 // Data-driven app list
 struct AppState {
@@ -176,6 +188,7 @@ struct AppEntry {
 ```
 
 **Action Items:**
+
 - [ ] Create `AppState` struct to hold app list
 - [ ] Create `AppEntry` data model
 - [ ] Implement dynamic button generation
@@ -196,6 +209,7 @@ struct AppEntry {
 **Solution:** Shell coordinator pattern instead of global store.
 
 **Updated Target (shell coordinator):**
+
 ```rust
 // Shell owns all shared state
 impl App {
@@ -221,11 +235,12 @@ impl App {
 ```
 
 **Revised Action Items:**
+
 - [x] ~~Design state store architecture~~ → Use shell coordinator
 - [x] ~~Implement `Store` type~~ → Not compatible with Makepad
 - [x] ~~Define action types~~ → Use WidgetRef methods instead
 - [ ] Add `AppState` struct to `App`
-- [ ] Add `StateDependencies` to `MofaApp` trait
+- [ ] Add `StateDependencies` to `MoxinApp` trait
 - [ ] Implement state change notifications
 - [x] ~~Add middleware pattern~~ → Not needed with coordinator
 
@@ -240,12 +255,14 @@ impl App {
 ### 7. Widget Library
 
 **Missing Components:**
+
 - Button variants (primary, secondary, icon, text)
 - Input components (text, number, password, select)
 - Layout widgets (stack, grid, card, list)
 - Data widgets (table, tree, chart)
 
 **Action Items:**
+
 - [ ] Design component API
 - [ ] Implement button variants
 - [ ] Implement input components
@@ -262,6 +279,7 @@ impl App {
 **Current:** No tests at all (Grade: F)
 
 **Target:**
+
 ```rust
 // Widget unit tests
 #[cfg(test)]
@@ -284,6 +302,7 @@ mod tests {
 ```
 
 **Action Items:**
+
 - [ ] Set up test framework
 - [ ] Write widget unit tests
 - [ ] Create visual regression system
@@ -299,6 +318,7 @@ mod tests {
 **Current:** Good architecture doc, no API docs
 
 **Target:**
+
 - API documentation for all public types
 - Architecture decision records (ADRs)
 - Widget usage examples
@@ -306,6 +326,7 @@ mod tests {
 - Contributing guidelines
 
 **Action Items:**
+
 - [ ] Add rustdoc comments
 - [ ] Create ADR template
 - [ ] Write widget examples
@@ -318,18 +339,18 @@ mod tests {
 
 ## Detailed Grades by Category
 
-| Category | Grade | Score | Notes |
-|----------|-------|-------|-------|
-| **Project Structure** | B+ | 85/100 | Good organization, needs core crate |
-| **Code Organization** | B | 80/100 | Apps are good, shell needs refactoring |
-| **Dependencies** | C+ | 70/100 | Too much coupling, violations |
-| **Code Duplication** | D | 50/100 | **8% duplication** |
-| **Scalability** | C- | 60/100 | Won't scale beyond 5 apps |
-| **Widget Reusability** | B- | 75/100 | Good foundation, needs library |
-| **State Management** | C+ | 70/100 | Fragmented, needs centralization |
-| **Live Design Patterns** | B | 80/100 | Good usage, large blocks |
-| **Testing** | F | 0/100 | No tests at all |
-| **Documentation** | C | 60/100 | Good arch doc, no API docs |
+| Category                 | Grade | Score  | Notes                                  |
+| ------------------------ | ----- | ------ | -------------------------------------- |
+| **Project Structure**    | B+    | 85/100 | Good organization, needs core crate    |
+| **Code Organization**    | B     | 80/100 | Apps are good, shell needs refactoring |
+| **Dependencies**         | C+    | 70/100 | Too much coupling, violations          |
+| **Code Duplication**     | D     | 50/100 | **8% duplication**                     |
+| **Scalability**          | C-    | 60/100 | Won't scale beyond 5 apps              |
+| **Widget Reusability**   | B-    | 75/100 | Good foundation, needs library         |
+| **State Management**     | C+    | 70/100 | Fragmented, needs centralization       |
+| **Live Design Patterns** | B     | 80/100 | Good usage, large blocks               |
+| **Testing**              | F     | 0/100  | No tests at all                        |
+| **Documentation**        | C     | 60/100 | Good arch doc, no API docs             |
 
 **Overall: C+ (68/100)**
 
@@ -338,18 +359,22 @@ mod tests {
 ## Scalability Analysis
 
 ### Current State
+
 - **2 apps:** Manageable
 - **5 apps:** Becomes difficult (app.rs complexity)
 - **10+ apps:** Will break without refactoring
 
 ### Bottlenecks
+
 1. Hardcoded app slots (exactly 20)
 2. Manual event handling in app.rs
 3. No app lifecycle management
 4. Direct widget instantiation in shell
 
 ### With Improvements
+
 After implementing P0-P1 items:
+
 - **10 apps:** Fully supported
 - **20+ apps:** Scalable with data-driven approach
 - **Dynamic apps:** Possible with plugin system
@@ -359,33 +384,40 @@ After implementing P0-P1 items:
 ## Architecture Principles to Follow
 
 ### 1. Black-Box Apps
+
 ✅ **Principle:** Shell must NOT know about app-internal widgets
 
 ❌ **Current Violation:**
+
 ```rust
-use mofa_fm::screen::MoFaFMScreen;
-fm_page = <MoFaFMScreen> { ... }
+use moxin_fm::screen::MoxinFMScreen;
+fm_page = <MoxinFMScreen> { ... }
 ```
 
 ✅ **Target:**
+
 ```rust
-let app = registry.get_app("mofa-fm");
+let app = registry.get_app("moxin-fm");
 let widget = app.create_widget(cx);
 ```
 
 ### 2. Single Responsibility
+
 Each module should have one reason to change:
+
 - `app.rs` → Application lifecycle
 - `dashboard.rs` → Main UI layout
 - `tab_manager.rs` → Tab state
 - `navigation.rs` → Navigation logic
 
 ### 3. DRY (Don't Repeat Yourself)
+
 - Zero tolerance for duplicate code
 - Widget library for reusable components
 - Centralized theme and styling
 
 ### 4. Data-Driven UI
+
 - UI generated from data, not hardcoded
 - Dynamic app registration
 - Configurable layouts
@@ -395,43 +427,51 @@ Each module should have one reason to change:
 ## Migration Path
 
 ### Phase 1: Quick Wins (Week 1-2)
+
 1. Remove duplicate widgets
 2. Consolidate font definitions
 3. Add basic documentation
 
 **Success Criteria:**
+
 - [ ] 0 duplicate files
 - [ ] Single source of truth for fonts
 - [ ] README updated
 
 ### Phase 2: Refactoring (Week 3-6)
+
 1. Break up app.rs monolith
 2. Implement App trait
 3. Create AppRegistry
 
 **Success Criteria:**
+
 - [ ] No file > 500 lines
 - [ ] Apps register dynamically
 - [ ] Shell doesn't import app types
 
 ### Phase 3: State Management (Week 3-4)
+
 1. Add `AppState` struct to shell
 2. Implement shell coordinator pattern
 3. Add state dependencies to apps
 4. Implement state change notifications
 
 **Success Criteria:**
+
 - [x] Single source of truth for state (shell-owned)
 - [ ] Automatic UI updates (via WidgetRef methods)
 - [x] State persists across restarts (file-based)
 
 ### Phase 4: Scale Up (Week 13-20)
+
 1. Widget library
 2. Testing infrastructure
 3. Documentation
 4. Performance optimization
 
 **Success Criteria:**
+
 - [ ] 10+ reusable widgets
 - [ ] 80%+ test coverage
 - [ ] Complete API docs
@@ -442,36 +482,42 @@ Each module should have one reason to change:
 ## Strengths to Preserve
 
 ✅ **Workspace dependency management**
+
 ```toml
 [workspace.dependencies]
 makepad-widgets = { git = "...", rev = "..." }
 ```
 
 ✅ **Optional app features**
+
 ```toml
 [features]
-default = ["mofa-fm", "mofa-settings"]
-mofa-fm = ["dep:mofa-fm"]
+default = ["moxin-fm", "moxin-settings"]
+moxin-fm = ["dep:moxin-fm"]
 ```
 
-✅ **Theme centralization** (mofa-widgets/theme.rs)
+✅ **Theme centralization** (moxin-widgets/theme.rs)
+
 ```rust
 pub FONT_REGULAR = { ... }
 pub DARK_BG = #f5f7fa
 ```
 
-✅ **Data model isolation** (mofa-settings/src/data/)
+✅ **Data model isolation** (moxin-settings/src/data/)
+
 ```rust
 pub struct Provider { ... }
 pub struct Preferences { ... }
 ```
 
-✅ **Clean audio management** (mofa-fm/src/audio.rs)
+✅ **Clean audio management** (moxin-fm/src/audio.rs)
+
 ```rust
 pub struct AudioManager { ... }
 ```
 
 ✅ **Consistent live_design patterns**
+
 ```rust
 live_design! {
     pub MyWidget = {{MyWidget}} { ... }
@@ -483,6 +529,7 @@ live_design! {
 ## Risk Assessment
 
 ### High Risk Items
+
 1. **app.rs Refactoring** - Could introduce regressions
    - Mitigation: Comprehensive testing, incremental changes
 
@@ -493,6 +540,7 @@ live_design! {
    - Mitigation: Prototype first, gradual migration
 
 ### Medium Risk Items
+
 1. **Widget Library** - Time-consuming
    - Mitigation: Start with most-needed components
 
@@ -504,18 +552,21 @@ live_design! {
 ## Success Metrics
 
 ### Code Quality
+
 - [ ] Maximum file size: 500 lines
 - [ ] Code duplication: < 1%
 - [ ] Test coverage: > 70%
 - [ ] Documentation: > 80%
 
 ### Architecture
+
 - [ ] Shell doesn't import app types
 - [ ] Apps register dynamically
 - [ ] Single source of truth for state
 - [ ] Zero duplicate widgets
 
 ### Scalability
+
 - [ ] Supports 20+ apps
 - [ ] Adds new app < 1 day
 - [ ] Plugin loading possible
@@ -526,20 +577,24 @@ live_design! {
 ## Recommended Tooling
 
 ### For Refactoring
+
 - **ripgrep (rg)**: Code search
 - **fd**: Fast file search
 - **tokei**: Code metrics
 
 ### For Quality
+
 - **cargo-outdated**: Dependency updates
 - **cargo-audit**: Security vulnerabilities
 - **cargo-clippy**: Linting
 
 ### For Documentation
+
 - **cargo doc**: API docs
 - **mdbook**: Documentation site
 
 ### For Testing
+
 - **cargo nextest**: Test runner
 - **criterion**: Benchmarks
 
@@ -548,16 +603,19 @@ live_design! {
 ## Next Steps
 
 ### This Week
+
 1. **Remove duplicate widgets** (2 hours)
 2. **Consolidate fonts** (2 hours)
 3. **Create this roadmap** (done)
 
 ### Next 2 Weeks
+
 1. **Break up app.rs** into modules
 2. **Add basic testing infrastructure**
 3. **Update README** with architecture
 
 ### Next Month
+
 1. **Implement App trait**
 2. **Create AppRegistry**
 3. **Design state store**
@@ -566,14 +624,15 @@ live_design! {
 
 ## Conclusion
 
-MoFA Studio has a solid foundation but requires focused refactoring to scale beyond 2-3 apps. The P0 issues (code duplication, monolithic app.rs, font duplication) are quick wins that will immediately improve code quality. The P1 issues (app plugin system, state management) are essential for long-term scalability.
+Moxin Studio has a solid foundation but requires focused refactoring to scale beyond 2-3 apps. The P0 issues (code duplication, monolithic app.rs, font duplication) are quick wins that will immediately improve code quality. The P1 issues (app plugin system, state management) are essential for long-term scalability.
 
 **Recommended Priority:**
+
 1. P0 (Must Fix) → Complete in 2 weeks
 2. P1 (Should Fix) → Complete in 2 months
 3. P2 (Nice to Have) → Complete in 6 months
 
-With these improvements, MoFA Studio will have a robust, scalable architecture supporting 20+ apps while maintaining code quality and developer productivity.
+With these improvements, Moxin Studio will have a robust, scalable architecture supporting 20+ apps while maintaining code quality and developer productivity.
 
 ---
 
@@ -583,14 +642,15 @@ With these improvements, MoFA Studio will have a robust, scalable architecture s
 
 This roadmap is part of a multi-document analysis:
 
-| Document | Focus | Best For |
-|----------|-------|----------|
-| **roadmap-claude.md** | Architectural evidence | Understanding WHY problems exist |
-| **roadmap-m2.md** | Tactical bug fixes | Quick wins and immediate fixes |
-| **roadmap-glm.md** (this) | Strategic planning | Long-term roadmap with grades |
-| **STATE_MANAGEMENT_ANALYSIS.md** | State management deep dive | Makepad architecture & patterns |
+| Document                         | Focus                      | Best For                         |
+| -------------------------------- | -------------------------- | -------------------------------- |
+| **roadmap-claude.md**            | Architectural evidence     | Understanding WHY problems exist |
+| **roadmap-m2.md**                | Tactical bug fixes         | Quick wins and immediate fixes   |
+| **roadmap-glm.md** (this)        | Strategic planning         | Long-term roadmap with grades    |
+| **STATE_MANAGEMENT_ANALYSIS.md** | State management deep dive | Makepad architecture & patterns  |
 
 See also:
+
 - [CHECKLIST.md](./CHECKLIST.md) - Master consolidated checklist
 - [APP_DEVELOPMENT_GUIDE.md](./APP_DEVELOPMENT_GUIDE.md) - Contributor guide
 

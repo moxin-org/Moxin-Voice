@@ -5,8 +5,9 @@
 ## 当前状态
 
 根据检查，你的系统：
+
 - ✅ Homebrew 已安装
-- ✅ Conda 已安装（mofa-studio 环境已存在）
+- ✅ Conda 已安装（moxin-studio 环境已存在）
 - ✅ Rust 已安装
 - ✅ Git 已安装
 - ✅ Python 是 ARM64 原生（最佳性能）
@@ -36,7 +37,7 @@ cd models/setup-local-models
 ### 3. 安装包（2-3 分钟）
 
 ```bash
-conda activate mofa-studio
+conda activate moxin-studio
 ./install_all_packages.sh
 ```
 
@@ -47,7 +48,7 @@ conda activate mofa-studio
 ./verify_setup.sh
 
 # 或手动验证
-conda activate mofa-studio
+conda activate moxin-studio
 python test_dependencies.py
 ```
 
@@ -87,7 +88,7 @@ curl -L -o s2D2333k.pth \
 
 ```bash
 cd ../../..
-cargo run -p moxin-tts
+cargo run -p moxin-voice
 ```
 
 ## 一键设置（推荐）
@@ -113,6 +114,7 @@ pip install "datasets<3.0.0" simplejson sortedcontainers tensorboard matplotlib
 ### 预训练模型（必需）
 
 **重要**: 使用 Pro Mode 训练前，必须下载 GPT-SoVITS 预训练模型（见上文步骤 5.5）。不使用预训练模型会导致：
+
 - 训练后的音色产生噪音或空白音频
 - 无法生成可用的语音
 
@@ -122,6 +124,7 @@ pip install "datasets<3.0.0" simplejson sortedcontainers tensorboard matplotlib
 - **SoVITS 训练**: ⚠️ 使用 CPU（MPS 不支持复数梯度）
 
 预计训练时间：
+
 - 3 分钟音频：约 1-2 小时（取决于 CPU 性能）
 - 10 分钟音频：约 3-5 小时
 
@@ -132,7 +135,6 @@ pip install "datasets<3.0.0" simplejson sortedcontainers tensorboard matplotlib
 
 ## 下一步
 
-- 探索不同的 UI 风格：`cargo run -p moxin-tts --features moyoyo-ui`
 - 下载更多语音：`python download_models.py --list-voices`
 - 阅读完整文档：[MACOS_SETUP.md](MACOS_SETUP.md)
 

@@ -15,17 +15,18 @@ The Makepad team provided feedback that **timers are overused** in many codebase
 3. **Widget handles action** - Update UI when action received
 
 **Benefits:**
+
 - More efficient (no timer callbacks to hidden widgets)
 - Better separation of concerns (data fetching vs UI)
 - Natural lifecycle management (thread owns the work, not widget)
 
 ---
 
-## Current Timer Usage in MoFA Studio
+## Current Timer Usage in Moxin Studio
 
-### Timer 1: MofaHero System Stats (1 second interval)
+### Timer 1: MoxinHero System Stats (1 second interval)
 
-**Location:** `apps/mofa-fm/src/mofa_hero.rs:451`
+**Location:** `apps/moxin-fm/src/moxin_hero.rs:451`
 
 ```rust
 #[rust]
@@ -53,9 +54,9 @@ fn update_system_stats(&mut self, cx: &mut Cx) {
 
 ---
 
-### Timer 2: MoFaFMScreen Mic Level (50ms interval)
+### Timer 2: MoxinFMScreen Mic Level (50ms interval)
 
-**Location:** `apps/mofa-fm/src/screen.rs:1162`
+**Location:** `apps/moxin-fm/src/screen.rs:1162`
 
 ```rust
 #[rust]
@@ -127,19 +128,21 @@ match action {
 
 ### What Are We Actually Trying to Do? (The "Y")
 
-| Timer | Current Solution (X) | Actual Goal (Y) | Better Approach |
-|-------|---------------------|------------------|-----------------|
-| MofaHero | Timer every 1s to poll `sysinfo` | Display current system stats | Background thread posts `SystemStatsUpdate` action |
-| Mic Level | Timer every 50ms to poll `AudioManager` | Visualize audio stream level | **Stream callback should post action directly** |
+| Timer     | Current Solution (X)                    | Actual Goal (Y)              | Better Approach                                    |
+| --------- | --------------------------------------- | ---------------------------- | -------------------------------------------------- |
+| MoxinHero | Timer every 1s to poll `sysinfo`        | Display current system stats | Background thread posts `SystemStatsUpdate` action |
+| Mic Level | Timer every 50ms to poll `AudioManager` | Visualize audio stream level | **Stream callback should post action directly**    |
 
 ### Root Issue: Polling vs Push
 
 **Current pattern (polling):**
+
 ```
 Timer fires → Widget asks AudioManager for level → Widget updates UI
 ```
 
 **Better pattern (push):**
+
 ```
 Audio stream callback → Update shared state → Post action → Widget updates UI
 ```
@@ -153,6 +156,7 @@ Audio stream callback → Update shared state → Post action → Widget updates
 **Current Issue:** Timer polls `AudioManager` for mic level every 50ms
 
 **Problem:**
+
 - Inefficient polling
 - Audio stream already has callbacks
 - Timer continues even when dataflow is stopped
@@ -222,7 +226,7 @@ move |data: &[f32], _: &cpal::InputCallbackInfo| {
 }
 
 // UI component polls channel efficiently
-impl MoFaFMScreen {
+impl MoxinFMScreen {
     #[rust]
     mic_level_rx: mpsc::Receiver<MicLevelEvent>,
 
@@ -258,6 +262,7 @@ The Makepad team said timers shouldn't be used "for many different use cases", b
 **Current Issue:** Timer polls `sysinfo` every 1 second
 
 **Problem:**
+
 - `sysinfo` API calls are synchronous (can block)
 - Widget does work on UI thread
 - Stats update even when widget is hidden
@@ -265,7 +270,7 @@ The Makepad team said timers shouldn't be used "for many different use cases", b
 **Solution: Background thread posts actions**
 
 ```rust
-// In a new file: apps/mofa-fm/src/system_monitor.rs
+// In a new file: apps/moxin-fm/src/system_monitor.rs
 use std::thread;
 use std::time::Duration;
 use makepad_widgets::Cx;
@@ -306,7 +311,7 @@ pub fn start_system_monitor_thread(widget_uid: WidgetUid) -> thread::JoinHandle<
 **Current Implementation:**
 
 ```rust
-impl MoFaFMScreenRef {
+impl MoxinFMScreenRef {
     pub fn stop_timers(&self, cx: &mut Cx) {
         if let Some(inner) = self.borrow_mut() {
             cx.stop_timer(inner.audio_timer);
@@ -330,6 +335,7 @@ impl App {
 ```
 
 **This is already correct:**
+
 - ✅ Timer stopped when widget hidden
 - ✅ Timer restarted when widget shown
 - ✅ No wasted CPU on invisible widgets
@@ -345,12 +351,14 @@ impl App {
 The feedback about "timers shouldn't be used for many different use cases" is correct **in general**, but needs context:
 
 **Timers ARE appropriate for:**
+
 - ✅ Real-time visualizations (audio waveform, animations)
 - ✅ Polling when there's no event source
 - ✅ Smooth animations (requesting next frame)
 - ✅ When properly managed (stopped when hidden)
 
 **Timers are NOT appropriate for:**
+
 - ❌ Fetching data that has push notifications
 - ❌ Expensive operations on UI thread
 - ❌ Updates that can be event-driven

@@ -1,15 +1,15 @@
-# MoFA Studio Architecture Guide
+# Moxin Studio Architecture Guide
 
-This document describes the modular architecture of MoFA Studio, a desktop application built with the Makepad UI framework. Apps are self-contained widgets that plug into a lightweight shell.
+This document describes the modular architecture of Moxin Studio, a desktop application built with the Makepad UI framework. Apps are self-contained widgets that plug into a lightweight shell.
 
 ## Project Overview
 
-**MoFA Studio** is an AI-powered desktop application for voice chat and model management, built with Rust and Makepad.
+**Moxin Studio** is an AI-powered desktop application for voice chat and model management, built with Rust and Makepad.
 
 - **Version**: 0.1.0
 - **Edition**: Rust 2021
 - **License**: Apache-2.0
-- **Repository**: https://github.com/mofa-org/mofa-studio
+- **Repository**: https://github.com/moxin-org/moxin-studio
 - **UI Framework**: Makepad (GPU-accelerated, immediate mode)
 
 ## Directory Structure
@@ -19,11 +19,11 @@ studio/
 ├── Cargo.toml              # Workspace configuration
 ├── ARCHITECTURE.md         # This file (English)
 ├── 架构指南.md              # Architecture guide (Chinese)
-├── mofa-widgets/           # Shared reusable widgets (library)
+├── moxin-widgets/           # Shared reusable widgets (library)
 │   ├── src/
 │   │   ├── lib.rs          # Module exports and live_design registration
 │   │   ├── theme.rs        # Fonts, colors (light/dark), base styles
-│   │   ├── app_trait.rs    # MofaApp trait, AppInfo, AppRegistry
+│   │   ├── app_trait.rs    # MoxinApp trait, AppInfo, AppRegistry
 │   │   ├── participant_panel.rs  # Speaker status with waveform
 │   │   ├── waveform_view.rs     # FFT-style audio visualization
 │   │   ├── log_panel.rs    # Markdown log display
@@ -31,7 +31,7 @@ studio/
 │   │   └── audio_player.rs # Audio playback engine
 │   └── resources/
 │       └── fonts/          # Manrope font files
-├── mofa-studio-shell/      # Main shell application (binary)
+├── moxin-studio-shell/      # Main shell application (binary)
 │   ├── src/
 │   │   ├── main.rs         # Entry point
 │   │   ├── lib.rs          # SharedState definition
@@ -44,16 +44,16 @@ studio/
 │   └── resources/
 │       ├── fonts/          # Manrope font files
 │       ├── icons/          # SVG icons
-│       └── mofa-logo.png   # Application logo
+│       └── moxin-logo.png   # Application logo
 └── apps/
-    ├── mofa-fm/            # MoFA FM app (library)
+    ├── moxin-fm/            # Moxin FM app (library)
     │   ├── src/
     │   │   ├── lib.rs
     │   │   ├── screen.rs   # Main screen (~1,360 lines)
-    │   │   ├── mofa_hero.rs # Status bar (~660 lines)
+    │   │   ├── moxin_hero.rs # Status bar (~660 lines)
     │   │   └── audio.rs    # Audio device management
     │   └── resources/
-    └── mofa-settings/      # Settings app (library)
+    └── moxin-settings/      # Settings app (library)
         ├── src/
         │   ├── lib.rs
         │   ├── screen.rs   # Settings screen (~415 lines)
@@ -71,11 +71,11 @@ studio/
 ## Crate Dependencies
 
 ```
-mofa-studio-shell (binary)
+moxin-studio-shell (binary)
 ├── makepad-widgets
-├── mofa-widgets
-├── mofa-fm (optional, default enabled)
-├── mofa-settings (optional, default enabled)
+├── moxin-widgets
+├── moxin-fm (optional, default enabled)
+├── moxin-settings (optional, default enabled)
 ├── cpal (audio)
 ├── tokio (async runtime)
 ├── parking_lot (synchronization)
@@ -84,23 +84,23 @@ mofa-studio-shell (binary)
 ├── sysinfo (system metrics)
 └── log, ctrlc
 
-mofa-fm (library)
+moxin-fm (library)
 ├── makepad-widgets
-├── mofa-widgets
+├── moxin-widgets
 ├── cpal
 ├── parking_lot
 ├── sysinfo
 └── log
 
-mofa-settings (library)
+moxin-settings (library)
 ├── makepad-widgets
-├── mofa-widgets
+├── moxin-widgets
 ├── serde, serde_json
 ├── dirs
 ├── parking_lot
 └── log
 
-mofa-widgets (library)
+moxin-widgets (library)
 ├── makepad-widgets
 ├── cpal
 ├── parking_lot
@@ -110,13 +110,13 @@ mofa-widgets (library)
 
 ## Architecture Principles
 
-### Plugin System: MofaApp Trait
+### Plugin System: MoxinApp Trait
 
-Apps implement the `MofaApp` trait for standardized registration:
+Apps implement the `MoxinApp` trait for standardized registration:
 
 ```rust
-// mofa-widgets/src/app_trait.rs
-pub trait MofaApp {
+// moxin-widgets/src/app_trait.rs
+pub trait MoxinApp {
     fn info() -> AppInfo where Self: Sized;  // Metadata
     fn live_design(cx: &mut Cx);             // Widget registration
 }
@@ -133,20 +133,22 @@ pub struct AppRegistry {
 ```
 
 **Usage in Apps:**
+
 ```rust
-impl MofaApp for MoFaFMApp {
+impl MoxinApp for MoxinFMApp {
     fn info() -> AppInfo {
-        AppInfo { name: "MoFA FM", id: "mofa-fm", description: "..." }
+        AppInfo { name: "Moxin FM", id: "moxin-fm", description: "..." }
     }
     fn live_design(cx: &mut Cx) { screen::live_design(cx); }
 }
 ```
 
 **Usage in Shell:**
+
 ```rust
 impl LiveRegister for App {
     fn live_register(cx: &mut Cx) {
-        <MoFaFMApp as MofaApp>::live_design(cx);
+        <MoxinFMApp as MoxinApp>::live_design(cx);
     }
 }
 ```
@@ -159,17 +161,20 @@ impl LiveRegister for App {
 Apps are self-contained widgets. The shell knows nothing about their internal structure.
 
 **Shell responsibilities:**
+
 - Window chrome (title bar, buttons)
 - Navigation (sidebar, tab bar)
 - App switching (visibility toggling)
 - Widget registration
 
 **Shell must NOT:**
+
 - Know about app-internal widgets
 - Handle app-specific events
 - Store app-specific state
 
 **App responsibilities:**
+
 - All internal UI layout
 - All internal events
 - All internal state
@@ -178,33 +183,36 @@ Apps are self-contained widgets. The shell knows nothing about their internal st
 ### Minimal Coupling (4 Points Only)
 
 #### 1. Import Statement
+
 ```rust
-// mofa-studio-shell/src/app.rs
-use mofa_fm::screen::MoFaFMScreen;
-use mofa_settings::screen::SettingsScreen;
+// moxin-studio-shell/src/app.rs
+use moxin_fm::screen::MoxinFMScreen;
+use moxin_settings::screen::SettingsScreen;
 ```
 
 #### 2. Widget Registration (Order Matters!)
+
 ```rust
 impl LiveRegister for App {
     fn live_register(cx: &mut Cx) {
         makepad_widgets::live_design(cx);
-        mofa_widgets::live_design(cx);           // Shared first
-        mofa_studio_shell::widgets::sidebar::live_design(cx);
-        mofa_studio_shell::widgets::log_panel::live_design(cx);
-        mofa_studio_shell::widgets::participant_panel::live_design(cx);
-        mofa_fm::live_design(cx);                // Then apps
-        mofa_settings::live_design(cx);
+        moxin_widgets::live_design(cx);           // Shared first
+        moxin_studio_shell::widgets::sidebar::live_design(cx);
+        moxin_studio_shell::widgets::log_panel::live_design(cx);
+        moxin_studio_shell::widgets::participant_panel::live_design(cx);
+        moxin_fm::live_design(cx);                // Then apps
+        moxin_settings::live_design(cx);
     }
 }
 ```
 
 #### 3. Widget Instantiation
+
 ```rust
 live_design! {
     content = <View> {
         flow: Overlay
-        fm_page = <MoFaFMScreen> {
+        fm_page = <MoxinFMScreen> {
             width: Fill, height: Fill
             visible: true
         }
@@ -217,6 +225,7 @@ live_design! {
 ```
 
 #### 4. Visibility Toggling
+
 ```rust
 // Navigation via apply_over
 self.ui.view(ids!(content.fm_page)).apply_over(cx, live!{ visible: true });
@@ -232,12 +241,12 @@ Window (1400x900)
 │   ├── Header
 │   │   ├── Hamburger Button (21x21)
 │   │   ├── Logo (40x40)
-│   │   ├── Title "MoFA Studio"
+│   │   ├── Title "Moxin Studio"
 │   │   └── User Profile Container
 │   └── Content Area
 │       └── Main Content (Overlay)
-│           ├── fm_page (MoFaFMScreen)
-│           │   ├── MofaHero (status bar)
+│           ├── fm_page (MoxinFMScreen)
+│           │   ├── MoxinHero (status bar)
 │           │   │   ├── Action Section (Start/Stop)
 │           │   │   ├── Connection Section
 │           │   │   ├── Buffer Section
@@ -260,7 +269,7 @@ Window (1400x900)
 │   └── Tab Content
 ├── Sidebar Menu Overlay (slide animation)
 │   └── Sidebar
-│       ├── MoFA FM Tab
+│       ├── Moxin FM Tab
 │       ├── App List (1-20)
 │       │   ├── Apps 1-4 (always visible)
 │       │   ├── Pinned App (for Show More selection)
@@ -274,6 +283,7 @@ Window (1400x900)
 ## State Management
 
 ### Shell State (app.rs)
+
 ```rust
 pub struct App {
     #[live] ui: WidgetRef,
@@ -328,14 +338,15 @@ impl App {
 }
 ```
 
-| What Works | What Doesn't |
-|------------|--------------|
-| Shell owns state | Redux Store<T> |
-| WidgetRef methods | Arc<Mutex<T>> |
+| What Works        | What Doesn't     |
+| ----------------- | ---------------- |
+| Shell owns state  | Redux Store<T>   |
+| WidgetRef methods | Arc<Mutex<T>>    |
 | Event propagation | Context/Provider |
-| File persistence | Zustand hooks |
+| File persistence  | Zustand hooks    |
 
 ### Sidebar State (sidebar.rs)
+
 ```rust
 pub struct Sidebar {
     #[deref] view: View,
@@ -345,13 +356,14 @@ pub struct Sidebar {
 }
 
 pub enum SidebarSelection {
-    MofaFM,
+    MoxinFM,
     App(usize),  // 1-20
     Settings,
 }
 ```
 
 ### Settings State (screen.rs)
+
 ```rust
 pub struct SettingsScreen {
     #[deref] view: View,
@@ -361,6 +373,7 @@ pub struct SettingsScreen {
 ```
 
 ### Shared State (lib.rs)
+
 ```rust
 pub struct SharedState {
     pub buffer_fill: f64,
@@ -375,6 +388,7 @@ pub type SharedStateRef = Arc<Mutex<SharedState>>;
 ## Animation System
 
 ### Sidebar Slide Animation
+
 ```rust
 // Animation parameters
 const ANIMATION_DURATION: f64 = 0.2;  // 200ms
@@ -399,6 +413,7 @@ self.ui.view(ids!(sidebar_menu_overlay)).apply_over(cx, live!{
 ## Theme System
 
 ### Fonts (Multi-language Support)
+
 ```rust
 // All fonts support: Latin, Chinese (LXGWWenKai), Emoji (NotoColorEmoji)
 FONT_REGULAR    // Normal text
@@ -410,6 +425,7 @@ FONT_BOLD       // Titles
 ### Color Palette
 
 #### Light Mode (Default)
+
 ```rust
 DARK_BG = #f5f7fa        // Page background
 PANEL_BG = #ffffff       // Card/panel background
@@ -422,6 +438,7 @@ HOVER_BG = #f1f5f9       // Hover background
 ```
 
 #### Dark Mode
+
 ```rust
 DARK_BG_DARK = #0f172a       // Page background (dark)
 PANEL_BG_DARK = #1f293b      // Card/panel background (dark)
@@ -463,6 +480,7 @@ self.view.apply_over(cx, live!{ draw_bg: { color: (vec4(0.12, 0.16, 0.23, 1.0)) 
 ## Data Models
 
 ### Provider Configuration
+
 ```rust
 pub enum ProviderType {
     OpenAi,
@@ -492,6 +510,7 @@ pub struct Provider {
 ```
 
 ### Audio Device Info
+
 ```rust
 pub struct AudioDeviceInfo {
     pub name: String,
@@ -502,6 +521,7 @@ pub struct AudioDeviceInfo {
 ## Creating a New App
 
 ### Step 1: Create Crate Structure
+
 ```
 apps/my-app/
 ├── Cargo.toml
@@ -513,6 +533,7 @@ apps/my-app/
 ```
 
 ### Step 2: Define Cargo.toml
+
 ```toml
 [package]
 name = "my-app"
@@ -524,10 +545,11 @@ path = "src/lib.rs"
 
 [dependencies]
 makepad-widgets.workspace = true
-mofa-widgets = { path = "../../mofa-widgets" }
+moxin-widgets = { path = "../../moxin-widgets" }
 ```
 
 ### Step 3: Create lib.rs
+
 ```rust
 mod screen;
 pub use screen::*;
@@ -540,6 +562,7 @@ pub fn live_design(cx: &mut Cx) {
 ```
 
 ### Step 4: Create screen.rs
+
 ```rust
 use makepad_widgets::*;
 
@@ -547,7 +570,7 @@ live_design! {
     use link::theme::*;
     use link::shaders::*;
     use link::widgets::*;
-    use mofa_widgets::theme::*;
+    use moxin_widgets::theme::*;
 
     pub MyAppScreen = {{MyAppScreen}} {
         width: Fill, height: Fill
@@ -582,17 +605,19 @@ impl Widget for MyAppScreen {
 
 ### Step 5: Register in Shell
 
-Add to `mofa-studio-shell/Cargo.toml`:
+Add to `moxin-studio-shell/Cargo.toml`:
+
 ```toml
 [features]
-default = ["mofa-fm", "mofa-settings", "my-app"]
+default = ["moxin-fm", "moxin-settings", "my-app"]
 my-app = ["dep:my-app"]
 
 [dependencies]
 my-app = { path = "../apps/my-app", optional = true }
 ```
 
-Add to `mofa-studio-shell/src/app.rs`:
+Add to `moxin-studio-shell/src/app.rs`:
+
 ```rust
 use my_app::screen::MyAppScreen;
 
@@ -605,10 +630,11 @@ impl LiveRegister for App {
 ```
 
 Add to live_design:
+
 ```rust
 content = <View> {
     flow: Overlay
-    fm_page = <MoFaFMScreen> { ... }
+    fm_page = <MoxinFMScreen> { ... }
     my_app_page = <MyAppScreen> {
         width: Fill, height: Fill
         visible: false
@@ -620,6 +646,7 @@ content = <View> {
 ### Step 6: Add Navigation
 
 Add sidebar button in `widgets/sidebar.rs`:
+
 ```rust
 my_app_tab = <SidebarMenuButton> {
     text: "My App"
@@ -630,6 +657,7 @@ my_app_tab = <SidebarMenuButton> {
 ```
 
 Add click handler in app.rs:
+
 ```rust
 if self.ui.button(ids!(sidebar_menu_overlay.sidebar_content.my_app_tab)).clicked(&actions) {
     self.sidebar_menu_open = false;
@@ -641,6 +669,7 @@ if self.ui.button(ids!(sidebar_menu_overlay.sidebar_content.my_app_tab)).clicked
 ## Event Handling Patterns
 
 ### Hover Events (Important!)
+
 Hover events (`FingerHoverIn`/`FingerHoverOut`) must be handled **before** the early return for `Event::Actions`:
 
 ```rust
@@ -667,6 +696,7 @@ fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
 ```
 
 ### Button Clicks
+
 ```rust
 if self.view.button(ids!(my_button)).clicked(actions) {
     // Handle click
@@ -674,6 +704,7 @@ if self.view.button(ids!(my_button)).clicked(actions) {
 ```
 
 ### View Finger Events
+
 ```rust
 if self.view.view(ids!(my_view)).finger_up(actions).is_some() {
     // Handle finger up on view
@@ -693,19 +724,23 @@ if self.view.view(ids!(my_view)).finger_up(actions).is_some() {
 ## Troubleshooting
 
 ### Widget Not Rendering
+
 - Check `live_design(cx)` is called in correct order
 - Verify import paths in live_design macro
 - Ensure `visible: true` is set
 
 ### Hover Not Working
+
 - Ensure hover handling is before the `Event::Actions` early return
 - Use `Hit::FingerHoverIn` / `Hit::FingerHoverOut`, not `MouseHoverIn`
 
 ### Events Not Firing
+
 - Ensure `handle_event` calls `self.view.handle_event(...)`
 - Verify button IDs match between live_design and code
 
 ### Animation Not Smooth
+
 - Call `self.ui.redraw(cx)` at end of animation update
 - Check `sidebar_animating` flag is being checked on every event
 
@@ -713,7 +748,7 @@ if self.view.view(ids!(my_view)).finger_up(actions).is_some() {
 
 - **Total Crates**: 5 (1 binary, 4 libraries)
 - **Total Lines**: ~6,500 lines of Rust
-- **Apps**: 2 (mofa-fm, mofa-settings)
+- **Apps**: 2 (moxin-fm, moxin-settings)
 - **Shared Widgets**: 7 reusable components (fully documented)
 - **Theme Colors**: 60+ (light/dark variants)
 - **Default Window**: 1400x900 pixels
@@ -721,14 +756,14 @@ if self.view.view(ids!(my_view)).finger_up(actions).is_some() {
 
 ## Related Documents
 
-| Document | Description |
-|----------|-------------|
-| `APP_DEVELOPMENT_GUIDE.md` | Step-by-step guide for creating apps |
+| Document                       | Description                             |
+| ------------------------------ | --------------------------------------- |
+| `APP_DEVELOPMENT_GUIDE.md`     | Step-by-step guide for creating apps    |
 | `STATE_MANAGEMENT_ANALYSIS.md` | Why Redux/Zustand don't work in Makepad |
-| `CHECKLIST.md` | Master refactoring checklist (P0-P3) |
-| `mofa-widgets/src/*.rs` | Widget rustdoc with usage examples |
+| `CHECKLIST.md`                 | Master refactoring checklist (P0-P3)    |
+| `moxin-widgets/src/*.rs`       | Widget rustdoc with usage examples      |
 
 ---
 
-*Last Updated: 2026-01-04*
-*Refactoring Complete: P0, P1, P2, P3*
+_Last Updated: 2026-01-04_
+_Refactoring Complete: P0, P1, P2, P3_

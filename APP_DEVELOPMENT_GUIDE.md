@@ -1,13 +1,14 @@
-# MoFA Studio App Development Guide
+# Moxin Studio App Development Guide
 
-> How to create apps for MoFA Studio using the MofaApp plugin system
+> How to create apps for Moxin Studio using the MoxinApp plugin system
 
 ---
 
 ## Overview
 
-MoFA Studio uses a trait-based plugin system for apps. Each app:
-1. Implements the `MofaApp` trait
+Moxin Studio uses a trait-based plugin system for apps. Each app:
+
+1. Implements the `MoxinApp` trait
 2. Provides widgets via Makepad's `live_design!` macro
 3. Registers with the shell at compile time
 
@@ -21,40 +22,40 @@ MoFA Studio uses a trait-based plugin system for apps. Each app:
 
 ```bash
 cd apps
-cargo new mofa-myapp --lib
+cargo new moxin-myapp --lib
 ```
 
 ### 2. Configure Cargo.toml
 
 ```toml
 [package]
-name = "mofa-myapp"
+name = "moxin-myapp"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 makepad-widgets = { workspace = true }
-mofa-widgets = { path = "../../mofa-widgets" }
+moxin-widgets = { path = "../../moxin-widgets" }
 ```
 
-### 3. Implement MofaApp Trait
+### 3. Implement MoxinApp Trait
 
 ```rust
 // src/lib.rs
 pub mod screen;
 
 use makepad_widgets::Cx;
-use mofa_widgets::{MofaApp, AppInfo};
+use moxin_widgets::{MoxinApp, AppInfo};
 
 /// App descriptor - required for plugin system
-pub struct MoFaMyApp;
+pub struct MoxinMyApp;
 
-impl MofaApp for MoFaMyApp {
+impl MoxinApp for MoxinMyApp {
     fn info() -> AppInfo {
         AppInfo {
             name: "My App",           // Display name in UI
-            id: "mofa-myapp",         // Unique identifier
-            description: "My custom MoFA app",
+            id: "moxin-myapp",         // Unique identifier
+            description: "My custom Moxin app",
         }
     }
 
@@ -65,7 +66,7 @@ impl MofaApp for MoFaMyApp {
 
 /// Backwards-compatible registration function
 pub fn live_design(cx: &mut Cx) {
-    MoFaMyApp::live_design(cx);
+    MoxinMyApp::live_design(cx);
 }
 ```
 
@@ -80,10 +81,10 @@ live_design! {
     use link::widgets::*;
 
     // Import shared theme (required)
-    use mofa_widgets::theme::FONT_REGULAR;
-    use mofa_widgets::theme::FONT_MEDIUM;
-    use mofa_widgets::theme::DARK_BG;
-    use mofa_widgets::theme::TEXT_PRIMARY;
+    use moxin_widgets::theme::FONT_REGULAR;
+    use moxin_widgets::theme::FONT_MEDIUM;
+    use moxin_widgets::theme::DARK_BG;
+    use moxin_widgets::theme::TEXT_PRIMARY;
 
     // Define your screen widget
     pub MyAppScreen = {{MyAppScreen}} {
@@ -132,48 +133,48 @@ impl Widget for MyAppScreen {
 
 ### 5. Add to Workspace
 
-Edit `examples/mofa-studio/Cargo.toml`:
+Edit `examples/moxin-studio/Cargo.toml`:
 
 ```toml
 [workspace]
 members = [
-    "mofa-widgets",
-    "mofa-studio-shell",
-    "apps/mofa-fm",
-    "apps/mofa-settings",
-    "apps/mofa-myapp",  # Add your app
+    "moxin-widgets",
+    "moxin-studio-shell",
+    "apps/moxin-fm",
+    "apps/moxin-settings",
+    "apps/moxin-myapp",  # Add your app
 ]
 ```
 
 ### 6. Add Shell Dependency
 
-Edit `mofa-studio-shell/Cargo.toml`:
+Edit `moxin-studio-shell/Cargo.toml`:
 
 ```toml
 [dependencies]
-mofa-myapp = { path = "../apps/mofa-myapp" }
+moxin-myapp = { path = "../apps/moxin-myapp" }
 ```
 
 ### 7. Register in Shell
 
-Edit `mofa-studio-shell/src/app.rs`:
+Edit `moxin-studio-shell/src/app.rs`:
 
 ```rust
 // Add imports
-use mofa_myapp::MoFaMyApp;
+use moxin_myapp::MoxinMyApp;
 
 // In live_design! macro - add widget type import
 live_design! {
-    use mofa_myapp::screen::MyAppScreen;  // Compile-time requirement
+    use moxin_myapp::screen::MyAppScreen;  // Compile-time requirement
     // ...
 }
 
 // In LiveHook::after_new_from_doc - register app info
 impl LiveHook for App {
     fn after_new_from_doc(&mut self, _cx: &mut Cx) {
-        self.app_registry.register(MoFaFMApp::info());
-        self.app_registry.register(MoFaSettingsApp::info());
-        self.app_registry.register(MoFaMyApp::info());  // Add this
+        self.app_registry.register(MoxinFMApp::info());
+        self.app_registry.register(MoxinSettingsApp::info());
+        self.app_registry.register(MoxinMyApp::info());  // Add this
     }
 }
 
@@ -181,7 +182,7 @@ impl LiveHook for App {
 impl LiveRegister for App {
     fn live_register(cx: &mut Cx) {
         // ...
-        <MoFaMyApp as MofaApp>::live_design(cx);  // Add this
+        <MoxinMyApp as MoxinApp>::live_design(cx);  // Add this
     }
 }
 ```
@@ -247,17 +248,17 @@ fn hide_my_app(&mut self, cx: &mut Cx) {
 }
 ```
 
-**Reference**: See `mofa-fm/src/screen.rs` for a complete example with audio meter timers.
+**Reference**: See `moxin-fm/src/screen.rs` for a complete example with audio meter timers.
 
 ### Using Shared Widgets
 
-Import widgets from `mofa-widgets`:
+Import widgets from `moxin-widgets`:
 
 ```rust
 live_design! {
-    use mofa_widgets::waveform_view::WaveformView;
-    use mofa_widgets::led_gauge::LedGauge;
-    use mofa_widgets::participant_panel::ParticipantPanel;
+    use moxin_widgets::waveform_view::WaveformView;
+    use moxin_widgets::led_gauge::LedGauge;
+    use moxin_widgets::participant_panel::ParticipantPanel;
 
     pub MyAppScreen = {{MyAppScreen}} {
         // Use shared widgets
@@ -272,10 +273,10 @@ live_design! {
 ## Project Structure
 
 ```
-apps/mofa-myapp/
+apps/moxin-myapp/
 ├── Cargo.toml
 └── src/
-    ├── lib.rs          # MofaApp impl, exports
+    ├── lib.rs          # MoxinApp impl, exports
     ├── screen.rs       # Main screen widget
     └── components.rs   # Optional: sub-components
 ```
@@ -283,7 +284,7 @@ apps/mofa-myapp/
 ### Recommended lib.rs Pattern
 
 ```rust
-//! MoFA MyApp - Description of your app
+//! Moxin MyApp - Description of your app
 
 pub mod screen;
 // pub mod components;  // Optional: additional modules
@@ -292,15 +293,15 @@ pub mod screen;
 pub use screen::MyAppScreen;
 
 use makepad_widgets::Cx;
-use mofa_widgets::{MofaApp, AppInfo};
+use moxin_widgets::{MoxinApp, AppInfo};
 
-pub struct MoFaMyApp;
+pub struct MoxinMyApp;
 
-impl MofaApp for MoFaMyApp {
+impl MoxinApp for MoxinMyApp {
     fn info() -> AppInfo {
         AppInfo {
             name: "My App",
-            id: "mofa-myapp",
+            id: "moxin-myapp",
             description: "Description here",
         }
     }
@@ -313,7 +314,7 @@ impl MofaApp for MoFaMyApp {
 
 /// Backwards-compatible registration function
 pub fn live_design(cx: &mut Cx) {
-    MoFaMyApp::live_design(cx);
+    MoxinMyApp::live_design(cx);
 }
 ```
 
@@ -321,28 +322,28 @@ pub fn live_design(cx: &mut Cx) {
 
 ## Theme Integration
 
-Always use the shared theme from `mofa_widgets::theme`:
+Always use the shared theme from `moxin_widgets::theme`:
 
 ```rust
 live_design! {
     // Fonts
-    use mofa_widgets::theme::FONT_REGULAR;
-    use mofa_widgets::theme::FONT_MEDIUM;
-    use mofa_widgets::theme::FONT_SEMIBOLD;
-    use mofa_widgets::theme::FONT_BOLD;
+    use moxin_widgets::theme::FONT_REGULAR;
+    use moxin_widgets::theme::FONT_MEDIUM;
+    use moxin_widgets::theme::FONT_SEMIBOLD;
+    use moxin_widgets::theme::FONT_BOLD;
 
     // Colors (Light mode)
-    use mofa_widgets::theme::DARK_BG;
-    use mofa_widgets::theme::PANEL_BG;
-    use mofa_widgets::theme::ACCENT_BLUE;
-    use mofa_widgets::theme::TEXT_PRIMARY;
-    use mofa_widgets::theme::TEXT_SECONDARY;
+    use moxin_widgets::theme::DARK_BG;
+    use moxin_widgets::theme::PANEL_BG;
+    use moxin_widgets::theme::ACCENT_BLUE;
+    use moxin_widgets::theme::TEXT_PRIMARY;
+    use moxin_widgets::theme::TEXT_SECONDARY;
 
     // Colors (Dark mode variants)
-    use mofa_widgets::theme::DARK_BG_DARK;
-    use mofa_widgets::theme::PANEL_BG_DARK;
-    use mofa_widgets::theme::TEXT_PRIMARY_DARK;
-    use mofa_widgets::theme::TEXT_SECONDARY_DARK;
+    use moxin_widgets::theme::DARK_BG_DARK;
+    use moxin_widgets::theme::PANEL_BG_DARK;
+    use moxin_widgets::theme::TEXT_PRIMARY_DARK;
+    use moxin_widgets::theme::TEXT_SECONDARY_DARK;
 }
 ```
 
@@ -352,7 +353,7 @@ live_design! {
 
 ## Dark Mode Support
 
-MoFA Studio supports runtime dark/light mode switching. Apps should implement dark mode to maintain visual consistency.
+Moxin Studio supports runtime dark/light mode switching. Apps should implement dark mode to maintain visual consistency.
 
 ### Adding Dark Mode to Widgets
 
@@ -360,7 +361,7 @@ Use `instance dark_mode` with `mix()` in shaders:
 
 ```rust
 live_design! {
-    use mofa_widgets::theme::*;
+    use moxin_widgets::theme::*;
 
     pub MyWidget = {{MyWidget}} <RoundedView> {
         show_bg: true
@@ -432,11 +433,11 @@ self.view.apply_over(cx, live!{ draw_bg: { color: (vec4(0.12, 0.16, 0.23, 1.0)) 
 
 ### Color Reference (vec4 format)
 
-| Purpose | Light Mode | Dark Mode |
-|---------|------------|-----------|
-| Panel background | `vec4(1.0, 1.0, 1.0, 1.0)` | `vec4(0.12, 0.16, 0.23, 1.0)` |
-| Text primary | `vec4(0.12, 0.16, 0.22, 1.0)` | `vec4(0.95, 0.96, 0.98, 1.0)` |
-| Hover background | `vec4(0.95, 0.96, 0.98, 1.0)` | `vec4(0.2, 0.25, 0.33, 1.0)` |
+| Purpose          | Light Mode                    | Dark Mode                     |
+| ---------------- | ----------------------------- | ----------------------------- |
+| Panel background | `vec4(1.0, 1.0, 1.0, 1.0)`    | `vec4(0.12, 0.16, 0.23, 1.0)` |
+| Text primary     | `vec4(0.12, 0.16, 0.22, 1.0)` | `vec4(0.95, 0.96, 0.98, 1.0)` |
+| Hover background | `vec4(0.95, 0.96, 0.98, 1.0)` | `vec4(0.2, 0.25, 0.33, 1.0)`  |
 
 ---
 
@@ -444,23 +445,27 @@ self.view.apply_over(cx, live!{ draw_bg: { color: (vec4(0.12, 0.16, 0.23, 1.0)) 
 
 Before submitting your app:
 
-**MofaApp Trait:**
-- [ ] Implements `MofaApp` trait with valid `info()` and `live_design()`
+**MoxinApp Trait:**
+
+- [ ] Implements `MoxinApp` trait with valid `info()` and `live_design()`
 - [ ] Exports main screen widget for shell's `live_design!` macro
 
 **Theme & Dark Mode:**
+
 - [ ] Uses shared theme (no local font/color definitions)
 - [ ] Widgets have `instance dark_mode: 0.0` for themeable elements
 - [ ] Implements `update_dark_mode()` on screen Ref type
 - [ ] Uses `vec4()` for runtime color changes in `apply_over()`
 
 **Timer Management (if applicable):**
+
 - [ ] Implements `stop_timers()` and `start_timers()` on Ref type
 - [ ] Shell calls timer methods when hiding/showing app
 
 **Integration:**
+
 - [ ] Added to workspace `Cargo.toml`
-- [ ] Added as dependency in `mofa-studio-shell/Cargo.toml`
+- [ ] Added as dependency in `moxin-studio-shell/Cargo.toml`
 - [ ] Registered in shell's `LiveHook::after_new_from_doc`
 - [ ] Registered in shell's `LiveRegister::live_register`
 - [ ] Widget type imported in shell's `live_design!` macro
@@ -471,10 +476,10 @@ Before submitting your app:
 
 ## Reference Apps
 
-| App | Description | Features |
-|-----|-------------|----------|
-| `mofa-fm` | Audio streaming | Timer management, shader animations |
-| `mofa-settings` | Provider config | Modal dialogs, form inputs, state management |
+| App              | Description     | Features                                     |
+| ---------------- | --------------- | -------------------------------------------- |
+| `moxin-fm`       | Audio streaming | Timer management, shader animations          |
+| `moxin-settings` | Provider config | Modal dialogs, form inputs, state management |
 
 ---
 
@@ -483,17 +488,19 @@ Before submitting your app:
 ### "no function named `live_design_with`"
 
 Your widget type isn't properly imported in the shell's `live_design!` macro:
+
 ```rust
 live_design! {
-    use mofa_myapp::screen::MyAppScreen;  // Must be here
+    use moxin_myapp::screen::MyAppScreen;  // Must be here
 }
 ```
 
-### "trait bound `MoFaMyApp: MofaApp` is not satisfied"
+### "trait bound `MoxinMyApp: MoxinApp` is not satisfied"
 
 Check your imports:
+
 ```rust
-use mofa_widgets::{MofaApp, AppInfo};  // Both needed
+use moxin_widgets::{MoxinApp, AppInfo};  // Both needed
 ```
 
 ### Timer keeps running when app is hidden
@@ -502,8 +509,8 @@ Implement timer control and ensure shell calls `stop_timers()` on visibility cha
 
 ### Fonts/colors don't match other apps
 
-Use `mofa_widgets::theme::*` instead of defining locally.
+Use `moxin_widgets::theme::*` instead of defining locally.
 
 ---
 
-*Last Updated: 2026-01-04*
+_Last Updated: 2026-01-04_

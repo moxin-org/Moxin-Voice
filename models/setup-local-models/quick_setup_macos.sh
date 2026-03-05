@@ -54,14 +54,14 @@ print_header "Step 1: Checking Dependencies"
 
 # Step 2: Setup environment
 print_header "Step 2: Setting Up Environment"
-if conda env list | grep -q "^mofa-studio "; then
-    print_warning "Environment 'mofa-studio' already exists"
+if conda env list | grep -q "^moxin-studio "; then
+    print_warning "Environment 'moxin-studio' already exists"
     read -p "Do you want to recreate it? (y/n): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         print_info "Removing existing environment..."
         conda deactivate 2>/dev/null || true
-        conda env remove -n mofa-studio -y
+        conda env remove -n moxin-studio -y
         ./setup_isolated_env.sh
     else
         print_info "Using existing environment"
@@ -73,13 +73,13 @@ fi
 # Step 3: Install packages
 print_header "Step 3: Installing Packages"
 eval "$(conda shell.bash hook)"
-conda activate mofa-studio
+conda activate moxin-studio
 ./install_all_packages.sh
 
 # Step 4: Verify installation
 print_header "Step 4: Verifying Installation"
 eval "$(conda shell.bash hook)"
-conda activate mofa-studio
+conda activate moxin-studio
 python test_dependencies.py || {
     print_error "Dependency verification failed"
     print_info "This might be normal if some optional nodes are not installed"
@@ -134,14 +134,14 @@ echo ""
 echo "Quick Start:"
 echo ""
 echo "  1. Activate environment:"
-echo "     conda activate mofa-studio"
+echo "     conda activate moxin-studio"
 echo ""
 echo "  2. Run the application:"
 echo "     cd ../../.."
-echo "     cargo run -p moxin-tts"
+echo "     cargo run -p moxin-voice"
 echo ""
-echo "  3. Or use MoYoYo UI:"
-echo "     cargo run -p moxin-tts --features moyoyo-ui"
+echo "  3. Or use Moxin UI:"
+echo "     cargo run -p moxin-voice"
 echo ""
 echo "Additional Commands:"
 echo ""

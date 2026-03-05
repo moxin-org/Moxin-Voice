@@ -41,7 +41,7 @@ class ModelManager:
             models_dir: Directory to store models
         """
         self.models_dir = Path(models_dir)
-        self.moyoyo_dir = self.models_dir / "moyoyo"  # MoYoYo models directory
+        self.moyoyo_dir = self.models_dir / "moyoyo"  # Moxin models directory
         self.moyoyo_dir.mkdir(parents=True, exist_ok=True)
         
         # Model repository on HuggingFace

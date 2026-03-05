@@ -1,5 +1,5 @@
 // New methods to add to VoiceCloneModal impl block
-// Copy these methods into apps/mofa-primespeech/src/voice_clone_modal.rs
+// Copy these methods into apps/moxin-primespeech/src/voice_clone_modal.rs
 // Insert before the closing brace of `impl VoiceCloneModal` (before line 1960)
 
 fn switch_to_mode(&mut self, cx: &mut Cx, mode: CloneMode) {
