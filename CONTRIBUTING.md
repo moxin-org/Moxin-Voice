@@ -1,6 +1,6 @@
-# Contributing to MoFA Studio
+# Contributing to Moxin Studio
 
-Thank you for your interest in contributing to MoFA Studio! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to Moxin Studio! This document provides guidelines and instructions for contributing to the project.
 
 ## Table of Contents
 
@@ -23,8 +23,8 @@ Be respectful, professional, and inclusive. We welcome contributions from everyo
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/mofa-studio.git
-   cd mofa-studio
+   git clone https://github.com/YOUR_USERNAME/moxin-studio.git
+   cd moxin-studio
    ```
 3. **Create a branch** for your feature:
    ```bash
@@ -60,38 +60,38 @@ RUST_LOG=debug cargo run
 
 ## Project Structure
 
-MoFA Studio is organized as a Cargo workspace:
+Moxin Studio is organized as a Cargo workspace:
 
 ```
-mofa-studio/
-├── mofa-studio-shell/    # Main application (binary)
-├── mofa-widgets/         # Shared UI components (library)
+moxin-studio/
+├── moxin-studio-shell/    # Main application (binary)
+├── moxin-widgets/         # Shared UI components (library)
 └── apps/
-    ├── mofa-fm/          # Voice chat app (library)
-    └── mofa-settings/    # Settings app (library)
+    ├── moxin-fm/          # Voice chat app (library)
+    └── moxin-settings/    # Settings app (library)
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation.
 
 ## Creating a New App
 
-MoFA Studio uses a plugin-based architecture. To create a new app:
+Moxin Studio uses a plugin-based architecture. To create a new app:
 
 1. **Read the guide**: See [APP_DEVELOPMENT_GUIDE.md](APP_DEVELOPMENT_GUIDE.md)
-2. **Follow the pattern**: Look at `apps/mofa-fm` or `apps/mofa-settings` as examples
-3. **Implement MofaApp trait**: Required for app registration
-4. **Use the theme system**: Import colors and fonts from `mofa-widgets::theme`
+2. **Follow the pattern**: Look at `apps/moxin-fm` or `apps/moxin-settings` as examples
+3. **Implement MoxinApp trait**: Required for app registration
+4. **Use the theme system**: Import colors and fonts from `moxin-widgets::theme`
 5. **Support dark mode**: Use `instance dark_mode` pattern in shaders
 
 ### Quick Example
 
 ```rust
 // Your app's lib.rs
-use mofa_widgets::{MofaApp, AppInfo};
+use moxin_widgets::{MoxinApp, AppInfo};
 
 pub struct MyApp;
 
-impl MofaApp for MyApp {
+impl MoxinApp for MyApp {
     fn info() -> AppInfo {
         AppInfo {
             name: "My App",
@@ -120,7 +120,7 @@ impl MofaApp for MyApp {
 
 - **Widget IDs**: Use `snake_case` (e.g., `ids!(sidebar_menu)`)
 - **Widget Types**: Use `PascalCase` (e.g., `MyAppScreen`)
-- **Theme colors**: Use constants from `mofa-widgets::theme`
+- **Theme colors**: Use constants from `moxin-widgets::theme`
 - **Dark mode**: Always support both light and dark themes
 
 ### Naming Patterns
@@ -139,7 +139,7 @@ pub struct settings_screen { ... }  // should be PascalCase
 
 ### Manual Testing
 
-Since MoFA Studio is a GUI application, testing is primarily manual:
+Since Moxin Studio is a GUI application, testing is primarily manual:
 
 1. **Build succeeds**: `cargo build`
 2. **Application runs**: `cargo run`
@@ -154,6 +154,7 @@ Since MoFA Studio is a GUI application, testing is primarily manual:
 ### Unit Tests (Future)
 
 We plan to add unit tests for:
+
 - Data models (`Provider`, `Preferences`)
 - Pure logic functions
 - AppRegistry operations
@@ -199,12 +200,14 @@ Use conventional commit style:
 Apps should be **self-contained** with minimal shell coupling:
 
 ✅ **Do:**
+
 - Keep all app logic inside the app crate
-- Use the `MofaApp` trait for registration
+- Use the `MoxinApp` trait for registration
 - Implement dark mode support
 - Own your app's state
 
 ❌ **Don't:**
+
 - Access shell internals from apps
 - Store app state in the shell
 - Create tight coupling with other apps
@@ -216,7 +219,7 @@ Always use the centralized theme:
 
 ```rust
 // Good - uses theme constants
-use mofa_widgets::theme::*;
+use moxin_widgets::theme::*;
 
 draw_bg: {
     fn pixel(self) -> vec4 {
@@ -257,4 +260,4 @@ By contributing, you agree that your contributions will be licensed under the Ap
 
 ---
 
-Thank you for contributing to MoFA Studio! 🎉
+Thank you for contributing to Moxin Studio! 🎉

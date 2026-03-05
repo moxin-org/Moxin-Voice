@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed MoYoYo TTS wrapper with real streaming support via audio chunking."""
+"""Fixed Moxin TTS wrapper with real streaming support via audio chunking."""
 
 import sys
 import os
@@ -23,7 +23,7 @@ if sys.platform == "darwin":
 
 
 def _ensure_langsegment_compatibility():
-    """Ensure newer LangSegment releases work with legacy MoYoYo imports."""
+    """Ensure newer LangSegment releases work with legacy Moxin imports."""
     try:
         import LangSegment  # noqa: F401  # Trigger default import
     except ImportError as exc:
@@ -59,10 +59,10 @@ import re
 # Setup module logger
 logger = logging.getLogger(__name__)
 
-# Check if MoYoYo TTS is available
-MOYOYO_AVAILABLE = False
+# Check if Moxin TTS is available
+MOXIN_AVAILABLE = False
 
-# Try to import MoYoYo TTS
+# Try to import Moxin TTS
 try:
     # Add local moyoyo_tts to path
     local_moyoyo_path = Path(__file__).parent
@@ -80,7 +80,7 @@ try:
     # Ensure LangSegment compatibility across versions
     _ensure_langsegment_compatibility()
 
-    # Import MoYoYo TTS
+    # Import Moxin TTS
     from moyoyo_tts.TTS_infer_pack.TTS import TTS_Config, TTS
     from moyoyo_tts.TTS_infer_pack.text_segmentation_method import get_method as get_seg_method
     from moyoyo_tts.utils import HParams
@@ -89,18 +89,18 @@ try:
         import moyoyo_tts.utils as _moyoyo_utils
         sys.modules['utils'] = _moyoyo_utils
 
-    MOYOYO_AVAILABLE = True
-    logger.info("MoYoYo TTS successfully imported")
+    MOXIN_AVAILABLE = True
+    logger.info("Moxin TTS successfully imported")
 except ImportError as e:
-    logger.error(f"Failed to import MoYoYo TTS: {e}")
-    MOYOYO_AVAILABLE = False
+    logger.error(f"Failed to import Moxin TTS: {e}")
+    MOXIN_AVAILABLE = False
 
 
-class StreamingMoYoYoTTSWrapper:
-    """Fixed wrapper for MoYoYo TTS with real streaming via audio chunking."""
+class StreamingMoxinTTSWrapper:
+    """Fixed wrapper for Moxin TTS with real streaming via audio chunking."""
     
     def __init__(self, voice="doubao", device="cpu", enable_streaming=True, chunk_duration=0.5, models_path=None, voice_config=None, logger_func=None):
-        """Initialize streaming MoYoYo TTS wrapper.
+        """Initialize streaming Moxin TTS wrapper.
         
         Args:
             voice: Voice name (doubao, luoxiang, yangmi, etc.)
@@ -130,12 +130,12 @@ class StreamingMoYoYoTTSWrapper:
         # Abort flag for interrupting synthesis
         self._abort_synthesis = False
         
-        # Optimization parameters - disable MoYoYo's broken "streaming"
+        # Optimization parameters - disable Moxin's broken "streaming"
         self.optimization_config = {
             "batch_size": 100,  # Smaller batches for faster first output
             "text_split_method": "cut5",  # Automatic segmentation
             "split_bucket": True,  # Enable bucketing
-            "return_fragment": False,  # DISABLE MoYoYo's broken streaming
+            "return_fragment": False,  # DISABLE Moxin's broken streaming
             # "fragment_interval": 0.07,
             "parallel_infer": False,
             "top_k": 5,
@@ -145,7 +145,7 @@ class StreamingMoYoYoTTSWrapper:
             "seed": 233333,
         }
         
-        if MOYOYO_AVAILABLE:
+        if MOXIN_AVAILABLE:
             self._init_tts()
     
     def log(self, level, message):
@@ -163,9 +163,9 @@ class StreamingMoYoYoTTSWrapper:
     
     def _init_tts(self):
         """Initialize the TTS engine."""
-        if not MOYOYO_AVAILABLE:
-            self.log("ERROR", "MoYoYo TTS not available - cannot initialize TTS engine")
-            self.log("ERROR", f"MOYOYO_AVAILABLE: {MOYOYO_AVAILABLE}")
+        if not MOXIN_AVAILABLE:
+            self.log("ERROR", "Moxin TTS not available - cannot initialize TTS engine")
+            self.log("ERROR", f"MOXIN_AVAILABLE: {MOXIN_AVAILABLE}")
             self.log("ERROR", f"models_path: {self.models_path}")
             return
         
@@ -229,7 +229,7 @@ class StreamingMoYoYoTTSWrapper:
         }
         
         try:
-            self.log("INFO", f"Initializing MoYoYo TTS with voice: {self.voice}")
+            self.log("INFO", f"Initializing Moxin TTS with voice: {self.voice}")
             self.log("INFO", f"Model paths:")
             self.log("INFO", f"  t2s_weights: {custom_config['t2s_weights_path']}")
             self.log("INFO", f"  vits_weights: {custom_config['vits_weights_path']}")
@@ -253,9 +253,9 @@ class StreamingMoYoYoTTSWrapper:
             # Pre-cache reference audio
             self.tts.set_ref_audio(self.ref_audio_path)
             
-            self.log("INFO", "MoYoYo TTS initialized successfully")
+            self.log("INFO", "Moxin TTS initialized successfully")
         except Exception as e:
-            self.log("ERROR", f"Failed to initialize MoYoYo TTS: {e}")
+            self.log("ERROR", f"Failed to initialize Moxin TTS: {e}")
             import traceback
             self.log("ERROR", traceback.format_exc())
             self.tts = None
@@ -367,10 +367,10 @@ class StreamingMoYoYoTTSWrapper:
         Yields:
             tuple: (sample_rate, audio_fragment) for each fragment
         """
-        if not MOYOYO_AVAILABLE or self.tts is None:
-            self.log("ERROR", "MoYoYo TTS not available - cannot synthesize")
-            if not MOYOYO_AVAILABLE:
-                self.log("ERROR", "MOYOYO_AVAILABLE is False - TTS libraries not imported")
+        if not MOXIN_AVAILABLE or self.tts is None:
+            self.log("ERROR", "Moxin TTS not available - cannot synthesize")
+            if not MOXIN_AVAILABLE:
+                self.log("ERROR", "MOXIN_AVAILABLE is False - TTS libraries not imported")
             if self.tts is None:
                 self.log("ERROR", "self.tts is None - TTS engine not initialized")
                 self.log("ERROR", f"models_path: {self.models_path}")
@@ -400,7 +400,7 @@ class StreamingMoYoYoTTSWrapper:
                 
                 self.log("INFO", f"[STREAM] Processing chunk {chunk_idx + 1}: {text_chunk[:30]}...")
 
-                # Prepare inputs without MoYoYo's broken streaming
+                # Prepare inputs without Moxin's broken streaming
                 inputs = {
                     "text": text_chunk,
                     "text_lang": language,
@@ -408,7 +408,7 @@ class StreamingMoYoYoTTSWrapper:
                     "prompt_text": self.prompt_text,
                     "prompt_lang": "zh",
                     "speed_factor": speed,
-                    "return_fragment": False,  # Don't use MoYoYo's broken streaming
+                    "return_fragment": False,  # Don't use Moxin's broken streaming
                     **self.optimization_config
                 }
 
@@ -465,10 +465,10 @@ class StreamingMoYoYoTTSWrapper:
         # Reset abort flag at start of new synthesis (safe timing)
         self._abort_synthesis = False
         
-        if not MOYOYO_AVAILABLE or self.tts is None:
-            self.log("ERROR", "MoYoYo TTS not available - cannot synthesize")
-            if not MOYOYO_AVAILABLE:
-                self.log("ERROR", "MOYOYO_AVAILABLE is False - TTS libraries not imported")
+        if not MOXIN_AVAILABLE or self.tts is None:
+            self.log("ERROR", "Moxin TTS not available - cannot synthesize")
+            if not MOXIN_AVAILABLE:
+                self.log("ERROR", "MOXIN_AVAILABLE is False - TTS libraries not imported")
             if self.tts is None:
                 self.log("ERROR", "self.tts is None - TTS engine not initialized")
                 self.log("ERROR", f"models_path: {self.models_path}")
@@ -567,11 +567,11 @@ def test_streaming_fix():
     import sounddevice as sd
     
     print("\n" + "=" * 60)
-    print("Testing Fixed Streaming MoYoYo TTS Wrapper")
+    print("Testing Fixed Streaming Moxin TTS Wrapper")
     print("=" * 60)
     
     # Initialize wrapper
-    tts = StreamingMoYoYoTTSWrapper(
+    tts = StreamingMoxinTTSWrapper(
         voice="doubao", 
         device="cpu", 
         enable_streaming=True,

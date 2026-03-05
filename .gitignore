@@ -48,5 +48,5 @@ build/
 setup.py
 
 # Local env dirs
-.venv-mofa/
-.nix-mofa/
+.venv-moxin/
+.nix-moxin/

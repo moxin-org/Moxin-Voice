@@ -16,7 +16,7 @@ from typing import Optional
 
 from .config import PrimeSpeechConfig, VOICE_CONFIGS
 from .model_manager import ModelManager
-from .moyoyo_tts_wrapper_streaming_fix import StreamingMoYoYoTTSWrapper as MoYoYoTTSWrapper, MOYOYO_AVAILABLE
+from .moyoyo_tts_wrapper_streaming_fix import StreamingMoxinTTSWrapper as MoxinTTSWrapper, MOXIN_AVAILABLE
 
 # Add common logging to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'dora-common'))
@@ -36,7 +36,7 @@ def send_log(node, level, message, config_level="INFO"):
 
 def validate_language_config(lang_code, param_name, node, log_level):
     """Validate language configuration and provide helpful error messages"""
-    # Valid language codes for MoYoYo TTS v2
+    # Valid language codes for Moxin TTS v2
     VALID_LANGUAGES = ["auto", "auto_yue", "en", "zh", "ja", "yue", "ko",
                       "all_zh", "all_ja", "all_yue", "all_ko"]
 
@@ -67,7 +67,7 @@ def validate_language_config(lang_code, param_name, node, log_level):
 
 
 def _validate_models_path(logger, models_env_var="PRIMESPEECH_MODEL_DIR") -> Optional[Path]:
-    """Validate that required model directory exists and contains MoYoYo subdir.
+    """Validate that required model directory exists and contains Moxin subdir.
     Returns the resolved path if valid, else None.
     """
     raw = os.environ.get(models_env_var)
@@ -169,10 +169,10 @@ def main():
     
     send_log(node, "INFO", "PrimeSpeech Node initialized", config.LOG_LEVEL)
     
-    if MOYOYO_AVAILABLE:
-        send_log(node, "INFO", "✓ MoYoYo TTS engine available", config.LOG_LEVEL)
+    if MOXIN_AVAILABLE:
+        send_log(node, "INFO", "✓ Moxin TTS engine available", config.LOG_LEVEL)
     else:
-        send_log(node, "WARNING", "⚠️  MoYoYo TTS not fully available", config.LOG_LEVEL)
+        send_log(node, "WARNING", "⚠️  Moxin TTS not fully available", config.LOG_LEVEL)
     
     # Log the configuration being used
     send_log(node, "INFO", f"Voice: {voice_name}", config.LOG_LEVEL)
@@ -217,7 +217,7 @@ def main():
                 config.LOG_LEVEL)
     
     # Initialize TTS engine
-    tts_engine: Optional[MoYoYoTTSWrapper] = None
+    tts_engine: Optional[MoxinTTSWrapper] = None
     model_loaded = False
 
     # Pre-initialize TTS engine to avoid first-call delay
@@ -242,7 +242,7 @@ def main():
             device = "cpu"
         enable_streaming = config.RETURN_FRAGMENT if hasattr(config, 'RETURN_FRAGMENT') else False
 
-        tts_engine = MoYoYoTTSWrapper(
+        tts_engine = MoxinTTSWrapper(
             voice=moyoyo_voice,
             device=device,
             enable_streaming=enable_streaming,
@@ -346,7 +346,7 @@ def main():
                                 # Create custom voice config using default model weights
                                 # This enables zero-shot voice cloning with user's reference audio
                                 custom_voice_config = {
-                                    "repository": "MoYoYoTech/tone-models",
+                                    "repository": "MoxinTech/tone-models",
                                     "gpt_weights": "GPT_weights/doubao-mixed.ckpt",  # Use default GPT weights
                                     "sovits_weights": "SoVITS_weights/doubao-mixed.pth",  # Use default SoVITS weights
                                     "reference_audio": ref_audio_path,  # User's reference audio (absolute path)
@@ -512,7 +512,7 @@ def main():
                         # Always use PRIMESPEECH_MODEL_DIR
                         send_log(node, "DEBUG", "Using PRIMESPEECH_MODEL_DIR for models...", config.LOG_LEVEL)
                         # Initialize TTS engine
-                        # Convert voice name to lowercase and remove spaces for MoYoYo compatibility
+                        # Convert voice name to lowercase and remove spaces for Moxin compatibility
                         moyoyo_voice = current_voice_name.lower().replace(" ", "")
 
                         # Support CUDA, MPS (Apple Silicon), or CPU
@@ -529,10 +529,10 @@ def main():
                         enable_streaming = config.RETURN_FRAGMENT if hasattr(config, 'RETURN_FRAGMENT') else False
 
                         # Initialize TTS wrapper using PRIMESPEECH_MODEL_DIR
-                        print(f"DEBUG: About to create MoYoYoTTSWrapper with voice='{moyoyo_voice}', device='{device}', config keys={list(current_voice_config.keys())}", file=sys.stderr, flush=True)
+                        print(f"DEBUG: About to create MoxinTTSWrapper with voice='{moyoyo_voice}', device='{device}', config keys={list(current_voice_config.keys())}", file=sys.stderr, flush=True)
                         print(f"DEBUG: Config gpt_weights={current_voice_config.get('gpt_weights', 'NONE')}", file=sys.stderr, flush=True)
                         print(f"DEBUG: Config sovits_weights={current_voice_config.get('sovits_weights', 'NONE')}", file=sys.stderr, flush=True)
-                        tts_engine = MoYoYoTTSWrapper(
+                        tts_engine = MoxinTTSWrapper(
                             voice=moyoyo_voice,
                             device=device,
                             enable_streaming=enable_streaming,
@@ -540,7 +540,7 @@ def main():
                             voice_config=current_voice_config,
                             logger_func=lambda level, msg: send_log(node, level, msg, config.LOG_LEVEL)
                         )
-                        print(f"DEBUG: MoYoYoTTSWrapper created successfully", file=sys.stderr, flush=True)
+                        print(f"DEBUG: MoxinTTSWrapper created successfully", file=sys.stderr, flush=True)
                         
                         # Store current voice and model weights for change detection
                         tts_engine._current_voice = current_voice_name

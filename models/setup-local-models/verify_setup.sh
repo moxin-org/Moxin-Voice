@@ -16,20 +16,20 @@ echo -e "${BLUE}Moxin TTS Setup Verification${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# Check if mofa-studio environment exists
-if conda env list | grep -q "^mofa-studio "; then
-    echo -e "${GREEN}✓${NC} mofa-studio environment exists"
+# Check if moxin-studio environment exists
+if conda env list | grep -q "^moxin-studio "; then
+    echo -e "${GREEN}✓${NC} moxin-studio environment exists"
 else
-    echo -e "${RED}✗${NC} mofa-studio environment not found"
+    echo -e "${RED}✗${NC} moxin-studio environment not found"
     echo "  Run: ./setup_isolated_env.sh"
     exit 1
 fi
 
 # Activate environment and run tests
 echo ""
-echo "Activating mofa-studio environment..."
+echo "Activating moxin-studio environment..."
 eval "$(conda shell.bash hook)"
-conda activate mofa-studio
+conda activate moxin-studio
 
 echo ""
 echo "Running dependency tests..."
@@ -44,7 +44,7 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "You can now:"
     echo "  1. Download models: cd ../model-manager && python download_models.py"
-    echo "  2. Run the app: cd ../.. && cargo run -p moxin-tts"
+    echo "  2. Run the app: cd ../.. && cargo run -p moxin-voice"
     echo ""
 else
     echo ""

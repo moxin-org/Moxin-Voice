@@ -1,11 +1,11 @@
-# MoFA Studio - Pixi Configuration
+# Moxin Studio - Pixi Configuration
 # Replaces setup_isolated_env.sh and install_all_packages.sh
 # Usage: pixi install && pixi run setup
 
 [project]
-name = "mofa-studio"
+name = "moxin-studio"
 version = "0.1.0"
-description = "MoFA Studio - AI Voice Chat Application with Makepad UI and Dora dataflow"
+description = "Moxin Studio - AI Voice Chat Application with Makepad UI and Dora dataflow"
 channels = ["conda-forge", "pytorch"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 

@@ -76,11 +76,11 @@ print_info "Checking Conda..."
 if command -v conda &> /dev/null; then
     print_success "Conda installed: $(conda --version)"
     
-    # Check if mofa-studio environment exists
-    if conda env list | grep -q "^mofa-studio "; then
-        print_success "mofa-studio environment exists"
+    # Check if moxin-studio environment exists
+    if conda env list | grep -q "^moxin-studio "; then
+        print_success "moxin-studio environment exists"
     else
-        print_warning "mofa-studio environment not found"
+        print_warning "moxin-studio environment not found"
         WARNINGS+=("Run ./setup_isolated_env.sh to create the environment")
     fi
 else
@@ -150,7 +150,7 @@ if [ ${#MISSING_DEPS[@]} -eq 0 ]; then
     
     echo "Next steps:"
     echo "  1. Run: ./setup_isolated_env.sh"
-    echo "  2. Run: conda activate mofa-studio && ./install_all_packages.sh"
+    echo "  2. Run: conda activate moxin-studio && ./install_all_packages.sh"
     echo "  3. Download models: cd ../model-manager && python download_models.py"
     echo ""
     print_success "You're ready to set up Moxin TTS!"

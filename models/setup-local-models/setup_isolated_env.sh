@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# MoFA Studio - Isolated Environment Setup
+# Moxin Studio - Isolated Environment Setup
 # Creates a fresh Python environment with all required Dora nodes
 # Uses standardized dependency versions to avoid conflicts
 # See DEPENDENCIES.md for detailed dependency specifications
@@ -8,7 +8,7 @@
 set -e  # Exit on error
 
 # Configuration
-ENV_NAME="mofa-studio"
+ENV_NAME="moxin-studio"
 PYTHON_VERSION="3.12"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."  # Assumes script is in examples/setup-new-chatbot

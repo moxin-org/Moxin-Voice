@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "moxin-tts-shell",
-    "mofa-widgets",
-    "mofa-dora-bridge",
-    "mofa-ui",
-    "apps/mofa-tts",
+    "moxin-voice-shell",
+    "moxin-widgets",
+    "moxin-dora-bridge",
+    "moxin-ui",
+    "apps/moxin-voice",
 ]
 
 [workspace.package]

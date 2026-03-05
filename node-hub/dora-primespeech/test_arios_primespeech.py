@@ -15,9 +15,9 @@ print("=" * 60)
 # Test 1: Import check
 print("\n1. Testing import...")
 try:
-    from dora_primespeech.moyoyo_tts_wrapper_streaming_fix import MOYOYO_AVAILABLE, StreamingMoYoYoTTSWrapper
+    from dora_primespeech.moyoyo_tts_wrapper_streaming_fix import MOXIN_AVAILABLE, StreamingMoxinTTSWrapper
     print(f"   ✓ Import successful")
-    print(f"   ✓ MOYOYO_AVAILABLE: {MOYOYO_AVAILABLE}")
+    print(f"   ✓ MOXIN_AVAILABLE: {MOXIN_AVAILABLE}")
 except Exception as e:
     print(f"   ✗ Import failed: {e}")
     sys.exit(1)
@@ -31,9 +31,9 @@ if model_dir:
         print(f"   ✓ Model directory exists: {model_path}")
         moyoyo_path = os.path.join(model_path, "moyoyo")
         if os.path.exists(moyoyo_path):
-            print(f"   ✓ MoYoYo models found: {moyoyo_path}")
+            print(f"   ✓ Moxin models found: {moyoyo_path}")
         else:
-            print(f"   ⚠ MoYoYo models not found at: {moyoyo_path}")
+            print(f"   ⚠ Moxin models not found at: {moyoyo_path}")
     else:
         print(f"   ✗ Model directory not found: {model_path}")
 else:
@@ -41,12 +41,12 @@ else:
 
 # Test 3: TTS Wrapper initialization
 print("\n3. Testing TTS wrapper initialization...")
-if MOYOYO_AVAILABLE:
+if MOXIN_AVAILABLE:
     try:
         def test_logger(level, msg):
             print(f"   [{level}] {msg}")
         
-        wrapper = StreamingMoYoYoTTSWrapper(
+        wrapper = StreamingMoxinTTSWrapper(
             voice="doubao",
             device="cpu",
             enable_streaming=False,
@@ -72,7 +72,7 @@ if MOYOYO_AVAILABLE:
     except Exception as e:
         print(f"   ✗ TTS wrapper initialization failed: {e}")
 else:
-    print("   ⚠ MOYOYO_AVAILABLE is False, skipping TTS tests")
+    print("   ⚠ MOXIN_AVAILABLE is False, skipping TTS tests")
 
 print("\n" + "=" * 60)
 print("Test complete!")

@@ -1,0 +1,76 @@
+nodes:
+  # Audio input for voice cloning (sends recorded audio to ASR)
+  - id: moxin-audio-input
+    path: dynamic
+    outputs:
+      - audio # Audio segment for ASR
+
+  # ASR for voice cloning transcription
+  - id: asr
+    build: pip install -e ../../../node-hub/dora-asr
+    path: dora-asr
+    inputs:
+      audio: moxin-audio-input/audio
+    outputs:
+      - transcription
+      - status
+      - log
+    env:
+      USE_GPU: "false"
+      ASR_ENGINE: "funasr"
+      LANGUAGE: "zh"
+      LOG_LEVEL: "INFO"
+
+  # ASR listener - receives transcription from ASR node
+  - id: moxin-asr-listener
+    path: dynamic
+    inputs:
+      transcription: asr/transcription
+
+  - id: moxin-prompt-input
+    path: dynamic
+    outputs:
+      - control
+
+  - id: primespeech-tts
+    # build: pip install -e ../../../libs/dora-common -e ../../../node-hub/dora-primespeech  # DISABLED: package already installed via conda
+    path: dora-primespeech
+    inputs:
+      text: moxin-prompt-input/control
+    outputs:
+      - audio
+      - status
+      - segment_complete
+      - log
+    env:
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      VOICE_NAME: "Doubao"
+      PRIMESPEECH_MODEL_DIR: $HOME/.dora/models/primespeech
+      TEXT_LANG: zh
+      PROMPT_LANG: zh
+      TOP_K: 5
+      TOP_P: 1.0
+      TEMPERATURE: 1.0
+      SPEED_FACTOR: 1.1
+      FRAGMENT_INTERVAL: "0.1"
+      USE_GPU: false
+      DEVICE: cpu
+      # CRITICAL: On macOS, PyTorch uses Apple's Accelerate framework for BLAS
+      # Setting OMP/MKL thread limits can cause deadlocks with Accelerate
+      # Let the system auto-detect optimal thread count
+      # OMP_NUM_THREADS: "1"  # Uncomment ONLY if still hangs
+      # MKL_NUM_THREADS: "1"  # Uncomment ONLY if still hangs
+      VECLIB_MAXIMUM_THREADS: "1" # Limit Accelerate framework threads to avoid deadlock
+      RETURN_FRAGMENT: "false"
+      LOG_LEVEL: DEBUG
+      ENABLE_INTERNAL_SEGMENTATION: "true"
+      TTS_MAX_SEGMENT_LENGTH: "100"
+      TTS_MIN_SEGMENT_LENGTH: "20"
+
+  - id: moxin-audio-player
+    path: dynamic
+    inputs:
+      audio: primespeech-tts/audio
+    outputs:
+      - buffer_status

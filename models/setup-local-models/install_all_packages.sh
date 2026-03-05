@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Install All Packages Script for MoFA Studio (Linux & macOS)
+# Install All Packages Script for Moxin Studio (Linux & macOS)
 # This script reinstalls required Python packages and builds Rust components
-# Use after the conda environment (mofa-studio) already exists.
+# Use after the conda environment (moxin-studio) already exists.
 
 set -e  # Exit on error
 
@@ -41,10 +41,10 @@ fi
 # Activate conda environment
 print_header "Activating Conda Environment"
 eval "$(conda shell.bash hook)"
-if conda activate mofa-studio 2>/dev/null; then
-    print_success "Activated conda environment: mofa-studio"
+if conda activate moxin-studio 2>/dev/null; then
+    print_success "Activated conda environment: moxin-studio"
 else
-    print_error "Conda environment 'mofa-studio' not found. Please create it first (see README)."
+    print_error "Conda environment 'moxin-studio' not found. Please create it first (see README)."
     exit 1
 fi
 
