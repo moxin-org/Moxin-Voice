@@ -1,4 +1,4 @@
-//! Internationalization (i18n) module for Moxin TTS
+//! Internationalization (i18n) module for Moxin Voice
 //!
 //! Supports English and Chinese localization
 
@@ -25,7 +25,7 @@ pub fn init_translations() {
 
     // English translations
     let mut en = HashMap::new();
-    en.insert("app.title".to_string(), "Moxin TTS".to_string());
+    en.insert("app.title".to_string(), "Moxin Voice".to_string());
     en.insert("nav.text_to_speech".to_string(), "Text to Speech".to_string());
     en.insert("nav.voice_library".to_string(), "Voice Library".to_string());
     en.insert("nav.voice_clone".to_string(), "Voice Clone".to_string());

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed Moxin TTS wrapper with real streaming support via audio chunking."""
+"""Fixed Moxin Voice wrapper with real streaming support via audio chunking."""
 
 import sys
 import os
@@ -59,10 +59,10 @@ import re
 # Setup module logger
 logger = logging.getLogger(__name__)
 
-# Check if Moxin TTS is available
+# Check if Moxin Voice is available
 MOXIN_AVAILABLE = False
 
-# Try to import Moxin TTS
+# Try to import Moxin Voice
 try:
     # Add local moyoyo_tts to path
     local_moyoyo_path = Path(__file__).parent
@@ -80,7 +80,7 @@ try:
     # Ensure LangSegment compatibility across versions
     _ensure_langsegment_compatibility()
 
-    # Import Moxin TTS
+    # Import Moxin Voice
     from moyoyo_tts.TTS_infer_pack.TTS import TTS_Config, TTS
     from moyoyo_tts.TTS_infer_pack.text_segmentation_method import get_method as get_seg_method
     from moyoyo_tts.utils import HParams
@@ -90,17 +90,17 @@ try:
         sys.modules['utils'] = _moyoyo_utils
 
     MOXIN_AVAILABLE = True
-    logger.info("Moxin TTS successfully imported")
+    logger.info("Moxin Voice successfully imported")
 except ImportError as e:
-    logger.error(f"Failed to import Moxin TTS: {e}")
+    logger.error(f"Failed to import Moxin Voice: {e}")
     MOXIN_AVAILABLE = False
 
 
 class StreamingMoxinTTSWrapper:
-    """Fixed wrapper for Moxin TTS with real streaming via audio chunking."""
+    """Fixed wrapper for Moxin Voice with real streaming via audio chunking."""
     
     def __init__(self, voice="doubao", device="cpu", enable_streaming=True, chunk_duration=0.5, models_path=None, voice_config=None, logger_func=None):
-        """Initialize streaming Moxin TTS wrapper.
+        """Initialize streaming Moxin Voice wrapper.
         
         Args:
             voice: Voice name (doubao, luoxiang, yangmi, etc.)
@@ -164,7 +164,7 @@ class StreamingMoxinTTSWrapper:
     def _init_tts(self):
         """Initialize the TTS engine."""
         if not MOXIN_AVAILABLE:
-            self.log("ERROR", "Moxin TTS not available - cannot initialize TTS engine")
+            self.log("ERROR", "Moxin Voice not available - cannot initialize TTS engine")
             self.log("ERROR", f"MOXIN_AVAILABLE: {MOXIN_AVAILABLE}")
             self.log("ERROR", f"models_path: {self.models_path}")
             return
@@ -229,7 +229,7 @@ class StreamingMoxinTTSWrapper:
         }
         
         try:
-            self.log("INFO", f"Initializing Moxin TTS with voice: {self.voice}")
+            self.log("INFO", f"Initializing Moxin Voice with voice: {self.voice}")
             self.log("INFO", f"Model paths:")
             self.log("INFO", f"  t2s_weights: {custom_config['t2s_weights_path']}")
             self.log("INFO", f"  vits_weights: {custom_config['vits_weights_path']}")
@@ -253,9 +253,9 @@ class StreamingMoxinTTSWrapper:
             # Pre-cache reference audio
             self.tts.set_ref_audio(self.ref_audio_path)
             
-            self.log("INFO", "Moxin TTS initialized successfully")
+            self.log("INFO", "Moxin Voice initialized successfully")
         except Exception as e:
-            self.log("ERROR", f"Failed to initialize Moxin TTS: {e}")
+            self.log("ERROR", f"Failed to initialize Moxin Voice: {e}")
             import traceback
             self.log("ERROR", traceback.format_exc())
             self.tts = None
@@ -368,7 +368,7 @@ class StreamingMoxinTTSWrapper:
             tuple: (sample_rate, audio_fragment) for each fragment
         """
         if not MOXIN_AVAILABLE or self.tts is None:
-            self.log("ERROR", "Moxin TTS not available - cannot synthesize")
+            self.log("ERROR", "Moxin Voice not available - cannot synthesize")
             if not MOXIN_AVAILABLE:
                 self.log("ERROR", "MOXIN_AVAILABLE is False - TTS libraries not imported")
             if self.tts is None:
@@ -466,7 +466,7 @@ class StreamingMoxinTTSWrapper:
         self._abort_synthesis = False
         
         if not MOXIN_AVAILABLE or self.tts is None:
-            self.log("ERROR", "Moxin TTS not available - cannot synthesize")
+            self.log("ERROR", "Moxin Voice not available - cannot synthesize")
             if not MOXIN_AVAILABLE:
                 self.log("ERROR", "MOXIN_AVAILABLE is False - TTS libraries not imported")
             if self.tts is None:
@@ -567,7 +567,7 @@ def test_streaming_fix():
     import sounddevice as sd
     
     print("\n" + "=" * 60)
-    print("Testing Fixed Streaming Moxin TTS Wrapper")
+    print("Testing Fixed Streaming Moxin Voice Wrapper")
     print("=" * 60)
     
     # Initialize wrapper

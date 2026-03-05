@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Final test of Moxin TTS using VoiceDialogue models."""
+"""Final test of Moxin Voice using VoiceDialogue models."""
 
 import sys
 import os
@@ -24,23 +24,23 @@ sys.modules['LangSegment'] = langseg_module
 sys.modules['LangSegment.LangSegment'] = langseg_module
 spec.loader.exec_module(langseg_module)
 
-# Now import Moxin TTS
+# Now import Moxin Voice
 try:
     from moyoyo_tts.TTS_infer_pack.TTS import TTS_Config, TTS
-    print("✓ Successfully imported Moxin TTS")
+    print("✓ Successfully imported Moxin Voice")
     MOXIN_AVAILABLE = True
 except ImportError as e:
-    print(f"✗ Failed to import Moxin TTS: {e}")
+    print(f"✗ Failed to import Moxin Voice: {e}")
     MOXIN_AVAILABLE = False
 
 def test_real_tts():
     """Test real TTS synthesis."""
     if not MOXIN_AVAILABLE:
-        print("Moxin TTS not available")
+        print("Moxin Voice not available")
         return None
     
     print("\n" + "=" * 60)
-    print("Testing Real Moxin TTS")
+    print("Testing Real Moxin Voice")
     print("=" * 60)
     
     # Configuration

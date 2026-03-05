@@ -1,4 +1,4 @@
-//! Moxin TTS - Standalone TTS Application
+//! Moxin Voice - Standalone TTS Application
 //!
 //! A standalone desktop application for text-to-speech with voice cloning,
 //! powered by GPT-SoVITS.
@@ -9,7 +9,7 @@ use clap::Parser;
 
 #[derive(Parser, Debug, Default, Clone)]
 #[command(name = "moxin-voice")]
-#[command(about = "Moxin TTS - Voice Cloning & Text-to-Speech")]
+#[command(about = "Moxin Voice - Voice Cloning & Text-to-Speech")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 pub struct Args {
     /// Log level (trace, debug, info, warn, error)
@@ -38,7 +38,7 @@ fn main() {
     )
     .init();
 
-    log::info!("Starting Moxin TTS v{}", env!("CARGO_PKG_VERSION"));
+    log::info!("Starting Moxin Voice v{}", env!("CARGO_PKG_VERSION"));
     log::debug!("CLI args: {:?}", args);
 
     if let Some(ref dataflow) = args.dataflow {

@@ -1,4 +1,4 @@
-# Building Moxin TTS
+# Building Moxin Voice
 
 ## Quick Build
 

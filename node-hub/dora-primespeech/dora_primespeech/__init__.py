@@ -11,12 +11,12 @@ __author__ = "Dora PrimeSpeech Contributors"
 
 from .config import PrimeSpeechConfig
 
-# Always use the main implementation with Moxin TTS
+# Always use the main implementation with Moxin Voice
 # No fallback - we want real TTS, not placeholder audio
 from .main import main
 
 logger = logging.getLogger(__name__)
-logger.info("Using Moxin TTS implementation")
+logger.info("Using Moxin Voice implementation")
 GPTSoVITSEngine = None
 
 __all__ = ["PrimeSpeechConfig", "main", "GPTSoVITSEngine"]

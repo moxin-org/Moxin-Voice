@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Quick verification script for Moxin TTS setup
+# Quick verification script for Moxin Voice setup
 # Checks if everything is ready to run the application
 
 set -e
@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}Moxin TTS Setup Verification${NC}"
+echo -e "${BLUE}Moxin Voice Setup Verification${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 

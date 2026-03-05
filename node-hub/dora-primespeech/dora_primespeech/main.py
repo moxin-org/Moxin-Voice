@@ -36,7 +36,7 @@ def send_log(node, level, message, config_level="INFO"):
 
 def validate_language_config(lang_code, param_name, node, log_level):
     """Validate language configuration and provide helpful error messages"""
-    # Valid language codes for Moxin TTS v2
+    # Valid language codes for Moxin Voice v2
     VALID_LANGUAGES = ["auto", "auto_yue", "en", "zh", "ja", "yue", "ko",
                       "all_zh", "all_ja", "all_yue", "all_ko"]
 
@@ -170,9 +170,9 @@ def main():
     send_log(node, "INFO", "PrimeSpeech Node initialized", config.LOG_LEVEL)
     
     if MOXIN_AVAILABLE:
-        send_log(node, "INFO", "✓ Moxin TTS engine available", config.LOG_LEVEL)
+        send_log(node, "INFO", "✓ Moxin Voice engine available", config.LOG_LEVEL)
     else:
-        send_log(node, "WARNING", "⚠️  Moxin TTS not fully available", config.LOG_LEVEL)
+        send_log(node, "WARNING", "⚠️  Moxin Voice not fully available", config.LOG_LEVEL)
     
     # Log the configuration being used
     send_log(node, "INFO", f"Voice: {voice_name}", config.LOG_LEVEL)

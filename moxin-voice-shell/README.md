@@ -1,4 +1,4 @@
-# Moxin TTS
+# Moxin Voice
 
 A standalone desktop application for text-to-speech with voice cloning, powered by GPT-SoVITS.
 
@@ -43,7 +43,7 @@ cargo run -p moxin-voice -- --dataflow path/to/dataflow.yml
 ## Command-Line Options
 
 ```
-Moxin TTS - Voice Cloning & Text-to-Speech
+Moxin Voice - Voice Cloning & Text-to-Speech
 
 Usage: moxin-voice [OPTIONS]
 
@@ -56,7 +56,7 @@ Options:
 
 ## Architecture
 
-Moxin TTS is a standalone application extracted from the Moxin Studio framework:
+Moxin Voice is a standalone application extracted from the Moxin Studio framework:
 
 ```
 moxin-voice/

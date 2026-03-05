@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Quick Setup Script for Moxin TTS on macOS
+# Quick Setup Script for Moxin Voice on macOS
 # This script automates the entire setup process
 
 set -e
@@ -41,7 +41,7 @@ if [[ "$OSTYPE" != "darwin"* ]]; then
     exit 1
 fi
 
-print_header "Moxin TTS - Quick Setup for macOS"
+print_header "Moxin Voice - Quick Setup for macOS"
 
 # Step 1: Check dependencies
 print_header "Step 1: Checking Dependencies"
@@ -129,7 +129,7 @@ esac
 # Summary
 print_header "Setup Complete!"
 echo ""
-print_success "Moxin TTS is ready to use!"
+print_success "Moxin Voice is ready to use!"
 echo ""
 echo "Quick Start:"
 echo ""

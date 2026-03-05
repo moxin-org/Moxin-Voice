@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# macOS Dependency Checker for Moxin TTS
+# macOS Dependency Checker for Moxin Voice
 # Verifies all required system dependencies are installed
 
 set -e
@@ -41,7 +41,7 @@ if [[ "$OSTYPE" != "darwin"* ]]; then
     exit 1
 fi
 
-print_header "Moxin TTS - macOS Dependency Checker"
+print_header "Moxin Voice - macOS Dependency Checker"
 
 MISSING_DEPS=()
 WARNINGS=()
@@ -153,7 +153,7 @@ if [ ${#MISSING_DEPS[@]} -eq 0 ]; then
     echo "  2. Run: conda activate moxin-studio && ./install_all_packages.sh"
     echo "  3. Download models: cd ../model-manager && python download_models.py"
     echo ""
-    print_success "You're ready to set up Moxin TTS!"
+    print_success "You're ready to set up Moxin Voice!"
 else
     print_error "Missing dependencies detected!"
     echo ""

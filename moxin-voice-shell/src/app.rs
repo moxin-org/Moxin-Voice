@@ -1,4 +1,4 @@
-//! Moxin TTS App - Main application
+//! Moxin Voice App - Main application
 //!
 //! This is a simplified shell that directly shows the TTS screen
 //! without sidebar, tabs, or app switching.
@@ -48,7 +48,7 @@ live_design! {
     App = {{App}} {
         ui: <Window> {
             window: {
-                title: "Moxin TTS - Voice Cloning & Text-to-Speech"
+                title: "Moxin Voice - Voice Cloning & Text-to-Speech"
                 inner_size: vec2(1200, 800)
             }
             pass: { clear_color: (DARK_BG) }
@@ -108,7 +108,7 @@ impl AppMain for App {
 
 impl MatchEvent for App {
     fn handle_startup(&mut self, _cx: &mut Cx) {
-        ::log::info!("Moxin TTS application started");
+        ::log::info!("Moxin Voice application started");
 
         // Initialize Dora state (new() already returns Arc<Self>)
         let dora_state = SharedDoraState::new();
@@ -127,11 +127,11 @@ impl MatchEvent for App {
             // This would typically involve calling dora_state.start_dataflow(dataflow_path)
         }
 
-        ::log::info!("Moxin TTS initialization complete");
+        ::log::info!("Moxin Voice initialization complete");
     }
 
     fn handle_shutdown(&mut self, _cx: &mut Cx) {
-        ::log::info!("Moxin TTS application shutting down");
+        ::log::info!("Moxin Voice application shutting down");
 
         // Cleanup Dora state if needed
         if self.app_data.is_some() {

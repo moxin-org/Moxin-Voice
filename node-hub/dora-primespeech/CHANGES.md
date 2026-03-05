@@ -10,7 +10,7 @@ Fixed PrimeSpeech TTS node to work standalone without VoiceDialogue dependencies
 
 1. **Hardcoded VoiceDialogue paths** - Node was looking for models in non-existent paths like `/Users/yuechen/home/VoiceDialogue/`
 2. **440Hz tone generation** - Fallback tone generation was playing instead of actual TTS when models failed to load
-3. **Missing Moxin TTS module** - The TTS engine code wasn't included with the node
+3. **Missing Moxin Voice module** - The TTS engine code wasn't included with the node
 4. **Logger inconsistency** - Used both logger and send_log functions inconsistently
 5. **Complex model path logic** - Had separate logic for "bundled" vs "HuggingFace" models
 
@@ -59,11 +59,11 @@ Fixed PrimeSpeech TTS node to work standalone without VoiceDialogue dependencies
   ```python
   # NEW:
   if not MOXIN_AVAILABLE or self.tts is None:
-      self.log("ERROR", "Moxin TTS not available - cannot synthesize")
+      self.log("ERROR", "Moxin Voice not available - cannot synthesize")
       raise RuntimeError("TTS engine not available. Check model paths and configuration.")
   ```
 
-### 3. Bundled Moxin TTS Module
+### 3. Bundled Moxin Voice Module
 
 **Action**: Copied entire moyoyo_tts module from VoiceDialogue to primespeech node
 
@@ -99,10 +99,10 @@ Fixed PrimeSpeech TTS node to work standalone without VoiceDialogue dependencies
 
   ```python
   # BEFORE:
-  logger.error("Moxin TTS not available")
+  logger.error("Moxin Voice not available")
 
   # AFTER:
-  self.log("ERROR", "Moxin TTS not available")
+  self.log("ERROR", "Moxin Voice not available")
   ```
 
 - **Updated main.py**: Pass send_log to TTS wrapper
