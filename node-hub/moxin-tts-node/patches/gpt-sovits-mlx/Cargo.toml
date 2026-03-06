@@ -1,0 +1,112 @@
+[package]
+name = "gpt-sovits-mlx"
+version = "0.1.0"
+edition = "2021"
+autoexamples = false
+authors = ["YueChen"]
+description = "GPT-SoVITS voice cloning in pure Rust with MLX acceleration"
+repository = "https://github.com/user/gpt-sovits-mlx"
+keywords = ["tts", "voice-cloning", "mlx", "gpt-sovits"]
+categories = ["multimedia::audio"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# MLX bindings (from upstream OminiX-MLX)
+mlx-rs = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-rs" }
+mlx-sys = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-sys" }
+mlx-lm-utils = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-lm-utils" }
+
+# Shared infrastructure
+mlx-rs-core = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-rs-core" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Tokenizers
+tokenizers = { version = "0.22.0", features = ["http"] }
+
+# Text processing
+pinyin = "0.10"
+regex = "1"
+lingua = { version = "1.6", default-features = false, features = ["chinese", "english", "japanese", "korean"] }
+num2en = "1.0.0"
+hanconv = "0.5"  # Traditional to simplified Chinese conversion
+lazy_static = "1.4"  # For global singletons (segmenter, etc.)
+
+# Optional: jieba word segmentation (provides much better Chinese segmentation)
+jieba-rs = { version = "0.7", optional = true }
+
+# G2PW (ONNX)
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "download-binaries", "tls-native", "coreml", "ndarray"] }
+ndarray = "0.17.2"
+
+# Training
+rand = "0.8"
+
+# ONNX manipulation
+safetensors = "0.5"
+onnx-pb = "0.1"
+prost_old = { package = "prost", version = "0.6.1" }
+byteorder = "1.5"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Path expansion
+dirs = "5"
+
+[features]
+default = []
+debug-attn = []
+debug-logits = []
+jieba = ["jieba-rs"]  # Enable jieba word segmentation for better Chinese processing
+
+[[example]]
+name = "voice_clone"
+path = "examples/voice_clone.rs"
+
+[[example]]
+name = "trace_t2s_rust"
+path = "examples/trace_t2s_rust.rs"
+
+[[example]]
+name = "trace_t2s_full"
+path = "examples/trace_t2s_full.rs"
+
+[[example]]
+name = "train_t2s"
+path = "examples/train_t2s.rs"
+
+[[example]]
+name = "train_vits"
+path = "examples/train_vits.rs"
+
+[[example]]
+name = "preprocess"
+path = "examples/preprocess.rs"
+
+[[example]]
+name = "test_vits_compare"
+path = "examples/test_vits_compare.rs"
+
+[[example]]
+name = "export_vits_onnx"
+path = "examples/export_vits_onnx.rs"
+
+[[example]]
+name = "preprocess_audio"
+path = "examples/preprocess_audio.rs"
+
+[[example]]
+name = "finetune_clone"
+path = "examples/finetune_clone.rs"

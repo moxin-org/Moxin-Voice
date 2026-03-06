@@ -6,6 +6,7 @@ members = [
     "moxin-dora-bridge",
     "moxin-ui",
     "apps/moxin-voice",
+    "node-hub/moxin-tts-node",
 ]
 
 [workspace.package]
@@ -44,3 +45,6 @@ rand = "0.8"
 # Dora - robotics framework for voice chat architecture
 dora-node-api = "0.4.0"
 # dora-node-api = { git = "https://github.com/dora-rs/dora.git", tag = "v0.3.12" }
+
+[patch."https://github.com/OminiX-ai/OminiX-MLX.git"]
+gpt-sovits-mlx = { path = "node-hub/moxin-tts-node/patches/gpt-sovits-mlx" }
