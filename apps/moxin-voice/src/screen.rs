@@ -9892,11 +9892,29 @@ impl TTSScreen {
         };
         self.add_log(cx, &format!("[DEBUG] Sending prompt: {}", prompt_preview));
 
-        // Send prompt to dora
+        let payload = serde_json::json!({
+            "prompt": prompt,
+            "speed": self.pending_generation_speed,
+            "pitch": self.pending_generation_pitch,
+            "volume": self.pending_generation_volume,
+        });
+        let payload_text = payload.to_string();
+
+        self.add_log(
+            cx,
+            &format!(
+                "[DEBUG] [tts] Params snapshot: speed={:.2}, pitch={:+.1}, volume={:.0}%",
+                self.pending_generation_speed,
+                self.pending_generation_pitch,
+                self.pending_generation_volume
+            ),
+        );
+
+        // Send prompt payload to dora
         let send_result = self
             .dora
             .as_ref()
-            .map(|d| d.send_prompt(&prompt))
+            .map(|d| d.send_prompt(&payload_text))
             .unwrap_or(false);
 
         if send_result {
@@ -10711,10 +10729,10 @@ impl TTSScreen {
 
         if changed {
             self.update_tts_param_controls(cx);
-            self.apply_tts_param_to_audio(cx);
-        } else {
-            self.update_tts_param_controls(cx);
+            return;
         }
+
+        self.update_tts_param_controls(cx);
     }
 
     fn slider_ratio_from_rect(abs_x: f64, rect: Rect) -> f64 {
@@ -10768,82 +10786,15 @@ impl TTSScreen {
         }
     }
 
-    fn resample_linear(samples: &[f32], ratio: f64) -> Vec<f32> {
-        if samples.is_empty() {
-            return Vec::new();
-        }
-        if ratio <= 0.0 {
-            return samples.to_vec();
-        }
-
-        let new_len = ((samples.len() as f64) * ratio).round().max(1.0) as usize;
-        if new_len == samples.len() {
-            return samples.to_vec();
-        }
-        if samples.len() == 1 {
-            return vec![samples[0]; new_len];
-        }
-
-        let last_index = (samples.len() - 1) as f64;
-        let denom = (new_len - 1).max(1) as f64;
-        let mut out = Vec::with_capacity(new_len);
-        for i in 0..new_len {
-            let src = (i as f64 / denom) * last_index;
-            let idx = src.floor() as usize;
-            let frac = src - idx as f64;
-            let s1 = samples[idx];
-            let s2 = samples.get(idx + 1).copied().unwrap_or(s1);
-            out.push((s1 as f64 + (s2 - s1) as f64 * frac) as f32);
-        }
-        out
-    }
-
     fn rebuild_processed_audio_samples(&mut self) {
         if self.stored_audio_samples.is_empty() {
             self.processed_audio_samples.clear();
             return;
         }
 
-        let mut processed = self.stored_audio_samples.clone();
-
-        // Speed: larger speed means fewer samples (faster playback).
-        if (self.tts_speed - 1.0).abs() > 0.001 {
-            processed = Self::resample_linear(&processed, 1.0 / self.tts_speed.max(0.01));
-        }
-
-        // Pitch: semitone shift using resampling ratio (duration also changes).
-        if self.tts_pitch.abs() > 0.001 {
-            let pitch_ratio = 2.0_f64.powf(self.tts_pitch / 12.0);
-            processed = Self::resample_linear(&processed, 1.0 / pitch_ratio.max(0.01));
-        }
-
-        let gain = (self.tts_volume / 100.0).clamp(0.0, 2.0) as f32;
-        if (gain - 1.0).abs() > f32::EPSILON {
-            for sample in &mut processed {
-                *sample = (*sample * gain).clamp(-1.0, 1.0);
-            }
-        }
-
-        self.processed_audio_samples = processed;
-    }
-
-    fn apply_tts_param_to_audio(&mut self, cx: &mut Cx) {
-        if self.stored_audio_samples.is_empty() {
-            self.processed_audio_samples.clear();
-            return;
-        }
-
-        if self.tts_status == TTSStatus::Playing {
-            if let Some(player) = &self.audio_player {
-                player.stop();
-            }
-            self.tts_status = TTSStatus::Ready;
-        }
-
-        self.rebuild_processed_audio_samples();
-        self.audio_playing_time = 0.0;
-        self.update_playback_progress(cx);
-        self.update_player_bar(cx);
+        // Generated audio should remain immutable after completion.
+        // Speed/Pitch/Volume changes only apply to the next synthesis request.
+        self.processed_audio_samples = self.stored_audio_samples.clone();
     }
 
     /// Apply dark mode to the entire UI

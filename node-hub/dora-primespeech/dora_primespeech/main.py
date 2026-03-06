@@ -66,6 +66,23 @@ def validate_language_config(lang_code, param_name, node, log_level):
     return lang_code
 
 
+def _coerce_numeric_param(node, log_level, name, value, default, minimum=None, maximum=None):
+    """Coerce runtime numeric payload values with optional bounds."""
+    if value is None:
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        send_log(node, "WARNING", f"Invalid {name} value '{value}', using default {default}", log_level)
+        return default
+
+    if minimum is not None:
+        number = max(minimum, number)
+    if maximum is not None:
+        number = min(maximum, number)
+    return number
+
+
 def _validate_models_path(logger, models_env_var="PRIMESPEECH_MODEL_DIR") -> Optional[Path]:
     """Validate that required model directory exists and contains Moxin subdir.
     Returns the resolved path if valid, else None.
@@ -284,6 +301,9 @@ def main():
                 # Get text to synthesize
                 raw_data = event["value"][0].as_py()
                 metadata = event.get("metadata", {})
+                payload_speed = None
+                payload_pitch = None
+                payload_volume = None
                 
                 print(f"DEBUG: Raw data received: {raw_data}", file=sys.stderr, flush=True)
                 
@@ -291,11 +311,35 @@ def main():
                 try:
                     payload = json.loads(raw_data)
                     raw_text = payload.get("prompt", "")
+                    payload_speed = payload.get("speed")
+                    payload_pitch = payload.get("pitch")
+                    payload_volume = payload.get("volume")
                     print(f"DEBUG: Extracted prompt from JSON: {raw_text}", file=sys.stderr, flush=True)
                 except (json.JSONDecodeError, TypeError) as e:
                     # Fallback: treat as plain text if not valid JSON
                     print(f"DEBUG: Not valid JSON, treating as plain text: {e}", file=sys.stderr, flush=True)
                     raw_text = raw_data
+
+                # Prompt bridge wraps outgoing prompt into another {"prompt": "..."}.
+                # If the inner prompt is still JSON, parse it one more time.
+                if isinstance(raw_text, str):
+                    try:
+                        nested_payload = json.loads(raw_text)
+                        if isinstance(nested_payload, dict) and "prompt" in nested_payload:
+                            raw_text = nested_payload.get("prompt", raw_text)
+                            if payload_speed is None:
+                                payload_speed = nested_payload.get("speed")
+                            if payload_pitch is None:
+                                payload_pitch = nested_payload.get("pitch")
+                            if payload_volume is None:
+                                payload_volume = nested_payload.get("volume")
+                            print(
+                                "DEBUG: Extracted nested prompt payload with speed/pitch/volume",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 
                 # Parse VOICE: prefix for dynamic voice switching
                 # Format 1 (built-in): "VOICE:voice_name|actual_text"
@@ -594,10 +638,42 @@ def main():
 
                     print(f"DEBUG: [S4] Getting config values...", file=sys.stderr, flush=True)
                     language = voice_config.get("text_lang", "zh")
-                    speed = voice_config.get("speed_factor", 1.0)
+                    speed = _coerce_numeric_param(
+                        node,
+                        config.LOG_LEVEL,
+                        "speed",
+                        payload_speed,
+                        voice_config.get("speed_factor", 1.0),
+                        minimum=0.5,
+                        maximum=2.0,
+                    )
+                    pitch = _coerce_numeric_param(
+                        node,
+                        config.LOG_LEVEL,
+                        "pitch",
+                        payload_pitch,
+                        0.0,
+                        minimum=-12.0,
+                        maximum=12.0,
+                    )
+                    volume = _coerce_numeric_param(
+                        node,
+                        config.LOG_LEVEL,
+                        "volume",
+                        payload_volume,
+                        100.0,
+                        minimum=0.0,
+                        maximum=200.0,
+                    )
                     fragment_interval = voice_config.get("fragment_interval")
 
-                    print(f"DEBUG: [SYNTHESIS PREP] text='{text[:50]}...', language={language}, speed={speed}, streaming={hasattr(tts_engine, 'enable_streaming') and tts_engine.enable_streaming}", file=sys.stderr, flush=True)
+                    print(
+                        f"DEBUG: [SYNTHESIS PREP] text='{text[:50]}...', language={language}, "
+                        f"speed={speed}, pitch={pitch}, volume={volume}, "
+                        f"streaming={hasattr(tts_engine, 'enable_streaming') and tts_engine.enable_streaming}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
 
                     if hasattr(tts_engine, 'enable_streaming') and tts_engine.enable_streaming:
                         # Streaming synthesis
@@ -610,7 +686,13 @@ def main():
                             tts_engine.optimization_config["fragment_interval"] = fragment_interval
 
                         print(f"DEBUG: [STREAMING] Starting iteration over synthesize_streaming generator...", file=sys.stderr, flush=True)
-                        for sample_rate, audio_fragment in tts_engine.synthesize_streaming(text, language=language, speed=speed):
+                        for sample_rate, audio_fragment in tts_engine.synthesize_streaming(
+                            text,
+                            language=language,
+                            speed=speed,
+                            pitch=pitch,
+                            volume=volume,
+                        ):
                             print(f"DEBUG: [STREAMING] Got fragment {fragment_num+1}: sample_rate={sample_rate}, audio_len={len(audio_fragment) if audio_fragment is not None else 0}, dtype={audio_fragment.dtype if audio_fragment is not None else 'None'}", file=sys.stderr, flush=True)
                             fragment_num += 1
                             fragment_duration = len(audio_fragment) / sample_rate
@@ -631,6 +713,9 @@ def main():
                                         "session_status": metadata.get("session_status", "unknown"),  # Pass through session status
                                         "sample_rate": sample_rate,
                                         "duration": fragment_duration,
+                                        "speed": speed,
+                                        "pitch": pitch,
+                                        "volume": volume,
                                     }
                                 )
                         
@@ -648,6 +733,8 @@ def main():
                         synth_kwargs = {
                             "language": language,
                             "speed": speed,
+                            "pitch": pitch,
+                            "volume": volume,
                         }
                         if fragment_interval is not None:
                             synth_kwargs["fragment_interval"] = fragment_interval
@@ -679,6 +766,9 @@ def main():
                                 "session_status": metadata.get("session_status", "unknown"),  # Pass through session status
                                 "sample_rate": sample_rate,
                                 "duration": audio_duration,
+                                "speed": speed,
+                                "pitch": pitch,
+                                "volume": volume,
                             }
                         )
                         send_log(node, "INFO", f"📤 AUDIO SENT: {len(audio_array)} samples ({audio_duration:.2f}s)", config.LOG_LEVEL)
