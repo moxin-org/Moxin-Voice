@@ -1,0 +1,34 @@
+[package]
+name = "moxin-tts-node"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust Dora TTS node powered by gpt-sovits-mlx"
+
+[dependencies]
+# GPT-SoVITS MLX engine (from upstream OminiX-MLX)
+gpt-sovits-mlx = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "gpt-sovits-mlx" }
+mlx-rs = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-rs" }
+
+# Dora dataflow
+dora-node-api = "0.4.0"
+
+# Arrow (must match dora-node-api's version)
+arrow = { version = "54.2.1", default-features = false, features = ["ipc"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utilities
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "5.0"
+
+[[bin]]
+name = "moxin-tts-node"
+path = "src/main.rs"
+
+[[bin]]
+name = "moxin-fewshot-trainer"
+path = "src/fewshot_trainer.rs"
