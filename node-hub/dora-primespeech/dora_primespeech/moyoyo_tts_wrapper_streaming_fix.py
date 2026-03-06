@@ -9,6 +9,7 @@ import numpy as np
 import soundfile as sf
 import importlib
 import importlib.util
+from .audio_effects import apply_decoupled_speed_pitch_volume
 
 # Force single-threaded operations on macOS to prevent Accelerate BLAS deadlocks
 # when PyTorch models are reloaded or ref audio is re-processed.
@@ -356,13 +357,15 @@ class StreamingMoxinTTSWrapper:
         self._abort_synthesis = True
         self.log("INFO", "Synthesis abort requested")
     
-    def synthesize_streaming(self, text, language="zh", speed=1.0) -> Generator[Tuple[int, np.ndarray], None, None]:
+    def synthesize_streaming(self, text, language="zh", speed=1.0, pitch=0.0, volume=100.0) -> Generator[Tuple[int, np.ndarray], None, None]:
         """Synthesize speech with real streaming output.
         
         Args:
             text: Text to synthesize
             language: Language code
             speed: Speed factor
+            pitch: Pitch shift in semitones
+            volume: Output volume in percent
         
         Yields:
             tuple: (sample_rate, audio_fragment) for each fragment
@@ -407,7 +410,9 @@ class StreamingMoxinTTSWrapper:
                     "ref_audio_path": self.ref_audio_path,
                     "prompt_text": self.prompt_text,
                     "prompt_lang": "zh",
-                    "speed_factor": speed,
+                    # Keep model synthesis speed fixed. Runtime speed/pitch/volume are
+                    # applied in post-process to keep controls decoupled.
+                    "speed_factor": 1.0,
                     "return_fragment": False,  # Don't use Moxin's broken streaming
                     **self.optimization_config
                 }
@@ -428,6 +433,17 @@ class StreamingMoxinTTSWrapper:
                 # Convert to float32 if needed
                 if chunk_audio.dtype == np.int16:
                     chunk_audio = chunk_audio.astype(np.float32) / 32768.0
+                else:
+                    chunk_audio = chunk_audio.astype(np.float32, copy=False)
+
+                chunk_audio = apply_decoupled_speed_pitch_volume(
+                    chunk_audio,
+                    sample_rate=sample_rate,
+                    speed=speed,
+                    pitch=pitch,
+                    volume=volume,
+                    logger=self.log,
+                )
                 
                 # Stream this chunk's audio in smaller pieces
                 for audio_fragment in self._chunk_audio(chunk_audio, sample_rate):
@@ -451,13 +467,15 @@ class StreamingMoxinTTSWrapper:
         # 去除中英文标点符号，保留字母、数字、下划线、中文和空格
         return re.sub(r'[^\w\s\u4e00-\u9fa5]', ' ', text)
 
-    def synthesize(self, text, language="zh", speed=1.1, fragment_interval=0.07):
+    def synthesize(self, text, language="zh", speed=1.1, pitch=0.0, volume=100.0, fragment_interval=0.07):
         """Synthesize speech from text (non-streaming).
         
         Args:
             text: Text to synthesize
             language: Language code
             speed: Speed factor
+            pitch: Pitch shift in semitones
+            volume: Output volume in percent
         
         Returns:
             tuple: (sample_rate, audio_data) or (None, None) if failed
@@ -483,7 +501,9 @@ class StreamingMoxinTTSWrapper:
                 "ref_audio_path": self.ref_audio_path,
                 "prompt_text": self.prompt_text,
                 "prompt_lang": "zh",
-                "speed_factor": speed,
+                # Keep model synthesis speed fixed. Runtime speed/pitch/volume are
+                # applied in post-process to keep controls decoupled.
+                "speed_factor": 1.0,
                 "return_fragment": False,
                 'fragment_interval': fragment_interval,
                 **self.optimization_config
@@ -551,6 +571,17 @@ class StreamingMoxinTTSWrapper:
             # Convert to float32 if needed
             if audio_data.dtype == np.int16:
                 audio_data = audio_data.astype(np.float32) / 32768.0
+            else:
+                audio_data = audio_data.astype(np.float32, copy=False)
+
+            audio_data = apply_decoupled_speed_pitch_volume(
+                audio_data,
+                sample_rate=sample_rate,
+                speed=speed,
+                pitch=pitch,
+                volume=volume,
+                logger=self.log,
+            )
 
             self.log("INFO", f"[SYNTHESIS COMPLETE] Generated {len(audio_data)/sample_rate:.2f}s audio")
             return sample_rate, audio_data
