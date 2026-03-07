@@ -4147,7 +4147,7 @@ live_design! {
 
                     share_capcut_btn = <Button> {
                         width: Fill, height: 38
-                        text: "分享到剪映"
+                        text: "打开剪映"
                         draw_bg: {
                             instance dark_mode: 0.0
                             instance hover: 0.0
@@ -4172,7 +4172,7 @@ live_design! {
 
                     share_premiere_btn = <Button> {
                         width: Fill, height: 38
-                        text: "分享到 Premiere Pro"
+                        text: "打开 Premiere Pro"
                         draw_bg: {
                             instance dark_mode: 0.0
                             instance hover: 0.0
@@ -4197,7 +4197,7 @@ live_design! {
 
                     share_wechat_btn = <Button> {
                         width: Fill, height: 38
-                        text: "分享到微信"
+                        text: "打开微信"
                         draw_bg: {
                             instance dark_mode: 0.0
                             instance hover: 0.0
@@ -8299,13 +8299,13 @@ impl TTSScreen {
             .set_text(cx, self.tr("系统打开", "Open with system app"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_capcut_btn))
-            .set_text(cx, self.tr("分享到剪映", "Share to CapCut"));
+            .set_text(cx, self.tr("打开剪映", "Open CapCut (manual import)"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_premiere_btn))
-            .set_text(cx, self.tr("分享到 Premiere Pro", "Share to Premiere Pro"));
+            .set_text(cx, self.tr("打开 Premiere Pro", "Share to Premiere Pro"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_wechat_btn))
-            .set_text(cx, self.tr("分享到微信", "Share to WeChat"));
+            .set_text(cx, self.tr("打开微信", "Open WeChat (manual send)"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_finder_btn))
             .set_text(cx, self.tr("在访达中显示", "Reveal in Finder"));
@@ -10072,12 +10072,23 @@ impl TTSScreen {
                 cx,
                 &format!("[INFO] [share] Shared audio via {}: {}", Self::share_target_key(target), share_file.display()),
             );
-            self.show_toast(
-                cx,
-                self.tr(
+            let success_toast = match target {
+                ShareTarget::CapCut => self.tr(
+                    "已打开剪映并在访达定位音频，请拖拽或手动导入",
+                    "CapCut opened and file revealed. Drag it into CapCut or import manually",
+                ),
+                ShareTarget::WeChat => self.tr(
+                    "已打开微信并在访达定位音频，请拖拽到会话发送",
+                    "WeChat opened and file revealed. Drag the file into a chat to send",
+                ),
+                _ => self.tr(
                     "已打开分享目标，请在目标应用中继续发送",
                     "Share target opened. Continue sending in the target app",
                 ),
+            };
+            self.show_toast(
+                cx,
+                success_toast,
             );
             self.close_share_modal(cx);
         } else {
@@ -10279,6 +10290,26 @@ impl TTSScreen {
         false
     }
 
+    fn open_macos_app_only(app_name: &str) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            let mut cmd = std::process::Command::new("open");
+            cmd.arg("-a").arg(app_name);
+            return Self::command_succeeds(&mut cmd);
+        }
+        #[allow(unreachable_code)]
+        false
+    }
+
+    fn open_macos_app_only_with_candidates(candidates: &[&str]) -> bool {
+        for app in candidates {
+            if Self::open_macos_app_only(app) {
+                return true;
+            }
+        }
+        false
+    }
+
     fn launch_share_target(path: &PathBuf, target: ShareTarget) -> bool {
         #[cfg(target_os = "macos")]
         {
@@ -10286,8 +10317,10 @@ impl TTSScreen {
                 ShareTarget::System => Self::open_path_with_system(path),
                 ShareTarget::Finder => Self::reveal_in_file_manager(path),
                 ShareTarget::CapCut => {
-                    Self::open_with_macos_candidates(path, &["CapCut", "JianyingPro"])
-                        || Self::open_path_with_system(path)
+                    let opened_app =
+                        Self::open_macos_app_only_with_candidates(&["CapCut", "JianyingPro"]);
+                    let revealed_file = Self::reveal_in_file_manager(path);
+                    opened_app || revealed_file
                 }
                 ShareTarget::Premiere => {
                     Self::open_with_macos_candidates(
@@ -10301,8 +10334,10 @@ impl TTSScreen {
                     ) || Self::open_path_with_system(path)
                 }
                 ShareTarget::WeChat => {
-                    Self::open_with_macos_candidates(path, &["WeChat", "wechat"])
-                        || Self::open_path_with_system(path)
+                    let opened_app =
+                        Self::open_macos_app_only_with_candidates(&["WeChat", "wechat", "微信"]);
+                    let revealed_file = Self::reveal_in_file_manager(path);
+                    opened_app || revealed_file
                 }
             };
         }
