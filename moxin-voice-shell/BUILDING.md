@@ -67,8 +67,14 @@ cargo build -p moxin-voice --release
 # Run
 ./target/release/moxin-voice
 
-# Create app bundle (requires additional tools)
-# TODO: Add app bundle instructions
+# Create .app bundle (Dock name/logo from Info.plist)
+./scripts/build_macos_app.sh \
+  --app-name "Moxin Voice" \
+  --bundle-id "com.moxin.voice" \
+  --icon "/absolute/path/to/icon.png"
+
+# Open app bundle
+open "./dist/Moxin Voice.app"
 ```
 
 #### Linux

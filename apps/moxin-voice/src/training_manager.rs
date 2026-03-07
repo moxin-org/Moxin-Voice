@@ -1,15 +1,10 @@
 /// Few-Shot Voice Training Manager
 ///
-/// Manages the Python training service subprocess that orchestrates GPT-SoVITS training.
-/// Communicates via JSON-RPC over stdin/stdout.
-///
-/// Architecture:
-/// - Spawns Python subprocess (training_service.py)
-/// - Sends training request as JSON to process stdin
-/// - Receives progress events as JSON lines from process stdout
-/// - Parses events and updates thread-safe progress state
-/// - UI polls progress state to update display
-
+/// Manages the training service subprocess that orchestrates GPT-SoVITS training.
+/// Supports:
+/// - Option A: Python training service
+/// - Option B: Rust `moxin-fewshot-trainer`
+/// Communicates via JSON events over stdin/stdout.
 use crossbeam_channel::{bounded, Receiver, Sender};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -29,9 +24,44 @@ pub enum TrainingCommand {
         voice_name: String,
         audio_file: PathBuf,
         language: String,
+        reference_text: String,
+        backend: TrainingBackend,
     },
     /// Cancel the current training session
     Cancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrainingBackend {
+    /// Option A (default): Python training service
+    OptionA,
+    /// Option B: Rust/MLX few-shot trainer
+    OptionB,
+}
+
+impl TrainingBackend {
+    pub fn from_str(v: &str) -> Option<Self> {
+        match v.trim().to_ascii_lowercase().as_str() {
+            "option_a" | "a" | "python" | "legacy" => Some(Self::OptionA),
+            "option_b" | "b" | "rust" | "mlx" => Some(Self::OptionB),
+            _ => None,
+        }
+    }
+
+    pub fn from_env() -> Self {
+        std::env::var("MOXIN_TRAINING_BACKEND")
+            .ok()
+            .as_deref()
+            .and_then(Self::from_str)
+            .unwrap_or(Self::OptionA)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OptionA => "option_a",
+            Self::OptionB => "option_b",
+        }
+    }
 }
 
 /// Training status states
@@ -114,6 +144,7 @@ struct TrainingRequest {
     audio_file: String,
     language: String,
     workspace_dir: String,
+    reference_text: String,
     training_params: TrainingParams,
 }
 
@@ -126,7 +157,7 @@ struct TrainingParams {
 
 /// Main training manager
 ///
-/// Spawns a background worker thread that manages the Python training subprocess.
+    /// Spawns a background worker thread that manages the training subprocess.
 /// Provides thread-safe access to training progress via Arc<Mutex<TrainingProgress>>.
 pub struct TrainingManager {
     command_tx: Sender<TrainingCommand>,
@@ -167,6 +198,8 @@ impl TrainingManager {
         voice_name: String,
         audio_file: PathBuf,
         language: String,
+        reference_text: String,
+        backend: TrainingBackend,
     ) -> bool {
         self.command_tx
             .try_send(TrainingCommand::Start {
@@ -174,6 +207,8 @@ impl TrainingManager {
                 voice_name,
                 audio_file,
                 language,
+                reference_text,
+                backend,
             })
             .is_ok()
     }
@@ -215,6 +250,8 @@ impl TrainingManager {
                         voice_name,
                         audio_file,
                         language,
+                        reference_text,
+                        backend,
                     } => {
                         // Kill existing process if any
                         if let Some(mut child) = current_process.take() {
@@ -227,6 +264,8 @@ impl TrainingManager {
                             voice_name,
                             audio_file,
                             language,
+                            reference_text,
+                            backend,
                             &progress,
                         );
                     }
@@ -251,12 +290,14 @@ impl TrainingManager {
         log::info!("Training worker thread exiting");
     }
 
-    /// Execute training by spawning Python service subprocess
+    /// Execute training by spawning configured service subprocess
     fn execute_training(
         voice_id: String,
         voice_name: String,
         audio_file: PathBuf,
         language: String,
+        reference_text: String,
+        backend: TrainingBackend,
         progress: &Arc<Mutex<TrainingProgress>>,
     ) -> Option<Child> {
         // Reset progress
@@ -288,6 +329,7 @@ impl TrainingManager {
             audio_file: audio_file.to_string_lossy().to_string(),
             language: language.clone(),
             workspace_dir: workspace_dir.to_string_lossy().to_string(),
+            reference_text: reference_text.clone(),
             training_params: TrainingParams {
                 gpt_epochs: 15,
                 sovits_epochs: 20,
@@ -308,30 +350,58 @@ impl TrainingManager {
             }
         };
 
-        // Spawn Python training service
-        log::info!("Spawning Python training service");
-        log::info!("Workspace: {}", workspace_dir.display());
-
-        let mut child = match Command::new("python")
-            .arg("-m")
-            .arg("dora_primespeech.moyoyo_tts.training_service")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                let mut prog = progress.lock();
-                prog.status = TrainingStatus::Failed {
-                    error: format!("Failed to spawn training service: {}", e),
-                };
-                prog.log_lines
-                    .push(format!("[ERROR] Failed to start Python: {}", e));
-                prog.last_updated = Instant::now();
-                return None;
+        let mut child = match backend {
+            TrainingBackend::OptionA => {
+                log::info!("Spawning Python training service (Option A)");
+                log::info!("Workspace: {}", workspace_dir.display());
+                Command::new("python")
+                    .arg("-m")
+                    .arg("dora_primespeech.moyoyo_tts.training_service")
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
             }
-        };
+            TrainingBackend::OptionB => {
+                let trainer_bin = match Self::resolve_rust_trainer_bin() {
+                    Ok(path) => path,
+                    Err(e) => {
+                        let mut prog = progress.lock();
+                        prog.status = TrainingStatus::Failed {
+                            error: e.clone(),
+                        };
+                        prog.log_lines.push(format!("[ERROR] {}", e));
+                        prog.last_updated = Instant::now();
+                        return None;
+                    }
+                };
+
+                log::info!(
+                    "Spawning Rust few-shot training service (Option B): {}",
+                    trainer_bin.display()
+                );
+                log::info!("Workspace: {}", workspace_dir.display());
+                Command::new(trainer_bin)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+            }
+        }
+        .map_err(|e| {
+            let mut prog = progress.lock();
+            prog.status = TrainingStatus::Failed {
+                error: format!("Failed to spawn training service: {}", e),
+            };
+            prog.log_lines.push(format!(
+                "[ERROR] Failed to start training service (backend={}): {}",
+                backend.as_str(),
+                e
+            ));
+            prog.last_updated = Instant::now();
+            e
+        })
+        .ok()?;
 
         // Send request to stdin
         if let Some(mut stdin) = child.stdin.take() {
@@ -390,7 +460,7 @@ impl TrainingManager {
                     let reader = BufReader::new(stderr);
                     for line in reader.lines() {
                         if let Ok(line) = line {
-                            log::info!("[Python] {}", line);
+                            log::info!("[Trainer] {}", line);
                         }
                     }
                 })
@@ -398,6 +468,39 @@ impl TrainingManager {
         }
 
         Some(child)
+    }
+
+    fn resolve_rust_trainer_bin() -> Result<PathBuf, String> {
+        if let Ok(explicit) = std::env::var("MOXIN_FEWSHOT_TRAINER_BIN") {
+            let path = PathBuf::from(explicit);
+            if path.exists() {
+                return Ok(path);
+            }
+            return Err(format!(
+                "MOXIN_FEWSHOT_TRAINER_BIN does not exist: {}",
+                path.display()
+            ));
+        }
+
+        let workspace_candidate =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/release/moxin-fewshot-trainer");
+        if workspace_candidate.exists() {
+            return Ok(workspace_candidate);
+        }
+
+        if let Ok(current_exe) = std::env::current_exe() {
+            if let Some(parent) = current_exe.parent() {
+                let sibling = parent.join("moxin-fewshot-trainer");
+                if sibling.exists() {
+                    return Ok(sibling);
+                }
+            }
+        }
+
+        Err(
+            "Cannot find moxin-fewshot-trainer binary. Build it with `cargo build -p moxin-tts-node --release` or set MOXIN_FEWSHOT_TRAINER_BIN."
+                .to_string(),
+        )
     }
 
     /// Parse and handle a JSON event from Python service
@@ -578,6 +681,7 @@ mod tests {
             audio_file: "/tmp/test.wav".to_string(),
             language: "zh".to_string(),
             workspace_dir: "/tmp/workspace".to_string(),
+            reference_text: "测试文本".to_string(),
             training_params: TrainingParams {
                 gpt_epochs: 15,
                 sovits_epochs: 20,

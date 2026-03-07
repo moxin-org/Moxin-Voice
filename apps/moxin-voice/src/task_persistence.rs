@@ -32,6 +32,8 @@ pub struct CloneTask {
     pub completed_at: Option<String>,
     pub message: Option<String>,
     #[serde(default)]
+    pub training_backend: Option<String>, // "option_a" | "option_b"
+    #[serde(default)]
     pub current_step: Option<u32>,   // Current training stage index (0-7)
     #[serde(default)]
     pub sub_step: Option<u32>,       // Current epoch within the active stage

@@ -1712,7 +1712,7 @@ impl Widget for VoiceCloneModal {
                     &format!("[INFO] Transcription received ({}): {}", language, text),
                 );
 
-                // Auto-fill the prompt text field
+                // Auto-fill prompt text field (Express flow behavior).
                 self.view
                     .text_input(ids!(
                         modal_container
@@ -1731,16 +1731,18 @@ impl Widget for VoiceCloneModal {
 
                 // Reset animation timer and hide transcription loading overlay
                 self.transcription_animation_start_time = None;
-                self.view
-                    .view(ids!(
-                        modal_container
-                            .modal_wrapper
-                            .modal_content
-                            .body
-                            .prompt_text_container
-                            .transcription_loading_overlay
-                    ))
-                    .set_visible(cx, false);
+                if self.clone_mode == CloneMode::Express {
+                    self.view
+                        .view(ids!(
+                            modal_container
+                                .modal_wrapper
+                                .modal_content
+                                .body
+                                .prompt_text_container
+                                .transcription_loading_overlay
+                        ))
+                        .set_visible(cx, false);
+                }
 
                 // Clear the ASR result
                 if let Some(ref shared) = self.shared_dora_state {
@@ -1760,23 +1762,25 @@ impl Widget for VoiceCloneModal {
             let elapsed = self.transcription_animation_start_time.unwrap().elapsed().as_secs_f64();
             let rotation = (elapsed * 0.5) % 1.0; // 0.5 rotations per second
 
-            self.view
-                .view(ids!(
-                    modal_container
-                        .modal_wrapper
-                        .modal_content
-                        .body
-                        .prompt_text_container
-                        .transcription_loading_overlay
-                        .loading_content
-                        .loading_spinner
-                ))
-                .apply_over(
-                    cx,
-                    live! {
-                        draw_bg: { rotation: (rotation) }
-                    },
-                );
+            if self.clone_mode == CloneMode::Express {
+                self.view
+                    .view(ids!(
+                        modal_container
+                            .modal_wrapper
+                            .modal_content
+                            .body
+                            .prompt_text_container
+                            .transcription_loading_overlay
+                            .loading_content
+                            .loading_spinner
+                    ))
+                    .apply_over(
+                        cx,
+                        live! {
+                            draw_bg: { rotation: (rotation) }
+                        },
+                    );
+            }
 
             self.view.redraw(cx);
         }
@@ -3017,18 +3021,20 @@ impl VoiceCloneModal {
                 self.asr_sent = false;
                 self.recording_status = RecordingStatus::Transcribing;
 
-                // Show transcription loading overlay and reset animation timer
+                // Show transcription loading overlay (Express mode) and reset animation timer
                 self.transcription_animation_start_time = None;
-                self.view
-                    .view(ids!(
-                        modal_container
-                            .modal_wrapper
-                            .modal_content
-                            .body
-                            .prompt_text_container
-                            .transcription_loading_overlay
-                    ))
-                    .set_visible(cx, true);
+                if self.clone_mode == CloneMode::Express {
+                    self.view
+                        .view(ids!(
+                            modal_container
+                                .modal_wrapper
+                                .modal_content
+                                .body
+                                .prompt_text_container
+                                .transcription_loading_overlay
+                        ))
+                        .set_visible(cx, true);
+                }
             }
             Err(e) => {
                 self.add_log(cx, &format!("[ERROR] Failed to read audio for ASR: {}", e));
@@ -3242,8 +3248,8 @@ impl VoiceCloneModal {
         // Validate duration (minimum 10 seconds)
         if duration < 10.0 {
             self.add_training_log(cx, &format!(
-                "[ERROR] Recording too short: {:.1}s (minimum: 10s)",
-                duration
+                    "[ERROR] Recording too short: {:.1}s (minimum: 10s)",
+                    duration
             ));
             self.training_audio_file = None;
             return;
@@ -3251,8 +3257,8 @@ impl VoiceCloneModal {
 
         if duration > 600.0 {
             self.add_training_log(cx, &format!(
-                "[WARNING] Recording too long: {:.1}s (will be trimmed to 600s = 10 minutes)",
-                duration
+                    "[WARNING] Recording too long: {:.1}s (will be trimmed to 600s = 10 minutes)",
+                    duration
             ));
         }
 
@@ -3289,15 +3295,25 @@ impl VoiceCloneModal {
             Ok(_) => {
                 self.training_audio_file = Some(temp_file.clone());
                 self.add_training_log(cx, &format!(
-                    "[SUCCESS] Recording saved ({:.1}s, {:.1} MB)",
-                    duration,
-                    (self.training_audio_samples.len() * 4) as f64 / 1_000_000.0
+                        "[SUCCESS] Recording saved ({:.1}s, {:.1} MB)",
+                        duration,
+                        (self.training_audio_samples.len() * 4) as f64 / 1_000_000.0
                 ));
 
                 // Enable start training button
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
-                )).set_enabled(cx, true);
+                self.view
+                    .button(ids!(
+                        modal_container
+                            .modal_wrapper
+                            .modal_content
+                            .footer
+                            .pro_actions
+                            .start_training_btn
+                    ))
+                    .set_enabled(cx, true);
+
+                // Auto-transcribe training recording via dora-asr.
+                self.transcribe_audio(cx, &temp_file);
             }
             Err(e) => {
                 self.add_training_log(cx, &format!("[ERROR] Failed to save audio: {}", e));
@@ -3359,14 +3375,14 @@ impl VoiceCloneModal {
             }
             hound::SampleFormat::Float => {
                 reader
-                    .into_samples::<f32>()
-                    .filter_map(|s| s.ok())
-                    .collect::<Vec<f32>>()
-                    .chunks(channels as usize)
-                    .map(|chunk| {
-                        let sum: f32 = chunk.iter().sum();
-                        sum / channels as f32
-                    })
+                .into_samples::<f32>()
+                .filter_map(|s| s.ok())
+                .collect::<Vec<f32>>()
+                .chunks(channels as usize)
+                .map(|chunk| {
+                    let sum: f32 = chunk.iter().sum();
+                    sum / channels as f32
+                })
                     .collect()
             }
         };
@@ -3375,8 +3391,8 @@ impl VoiceCloneModal {
         let duration = samples.len() as f32 / source_sample_rate as f32;
 
         self.add_training_log(cx, &format!(
-            "[INFO] Audio loaded: {:.1}s, {}Hz, {} ch",
-            duration, source_sample_rate, channels
+                "[INFO] Audio loaded: {:.1}s, {}Hz, {} ch",
+                duration, source_sample_rate, channels
         ));
 
         // Validate duration (minimum 10 seconds)
@@ -3392,8 +3408,8 @@ impl VoiceCloneModal {
 
         if duration > 600.0 {
             self.add_training_log(cx, &format!(
-                "[WARNING] Audio too long: {:.1}s (will be trimmed to 600s = 10 minutes)",
-                duration
+                    "[WARNING] Audio too long: {:.1}s (will be trimmed to 600s = 10 minutes)",
+                    duration
             ));
         }
 
@@ -3422,9 +3438,9 @@ impl VoiceCloneModal {
             Ok(_) => {
                 self.training_audio_file = Some(temp_file.clone());
                 self.add_training_log(cx, &format!(
-                    "[SUCCESS] Audio file ready ({:.1}s, {:.1} MB)",
-                    duration,
-                    (self.training_audio_samples.len() * 4) as f64 / 1_000_000.0
+                        "[SUCCESS] Audio file ready ({:.1}s, {:.1} MB)",
+                        duration,
+                        (self.training_audio_samples.len() * 4) as f64 / 1_000_000.0
                 ));
 
                 // Update duration label
@@ -3444,9 +3460,19 @@ impl VoiceCloneModal {
                 )).set_visible(cx, true);
 
                 // Enable start training button
-                self.view.button(ids!(
-                    modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
-                )).set_enabled(cx, true);
+                self.view
+                    .button(ids!(
+                        modal_container
+                            .modal_wrapper
+                            .modal_content
+                            .footer
+                            .pro_actions
+                            .start_training_btn
+                    ))
+                    .set_enabled(cx, true);
+
+                // Auto-transcribe uploaded training audio via dora-asr.
+                self.transcribe_audio(cx, &temp_file);
             }
             Err(e) => {
                 self.add_training_log(cx, &format!("[ERROR] Failed to save audio: {}", e));
@@ -3472,6 +3498,53 @@ impl VoiceCloneModal {
             self.show_error(cx, "No training audio available. Please record or upload at least 10 seconds of audio first.");
             return;
         };
+
+        let reference_text = self
+            .view
+            .text_input(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .express_mode_content
+                    .prompt_text_container
+                    .prompt_text_input
+                    .input
+            ))
+            .text()
+            .trim()
+            .to_string();
+
+        let training_backend = std::env::var("MOXIN_TRAINING_BACKEND")
+            .ok()
+            .map(|v| v.to_ascii_lowercase())
+            .filter(|v| {
+                matches!(
+                    v.as_str(),
+                    "option_a" | "option_b" | "python" | "rust" | "mlx" | "legacy" | "a" | "b"
+                )
+            })
+            .map(|v| {
+                if matches!(v.as_str(), "option_b" | "rust" | "mlx" | "b") {
+                    "option_b".to_string()
+                } else {
+                    "option_a".to_string()
+                }
+            })
+            .unwrap_or_else(|| "option_a".to_string());
+
+        self.add_training_log(
+            cx,
+            &format!("[INFO] Training backend: {}", training_backend),
+        );
+
+        if training_backend == "option_b" && reference_text.is_empty() {
+            self.show_error(
+                cx,
+                "Option B (Rust/MLX) requires reference text. Please wait for ASR transcription or enter text in the reference field.",
+            );
+            return;
+        }
 
         let voice_id = voice_persistence::generate_voice_id(&voice_name);
 
@@ -3506,10 +3579,15 @@ impl VoiceCloneModal {
             progress: 0.0,
             created_at,
             audio_path: Some(audio_file.to_string_lossy().to_string()),
-            reference_text: None,
+            reference_text: if reference_text.is_empty() {
+                None
+            } else {
+                Some(reference_text)
+            },
             started_at: None,
             completed_at: None,
             message: Some("Waiting in queue...".to_string()),
+            training_backend: Some(training_backend),
             current_step: None,
             sub_step: None,
             sub_total: None,

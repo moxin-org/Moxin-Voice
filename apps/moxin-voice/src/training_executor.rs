@@ -4,7 +4,7 @@
 //! TrainingManager. Emits ExecutorEvents that the TTSScreen uses to refresh UI.
 
 use crate::task_persistence::{self, CloneTask, CloneTaskStatus};
-use crate::training_manager::{TrainingManager, TrainingProgress, TrainingStatus};
+use crate::training_manager::{TrainingBackend, TrainingManager, TrainingProgress, TrainingStatus};
 use crate::task_persistence::update_task_progress_full;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -225,6 +225,11 @@ impl TrainingExecutor {
             task.name.clone(),
             audio_path,
             "zh".to_string(), // default language
+            task.reference_text.clone().unwrap_or_default(),
+            task.training_backend
+                .as_deref()
+                .and_then(TrainingBackend::from_str)
+                .unwrap_or_else(TrainingBackend::from_env),
         );
 
         self.training_manager = Some(manager);

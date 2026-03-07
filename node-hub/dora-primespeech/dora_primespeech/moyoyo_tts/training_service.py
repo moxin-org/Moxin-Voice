@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -90,6 +91,95 @@ def emit_progress(event_type: str, message: str, data: Optional[Dict] = None):
 
     print(json.dumps(event), flush=True)
     logger.info(f"[{event_type}] {message}")
+
+
+def find_mlx_convert_script() -> Optional[str]:
+    """
+    Locate the MLX weight conversion script used by moxin-tts-node.
+
+    Priority:
+    1) MOXIN_CONVERT_WEIGHTS_SCRIPT env var
+    2) repo-local node-hub/moxin-tts-node/vendor/... path
+    """
+    env_path = os.environ.get("MOXIN_CONVERT_WEIGHTS_SCRIPT")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    # training_service.py => .../node-hub/dora-primespeech/dora_primespeech/moyoyo_tts
+    # node-hub root is parents[3]
+    try:
+        node_hub_dir = Path(__file__).resolve().parents[3]
+        candidate = node_hub_dir / "moxin-tts-node" / "vendor" / "gpt-sovits-mlx" / "scripts" / "convert_gpt_weights.py"
+        if candidate.exists():
+            return str(candidate)
+    except Exception:
+        pass
+
+    return None
+
+
+def convert_weights_for_mlx(gpt_ckpt: str, sovits_pth: str, model_dir: str) -> Tuple[str, str]:
+    """
+    Convert GPT-SoVITS training outputs (.ckpt/.pth) to MLX safetensors.
+
+    Returns:
+        (gpt_path_for_tts, sovits_path_for_tts)
+
+    If conversion is unavailable or fails, returns the original paths so
+    callers can decide fallback behavior.
+    """
+    script_path = find_mlx_convert_script()
+    if not script_path:
+        emit_progress(
+            "WARNING",
+            "MLX conversion script not found, trained voice may not work with moxin-tts-node",
+        )
+        return gpt_ckpt, sovits_pth
+
+    gpt_out = os.path.join(model_dir, "gpt_final.safetensors")
+    sovits_out = os.path.join(model_dir, "sovits_final.safetensors")
+
+    emit_progress("INFO", "Converting trained weights to MLX safetensors")
+
+    gpt_cmd = [
+        sys.executable,
+        script_path,
+        "--input",
+        gpt_ckpt,
+        "--output",
+        gpt_out,
+    ]
+    sovits_cmd = [
+        sys.executable,
+        script_path,
+        "--input",
+        sovits_pth,
+        "--output",
+        sovits_out,
+        "--type",
+        "sovits",
+    ]
+
+    gpt_proc = subprocess.run(gpt_cmd, capture_output=True, text=True)
+    if gpt_proc.returncode != 0 or not os.path.exists(gpt_out):
+        err = (gpt_proc.stderr or gpt_proc.stdout or "").strip()
+        emit_progress(
+            "WARNING",
+            f"GPT conversion failed, fallback to ckpt. Detail: {err[:300]}",
+        )
+        return gpt_ckpt, sovits_pth
+
+    sovits_proc = subprocess.run(sovits_cmd, capture_output=True, text=True)
+    if sovits_proc.returncode != 0 or not os.path.exists(sovits_out):
+        err = (sovits_proc.stderr or sovits_proc.stdout or "").strip()
+        emit_progress(
+            "WARNING",
+            f"SoVITS conversion failed, fallback to pth. Detail: {err[:300]}",
+        )
+        return gpt_ckpt, sovits_pth
+
+    emit_progress("INFO", "MLX conversion complete")
+    return gpt_out, sovits_out
 
 
 def get_audio_duration(file_path: str) -> float:
@@ -876,10 +966,20 @@ def run_training_pipeline(request: Dict):
 
         emit_progress("INFO", f"SoVITS training completed: {os.path.basename(sovits_final_path)}")
 
-        # Stage 8: Training complete
+        # Stage 8: Convert to MLX format (for moxin-tts-node) and complete
+        mlx_gpt_path, mlx_sovits_path = convert_weights_for_mlx(
+            gpt_final_renamed,
+            sovits_final_path,
+            model_dir,
+        )
+
         emit_progress("COMPLETE", "Training completed successfully", {
-            "gpt_weights": gpt_final_renamed,
-            "sovits_weights": sovits_final_path,
+            # Prefer MLX safetensors for moxin-tts-node
+            "gpt_weights": mlx_gpt_path,
+            "sovits_weights": mlx_sovits_path,
+            # Keep original files for debugging/backward compatibility
+            "gpt_weights_original": gpt_final_renamed,
+            "sovits_weights_original": sovits_final_path,
             "reference_audio": ref_audio_path,
             "reference_text": ref_text,
             "voice_id": voice_id,
