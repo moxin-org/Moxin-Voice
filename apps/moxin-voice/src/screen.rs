@@ -608,6 +608,57 @@ live_design! {
         }
     }
 
+    VoiceFilterChip = <Button> {
+        width: Fit, height: 24
+        padding: {left: 8, right: 8}
+        draw_bg: {
+            instance active: 0.0
+            instance dark_mode: 0.0
+            instance border_radius: 6.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                let normal = mix(vec4(0.0, 0.0, 0.0, 0.0), vec4(0.0, 0.0, 0.0, 0.0), self.dark_mode);
+                let active = mix(vec4(0.88, 0.93, 1.0, 1.0), vec4(0.20, 0.27, 0.42, 1.0), self.dark_mode);
+                sdf.fill(mix(normal, active, self.active));
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            instance active: 0.0
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+            fn get_color(self) -> vec4 {
+                let normal = mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                let active = mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
+                return mix(normal, active, self.active);
+            }
+        }
+    }
+
+    VoiceSelectedChip = <Button> {
+        width: Fit, height: 28
+        padding: {left: 10, right: 10}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance border_radius: 8.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                let bg = mix(vec4(0.88, 0.93, 1.0, 1.0), vec4(0.20, 0.27, 0.42, 1.0), self.dark_mode);
+                sdf.fill(bg);
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                return mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
+            }
+        }
+    }
+
     // Layout constants
     SECTION_SPACING = 12.0
     PANEL_RADIUS = 6.0
@@ -965,6 +1016,10 @@ live_design! {
                     nav_clone = <NavItem> {
                         text: "📋 Voice Clone"
                     }
+
+                    nav_history = <NavItem> {
+                        text: "🕘 History"
+                    }
                 }
 
                 // Sidebar Footer: User Info
@@ -1191,13 +1246,13 @@ live_design! {
                             }
                         }
 
-                        // Bottom bar with character count and generate button - Moxin.tts style
+                        // Bottom bar with model control and generate button - Moxin.tts style
                         bottom_bar = <View> {
                             width: Fill, height: Fit
-                            flow: Right
-                            align: {x: 0.0, y: 0.5}
-                            padding: {left: 20, right: 20, top: 16, bottom: 20}
-                            spacing: 16
+                            flow: Down
+                            align: {x: 0.0, y: 0.0}
+                            padding: {left: 20, right: 20, top: 12, bottom: 14}
+                            spacing: 8
                             
                             show_bg: true
                             draw_bg: {
@@ -1212,57 +1267,374 @@ live_design! {
                                 }
                             }
 
-                            // Character count
-                            char_count = <Label> {
-                                width: Fit, height: Fit
-                                align: {y: 0.5}
-                                draw_text: {
-                                    instance dark_mode: 0.0
-                                    text_style: { font_size: 13.0 }
-                                    fn get_color(self) -> vec4 {
-                                        return mix((MOXIN_TEXT_MUTED), (MOXIN_TEXT_MUTED_DARK), self.dark_mode);
-                                    }
-                                }
-                                text: "0 / 5,000 字符"
-                            }
-
-                            <View> { width: Fill, height: 1 }
-
-                            // Generate button with spinner - Moxin.tts style
-                            generate_section = <View> {
-                                width: Fit, height: Fit
+                            // Model selector row (placed above generate button)
+                            model_row = <View> {
+                                width: Fill, height: Fit
                                 flow: Right
                                 align: {y: 0.5}
                                 spacing: 8
 
-                                // Spinner on the left (hidden by default)
-                                generate_spinner = <GenerateSpinner> {}
+                                model_label = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "Model"
+                                }
 
-                                generate_btn = <Button> {
-                                    width: Fit, height: 44
-                                    padding: {left: 28, right: 28}
-                                    text: "生成语音"
-
+                                model_picker_btn = <Button> {
+                                    width: Fill, height: 34
+                                    padding: {left: 10, right: 10}
+                                    text: "🔮 GPT-SoVITS v2"
                                     draw_bg: {
+                                        instance dark_mode: 0.0
                                         instance hover: 0.0
-                                        instance disabled: 0.0
+                                        instance border_radius: 7.0
                                         fn pixel(self) -> vec4 {
                                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 10.0);
-                                            let base = (MOXIN_PRIMARY);
-                                            let hover_color = (MOXIN_PRIMARY_LIGHT);
-                                            let disabled_color = vec4(0.6, 0.6, 0.65, 1.0);
-                                            let color = mix(base, hover_color, self.hover);
-                                            let color = mix(color, disabled_color, self.disabled);
-                                            sdf.fill(color);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            let bg = mix((SLATE_50), (SLATE_800), self.dark_mode);
+                                            let bg = mix(bg, mix((SLATE_100), (SLATE_700), self.dark_mode), self.hover);
+                                            sdf.fill(bg);
+                                            let border = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                            sdf.stroke(border, 1.0);
                                             return sdf.result;
                                         }
                                     }
-
                                     draw_text: {
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
                                         fn get_color(self) -> vec4 {
-                                            return vec4(1.0, 1.0, 1.0, 1.0);
+                                            return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // TTS parameter controls moved from right panel
+                            param_controls = <View> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 8
+
+                                // Speed slider
+                                speed_row = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Right
+                                    align: {y: 0.5}
+                                    spacing: 10
+
+                                    speed_header = <View> {
+                                        width: 92, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+
+                                        speed_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "Speed"
+                                        }
+                                        <View> { width: Fill, height: 1 }
+                                        speed_value = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: { font_size: 10.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "1.0x"
+                                        }
+                                    }
+
+                                    speed_slider_row = <View> {
+                                        width: Fill, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 6
+
+                                        speed_min_slot = <View> {
+                                            width: 48, height: Fit
+                                            flow: Right
+                                            align: {y: 0.5}
+
+                                            slower_label = <Label> {
+                                                width: Fit, height: Fit
+                                                draw_text: {
+                                                    instance dark_mode: 0.0
+                                                    text_style: { font_size: 9.0 }
+                                                    fn get_color(self) -> vec4 {
+                                                        return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    }
+                                                }
+                                                text: "Slower"
+                                            }
+                                            <View> { width: Fill, height: 1 }
+                                        }
+
+                                        speed_slider = <ParamValueSlider> {}
+
+                                        speed_max_slot = <View> {
+                                            width: 48, height: Fit
+                                            flow: Right
+                                            align: {y: 0.5}
+
+                                            <View> { width: Fill, height: 1 }
+                                            faster_label = <Label> {
+                                                width: Fit, height: Fit
+                                                draw_text: {
+                                                    instance dark_mode: 0.0
+                                                    text_style: { font_size: 9.0 }
+                                                    fn get_color(self) -> vec4 {
+                                                        return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    }
+                                                }
+                                                text: "Faster"
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Pitch slider
+                                pitch_row = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Right
+                                    align: {y: 0.5}
+                                    spacing: 10
+
+                                    pitch_header = <View> {
+                                        width: 92, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+
+                                        pitch_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "Pitch"
+                                        }
+                                        <View> { width: Fill, height: 1 }
+                                        pitch_value = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: { font_size: 10.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "0"
+                                        }
+                                    }
+
+                                    pitch_slider_row = <View> {
+                                        width: Fill, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 6
+
+                                        pitch_min_slot = <View> {
+                                            width: 48, height: Fit
+                                            flow: Right
+                                            align: {y: 0.5}
+
+                                            lower_label = <Label> {
+                                                width: Fit, height: Fit
+                                                draw_text: {
+                                                    instance dark_mode: 0.0
+                                                    text_style: { font_size: 9.0 }
+                                                    fn get_color(self) -> vec4 {
+                                                        return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    }
+                                                }
+                                                text: "Lower"
+                                            }
+                                            <View> { width: Fill, height: 1 }
+                                        }
+
+                                        pitch_slider = <ParamValueSlider> {}
+
+                                        pitch_max_slot = <View> {
+                                            width: 48, height: Fit
+                                            flow: Right
+                                            align: {y: 0.5}
+
+                                            <View> { width: Fill, height: 1 }
+                                            higher_label = <Label> {
+                                                width: Fit, height: Fit
+                                                draw_text: {
+                                                    instance dark_mode: 0.0
+                                                    text_style: { font_size: 9.0 }
+                                                    fn get_color(self) -> vec4 {
+                                                        return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    }
+                                                }
+                                                text: "Higher"
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Volume slider
+                                volume_row = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Right
+                                    align: {y: 0.5}
+                                    spacing: 10
+
+                                    volume_header = <View> {
+                                        width: 92, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+
+                                        volume_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "Volume"
+                                        }
+                                        <View> { width: Fill, height: 1 }
+                                        volume_value = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: { font_size: 10.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "100%"
+                                        }
+                                    }
+
+                                    volume_slider_row = <View> {
+                                        width: Fill, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 6
+
+                                        volume_min_slot = <View> {
+                                            width: 48, height: Fit
+                                            flow: Right
+                                            align: {y: 0.5}
+
+                                            quiet_label = <Label> {
+                                                width: Fit, height: Fit
+                                                draw_text: {
+                                                    instance dark_mode: 0.0
+                                                    text_style: { font_size: 9.0 }
+                                                    fn get_color(self) -> vec4 {
+                                                        return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    }
+                                                }
+                                                text: "Quiet"
+                                            }
+                                            <View> { width: Fill, height: 1 }
+                                        }
+
+                                        volume_slider = <ParamValueSlider> {}
+
+                                        volume_max_slot = <View> {
+                                            width: 48, height: Fit
+                                            flow: Right
+                                            align: {y: 0.5}
+
+                                            <View> { width: Fill, height: 1 }
+                                            loud_label = <Label> {
+                                                width: Fit, height: Fit
+                                                draw_text: {
+                                                    instance dark_mode: 0.0
+                                                    text_style: { font_size: 9.0 }
+                                                    fn get_color(self) -> vec4 {
+                                                        return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    }
+                                                }
+                                                text: "Loud"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            action_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                align: {x: 0.0, y: 0.5}
+                                spacing: 16
+
+                                // Character count
+                                char_count = <Label> {
+                                    width: Fit, height: Fit
+                                    align: {y: 0.5}
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 13.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOXIN_TEXT_MUTED), (MOXIN_TEXT_MUTED_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "0 / 5,000 字符"
+                                }
+
+                                <View> { width: Fill, height: 1 }
+
+                                // Generate button with spinner - Moxin.tts style
+                                generate_section = <View> {
+                                    width: Fit, height: Fit
+                                    flow: Right
+                                    align: {y: 0.5}
+                                    spacing: 8
+
+                                    // Spinner on the left (hidden by default)
+                                    generate_spinner = <GenerateSpinner> {}
+
+                                    generate_btn = <Button> {
+                                        width: Fit, height: 44
+                                        padding: {left: 28, right: 28}
+                                        text: "生成语音"
+
+                                        draw_bg: {
+                                            instance hover: 0.0
+                                            instance disabled: 0.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 10.0);
+                                                let base = (MOXIN_PRIMARY);
+                                                let hover_color = (MOXIN_PRIMARY_LIGHT);
+                                                let disabled_color = vec4(0.6, 0.6, 0.65, 1.0);
+                                                let color = mix(base, hover_color, self.hover);
+                                                let color = mix(color, disabled_color, self.disabled);
+                                                sdf.fill(color);
+                                                return sdf.result;
+                                            }
+                                        }
+
+                                        draw_text: {
+                                            text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                            fn get_color(self) -> vec4 {
+                                                return vec4(1.0, 1.0, 1.0, 1.0);
+                                            }
                                         }
                                     }
                                 }
@@ -1282,7 +1654,7 @@ live_design! {
                             }
                         }
 
-                        // Tab header: Settings | History
+                        // Tab header: Voice | Settings | History
                         settings_tabs = <View> {
                             width: Fill, height: 48
                             flow: Right
@@ -1300,10 +1672,10 @@ live_design! {
                                 }
                             }
 
-                            settings_tab_btn = <Button> {
-                                width: Fit, height: Fill
-                                padding: {left: 16, right: 16}
-                                text: "参数"
+                            voice_management_tab_btn = <Button> {
+                                width: 0, height: 0
+                                padding: {left: 0, right: 0}
+                                text: "音色管理"
                                 draw_bg: {
                                     instance active: 1.0
                                     fn pixel(self) -> vec4 {
@@ -1326,9 +1698,35 @@ live_design! {
                                 }
                             }
 
-                            history_tab_btn = <Button> {
+                            settings_tab_btn = <Button> {
                                 width: Fit, height: Fill
                                 padding: {left: 16, right: 16}
+                                text: "参数"
+                                draw_bg: {
+                                    instance active: 0.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.rect(0.0, self.rect_size.y - 2.0, self.rect_size.x, 2.0);
+                                        let underline = mix(vec4(0.0, 0.0, 0.0, 0.0), (MOXIN_PRIMARY), self.active);
+                                        sdf.fill(underline);
+                                        return sdf.result;
+                                    }
+                                }
+                                draw_text: {
+                                    instance active: 1.0
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                    fn get_color(self) -> vec4 {
+                                        let normal = mix(vec4(0.5, 0.5, 0.55, 1.0), vec4(0.62, 0.62, 0.68, 1.0), self.dark_mode);
+                                        let active = mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                        return mix(normal, active, self.active);
+                                    }
+                                }
+                            }
+
+                            history_tab_btn = <Button> {
+                                width: 0, height: 0
+                                padding: {left: 0, right: 0}
                                 text: "History"
                                 draw_bg: {
                                     instance active: 0.0
@@ -1353,17 +1751,17 @@ live_design! {
                             }
                         }
 
-                        // Settings panel content
-                        settings_panel = <View> {
+                        // Voice management panel content
+                        voice_management_panel = <View> {
                             width: Fill, height: Fill
                             flow: Down
                             padding: {left: 16, right: 16, top: 16, bottom: 16}
                             spacing: 20
-                            visible: true
+                            visible: false
 
-                            // Voice selector row
                             voice_row = <View> {
-                                width: Fill, height: Fit
+                                width: Fill, height: 0
+                                visible: false
                                 flow: Down
                                 spacing: 8
 
@@ -1380,56 +1778,9 @@ live_design! {
                                 }
 
                                 voice_picker_btn = <Button> {
-                                    width: Fill, height: 48
+                                    width: Fill, height: 52
                                     padding: {left: 12, right: 12}
                                     text: "🎤 Doubao - Natural & Expressive"
-                            draw_bg: {
-                                instance dark_mode: 0.0
-                                        instance hover: 0.0
-                                        instance border_radius: 8.0
-                                fn pixel(self) -> vec4 {
-                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            let bg = mix((SLATE_50), (SLATE_800), self.dark_mode);
-                                            let bg = mix(bg, mix((SLATE_100), (SLATE_700), self.dark_mode), self.hover);
-                                    sdf.fill(bg);
-                                            let border = mix((SLATE_200), (SLATE_600), self.dark_mode);
-                                            sdf.stroke(border, 1.0);
-                                    return sdf.result;
-                                        }
-                                    }
-                                    draw_text: {
-                                        instance dark_mode: 0.0
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
-                                        fn get_color(self) -> vec4 {
-                                            return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Model selector row
-                            model_row = <View> {
-                                width: Fill, height: Fit
-                                flow: Down
-                                spacing: 8
-
-                                model_label = <Label> {
-                                    width: Fit, height: Fit
-                                    draw_text: {
-                                        instance dark_mode: 0.0
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                        fn get_color(self) -> vec4 {
-                                            return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
-                                        }
-                                    }
-                                    text: "Model"
-                                }
-
-                                model_picker_btn = <Button> {
-                                    width: Fill, height: 48
-                                    padding: {left: 12, right: 12}
-                                    text: "🔮 GPT-SoVITS v2"
                                     draw_bg: {
                                         instance dark_mode: 0.0
                                         instance hover: 0.0
@@ -1453,257 +1804,498 @@ live_design! {
                                         }
                                     }
                                 }
-                            }
 
-                            // Speed slider
-                            speed_row = <View> {
-                                width: Fill, height: Fit
-                                flow: Down
-                                spacing: 8
-
-                                speed_header = <View> {
+                                voice_tags_row = <View> {
                                     width: Fill, height: Fit
+                                    visible: false
                                     flow: Right
-                                    align: {y: 0.5}
-
-                                    speed_label = <Label> {
-                                        width: Fit, height: Fit
-                                        draw_text: {
-                                            instance dark_mode: 0.0
-                                            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                            fn get_color(self) -> vec4 {
-                                                return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
-                                            }
-                                        }
-                                        text: "Speed"
-                                    }
-                                    <View> { width: Fill, height: 1 }
-                                    speed_value = <Label> {
-                                        width: Fit, height: Fit
-                                        draw_text: {
-                                            instance dark_mode: 0.0
-                                            text_style: { font_size: 11.0 }
-                                            fn get_color(self) -> vec4 {
-                                                return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
-                                            }
-                                        }
-                                        text: "1.0x"
-                                    }
-                                }
-
-                                speed_slider_row = <View> {
-                                    width: Fill, height: Fit
-                                    flow: Right
-                                    align: {y: 0.5}
                                     spacing: 8
 
-                                    speed_min_slot = <View> {
-                                        width: 64, height: Fit
-                                        flow: Right
-                                        align: {y: 0.5}
-
-                                        slower_label = <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: { font_size: 10.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
-                                                }
-                                            }
-                                            text: "Slower"
-                                        }
-                                        <View> { width: Fill, height: 1 }
-                                    }
-
-                                    speed_slider = <ParamValueSlider> {}
-
-                                    speed_max_slot = <View> {
-                                        width: 64, height: Fit
-                                        flow: Right
-                                        align: {y: 0.5}
-
-                                        <View> { width: Fill, height: 1 }
-                                        faster_label = <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: { font_size: 10.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
-                                                }
-                                            }
-                                            text: "Faster"
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Pitch slider
-                            pitch_row = <View> {
-                                width: Fill, height: Fit
-                                flow: Down
-                                spacing: 8
-
-                                pitch_header = <View> {
-                                    width: Fill, height: Fit
-                                    flow: Right
-                                    align: {y: 0.5}
-
-                                    pitch_label = <Label> {
+                                    gender_badge = <RoundedView> {
                                         width: Fit, height: Fit
-                                        draw_text: {
+                                        visible: false
+                                        padding: {left: 10, right: 10, top: 5, bottom: 5}
+                                        draw_bg: {
                                             instance dark_mode: 0.0
-                                            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                            fn get_color(self) -> vec4 {
-                                                return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                            border_radius: 999.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let bg = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
+                                                sdf.fill(bg);
+                                                return sdf.result;
                                             }
                                         }
-                                        text: "Pitch"
+
+                                        gender_badge_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((PRIMARY_700), (PRIMARY_200), self.dark_mode);
+                                                }
+                                            }
+                                            text: "男声"
+                                        }
                                     }
-                                    <View> { width: Fill, height: 1 }
-                                    pitch_value = <Label> {
+
+                                    age_badge = <RoundedView> {
                                         width: Fit, height: Fit
-                                        draw_text: {
+                                        padding: {left: 10, right: 10, top: 5, bottom: 5}
+                                        draw_bg: {
                                             instance dark_mode: 0.0
-                                            text_style: { font_size: 11.0 }
-                                            fn get_color(self) -> vec4 {
-                                                return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                            border_radius: 999.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                sdf.fill(bg);
+                                                return sdf.result;
                                             }
                                         }
-                                        text: "0"
-                                    }
-                                }
 
-                                pitch_slider_row = <View> {
-                                    width: Fill, height: Fit
-                                    flow: Right
-                                    align: {y: 0.5}
-                                    spacing: 8
-
-                                    pitch_min_slot = <View> {
-                                        width: 64, height: Fit
-                                        flow: Right
-                                        align: {y: 0.5}
-
-                                        lower_label = <Label> {
+                                        age_badge_label = <Label> {
                                             width: Fit, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
-                                                text_style: { font_size: 10.0 }
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
                                                 fn get_color(self) -> vec4 {
-                                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "Lower"
+                                            text: "成年音"
                                         }
-                                        <View> { width: Fill, height: 1 }
                                     }
 
-                                    pitch_slider = <ParamValueSlider> {}
+                                    style_badge = <RoundedView> {
+                                        width: Fit, height: Fit
+                                        padding: {left: 10, right: 10, top: 5, bottom: 5}
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            border_radius: 999.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let bg = mix(vec4(0.98, 0.92, 0.96, 1.0), vec4(0.38, 0.24, 0.34, 1.0), self.dark_mode);
+                                                sdf.fill(bg);
+                                                return sdf.result;
+                                            }
+                                        }
 
-                                    pitch_max_slot = <View> {
-                                        width: 64, height: Fit
-                                        flow: Right
-                                        align: {y: 0.5}
-
-                                        <View> { width: Fill, height: 1 }
-                                        higher_label = <Label> {
+                                        style_badge_label = <Label> {
                                             width: Fit, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
-                                                text_style: { font_size: 10.0 }
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
                                                 fn get_color(self) -> vec4 {
-                                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    return mix(vec4(0.74, 0.28, 0.52, 1.0), vec4(1.0, 0.78, 0.88, 1.0), self.dark_mode);
                                                 }
                                             }
-                                            text: "Higher"
+                                            text: "甜美"
                                         }
                                     }
                                 }
                             }
+                        }
 
-                            // Volume slider
-                            volume_row = <View> {
-                                width: Fill, height: Fit
+                        // Settings panel content
+                        settings_panel = <View> {
+                            width: Fill, height: Fill
+                            flow: Down
+                            padding: {left: 16, right: 16, top: 16, bottom: 16}
+                            spacing: 0
+                            visible: true
+
+                            voice_row = <View> {
+                                width: Fill, height: 0
+                                visible: false
                                 flow: Down
                                 spacing: 8
 
-                                volume_header = <View> {
-                                    width: Fill, height: Fit
-                                    flow: Right
-                                    align: {y: 0.5}
-
-                                    volume_label = <Label> {
-                                        width: Fit, height: Fit
-                                        draw_text: {
-                                            instance dark_mode: 0.0
-                                            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                            fn get_color(self) -> vec4 {
-                                                return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
-                                            }
+                                voice_label = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
                                         }
-                                        text: "Volume"
                                     }
-                                    <View> { width: Fill, height: 1 }
-                                    volume_value = <Label> {
-                                        width: Fit, height: Fit
-                                        draw_text: {
-                                            instance dark_mode: 0.0
-                                            text_style: { font_size: 11.0 }
-                                            fn get_color(self) -> vec4 {
-                                                return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
-                                            }
+                                    text: "Voice"
+                                }
+
+                                voice_picker_btn = <Button> {
+                                    width: Fill, height: 52
+                                    padding: {left: 12, right: 12}
+                                    text: "🎤 Doubao - Natural & Expressive"
+                                    draw_bg: {
+                                        instance dark_mode: 0.0
+                                        instance hover: 0.0
+                                        instance border_radius: 8.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            let bg = mix((SLATE_50), (SLATE_800), self.dark_mode);
+                                            let bg = mix(bg, mix((SLATE_100), (SLATE_700), self.dark_mode), self.hover);
+                                            sdf.fill(bg);
+                                            let border = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                            sdf.stroke(border, 1.0);
+                                            return sdf.result;
                                         }
-                                        text: "100%"
+                                    }
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
                                     }
                                 }
 
-                                volume_slider_row = <View> {
+                                voice_tags_row = <View> {
                                     width: Fill, height: Fit
+                                    visible: false
                                     flow: Right
-                                    align: {y: 0.5}
                                     spacing: 8
 
-                                    volume_min_slot = <View> {
-                                        width: 64, height: Fit
-                                        flow: Right
-                                        align: {y: 0.5}
+                                    gender_badge = <RoundedView> {
+                                        width: Fit, height: Fit
+                                        visible: false
+                                        padding: {left: 10, right: 10, top: 5, bottom: 5}
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            border_radius: 999.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let bg = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
+                                                sdf.fill(bg);
+                                                return sdf.result;
+                                            }
+                                        }
 
-                                        quiet_label = <Label> {
+                                        gender_badge_label = <Label> {
                                             width: Fit, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
-                                                text_style: { font_size: 10.0 }
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((PRIMARY_700), (PRIMARY_200), self.dark_mode);
+                                                }
+                                            }
+                                            text: "男声"
+                                        }
+                                    }
+
+                                    age_badge = <RoundedView> {
+                                        width: Fit, height: Fit
+                                        padding: {left: 10, right: 10, top: 5, bottom: 5}
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            border_radius: 999.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                sdf.fill(bg);
+                                                return sdf.result;
+                                            }
+                                        }
+
+                                        age_badge_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "成年音"
+                                        }
+                                    }
+
+                                    style_badge = <RoundedView> {
+                                        width: Fit, height: Fit
+                                        padding: {left: 10, right: 10, top: 5, bottom: 5}
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            border_radius: 999.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let bg = mix(vec4(0.98, 0.92, 0.96, 1.0), vec4(0.38, 0.24, 0.34, 1.0), self.dark_mode);
+                                                sdf.fill(bg);
+                                                return sdf.result;
+                                            }
+                                        }
+
+                                        style_badge_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.74, 0.28, 0.52, 1.0), vec4(1.0, 0.78, 0.88, 1.0), self.dark_mode);
+                                                }
+                                            }
+                                            text: "甜美"
+                                        }
+                                    }
+                                }
+                            }
+
+                            inline_voice_picker = <View> {
+                                width: Fill, height: Fill
+                                flow: Down
+                                spacing: 10
+
+                                voice_filter_card = <RoundedView> {
+                                    width: Fill, height: Fit
+                                    flow: Down
+                                    spacing: 8
+                                    padding: {left: 12, right: 12, top: 10, bottom: 10}
+                                    draw_bg: {
+                                        instance dark_mode: 0.0
+                                        instance border_radius: 10.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            let bg = mix(vec4(0.96, 0.97, 0.99, 1.0), vec4(0.16, 0.19, 0.25, 1.0), self.dark_mode);
+                                            let border = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                            sdf.fill(bg);
+                                            sdf.stroke(border, 1.0);
+                                            return sdf.result;
+                                        }
+                                    }
+
+                                    select_voice_row = <View> {
+                                        width: Fill, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 8
+
+                                        select_voice_title = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "Select Voice"
+                                        }
+                                        <View> { width: Fill, height: 1 }
+                                        selected_voice_btn = <VoiceSelectedChip> {
+                                            text: "罗翔 (Luo Xiang)"
+                                        }
+                                    }
+
+                                    tag_row_gender = <View> {
+                                        width: Fill, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 6
+
+                                        tag_group_label = <Label> {
+                                            width: 62, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: { font_size: 11.0 }
                                                 fn get_color(self) -> vec4 {
                                                     return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "Quiet"
+                                            text: "性别年龄"
                                         }
-                                        <View> { width: Fill, height: 1 }
+
+                                        gender_male_btn = <VoiceFilterChip> { text: "男声" }
+                                        gender_female_btn = <VoiceFilterChip> { text: "女声" }
+                                        age_adult_btn = <VoiceFilterChip> { text: "成年" }
+                                        age_youth_btn = <VoiceFilterChip> { text: "青年" }
                                     }
 
-                                    volume_slider = <ParamValueSlider> {}
-
-                                    volume_max_slot = <View> {
-                                        width: 64, height: Fit
+                                    tag_row_style = <View> {
+                                        width: Fill, height: Fit
                                         flow: Right
                                         align: {y: 0.5}
+                                        spacing: 6
 
-                                        <View> { width: Fill, height: 1 }
-                                        loud_label = <Label> {
-                                            width: Fit, height: Fit
+                                        tag_group_label = <Label> {
+                                            width: 62, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
-                                                text_style: { font_size: 10.0 }
+                                                text_style: { font_size: 11.0 }
                                                 fn get_color(self) -> vec4 {
                                                     return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "Loud"
+                                            text: "风格"
+                                        }
+
+                                        style_sweet_btn = <VoiceFilterChip> { text: "甜美" }
+                                        style_magnetic_btn = <VoiceFilterChip> { text: "磁性" }
+                                    }
+
+                                    tag_row_trait = <View> {
+                                        width: Fill, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 6
+
+                                        tag_group_label = <Label> {
+                                            width: 62, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: { font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "声音特质"
+                                        }
+
+                                        trait_prof_btn = <VoiceFilterChip> { text: "专业播音" }
+                                        trait_character_btn = <VoiceFilterChip> { text: "特色人物" }
+                                    }
+                                }
+
+                                // Voice list (scrollable)
+                                voice_picker_list = <PortalList> {
+                                    width: Fill, height: Fill
+                                    flow: Down
+
+                                    VoicePickerItem = <View> {
+                                        width: Fill, height: 84
+                                        margin: {left: 0, right: 0, top: 8}
+                                        padding: {left: 12, right: 12, top: 10, bottom: 10}
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 12
+                                        cursor: Hand
+
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            instance hover: 0.0
+                                            instance selected: 0.0
+                                            instance border_radius: 10.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let base = mix((WHITE), (SLATE_800), self.dark_mode);
+                                                let hover_color = mix((SLATE_50), (SLATE_700), self.dark_mode);
+                                                let selected_color = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
+                                                let border = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                                let color = mix(base, hover_color, self.hover);
+                                                let color = mix(color, selected_color, self.selected);
+                                                sdf.fill(color);
+                                                sdf.stroke(border, 1.0);
+                                                return sdf.result;
+                                            }
+                                        }
+
+                                        picker_avatar = <RoundedView> {
+                                            width: 42, height: 42
+                                            align: {x: 0.5, y: 0.5}
+                                            draw_bg: {
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.circle(21.0, 21.0, 21.0);
+                                                    sdf.fill((PRIMARY_500));
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            picker_initial = <Label> {
+                                                width: Fill, height: Fill
+                                                align: {x: 0.3, y: 0.6}
+                                                draw_text: {
+                                                    text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
+                                                    fn get_color(self) -> vec4 { return (WHITE); }
+                                                }
+                                                text: "D"
+                                            }
+                                        }
+
+                                        picker_info = <View> {
+                                            width: Fill, height: Fit
+                                            flow: Down
+                                            spacing: 8
+
+                                            picker_name = <Label> {
+                                                width: Fill, height: 24
+                                                draw_text: {
+                                                    instance dark_mode: 0.0
+                                                    text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                                    wrap: Ellipsis
+                                                    fn get_color(self) -> vec4 {
+                                                        return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                    }
+                                                }
+                                                text: "Voice Name"
+                                            }
+                                            picker_desc = <Label> {
+                                                width: Fill, height: Fit
+                                                draw_text: {
+                                                    instance dark_mode: 0.0
+                                                    text_style: { font_size: 11.0 }
+                                                    fn get_color(self) -> vec4 {
+                                                        return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                                    }
+                                                }
+                                                text: "Voice description"
+                                            }
+                                        }
+
+                                        picker_play_btn = <View> {
+                                            width: 30, height: 30
+                                            align: {x: 0.5, y: 0.5}
+                                            cursor: Hand
+                                            show_bg: true
+                                            draw_bg: {
+                                                instance dark_mode: 0.0
+                                                instance hover: 0.0
+                                                instance playing: 0.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.circle(15.0, 15.0, 15.0);
+                                                    let base = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                    let hover_bg = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                                    let bg = mix(base, hover_bg, self.hover);
+                                                    let icon = mix((SLATE_600), (SLATE_200), self.dark_mode);
+                                                    sdf.fill(bg);
+                                                    if self.playing > 0.5 {
+                                                        sdf.rect(10.0, 9.0, 3.0, 11.0);
+                                                        sdf.fill(icon);
+                                                        sdf.rect(17.0, 9.0, 3.0, 11.0);
+                                                        sdf.fill(icon);
+                                                    } else {
+                                                        sdf.move_to(11.0, 9.0);
+                                                        sdf.line_to(20.0, 15.0);
+                                                        sdf.line_to(11.0, 21.0);
+                                                        sdf.close_path();
+                                                        sdf.fill(icon);
+                                                    }
+                                                    return sdf.result;
+                                                }
+                                            }
                                         }
                                     }
+                                }
+
+                                voice_picker_empty = <Label> {
+                                    width: Fill, height: Fit
+                                    margin: {left: 4, right: 4, top: 16}
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "No voices found with current filters."
                                 }
                             }
 
@@ -2068,161 +2660,109 @@ live_design! {
                         library_header = <View> {
                             width: Fill, height: Fit
                             flow: Right
-                            align: {y: 0.5}
+                            align: {y: 0.0}
                             spacing: 16
 
-                            library_title = <Label> {
+                            title_and_tags = <View> {
                                 width: Fit, height: Fit
-                                draw_text: {
-                                    instance dark_mode: 0.0
-                                    text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
-                                    fn get_color(self) -> vec4 {
-                                        return mix((MOXIN_TEXT_PRIMARY), (MOXIN_TEXT_PRIMARY_DARK), self.dark_mode);
-                                    }
-                                }
-                                text: "音色库"
-                            }
+                                flow: Down
+                                spacing: 10
 
-                            // Category filter selector (All/Male/Female/Character)
-                            category_filter = <View> {
-                                width: Fit, height: Fit
-                                flow: Right
-                                spacing: 0
-                                padding: {left: 4, right: 4, top: 4, bottom: 4}
-                                show_bg: true
-                                draw_bg: {
-                                    instance dark_mode: 0.0
-                                    instance border_radius: 8.0
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                        let bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                        sdf.fill(bg);
-                                        return sdf.result;
+                                library_title = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOXIN_TEXT_PRIMARY), (MOXIN_TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
                                     }
+                                    text: "音色库"
                                 }
 
-                                filter_all_btn = <Button> {
-                                    width: Fit, height: 28
-                                    padding: {left: 12, right: 12}
-                                    text: "全部"
-
+                                // Single-line category tags under title
+                                category_filter = <View> {
+                                    width: Fit, height: Fit
+                                    flow: Right
+                                    spacing: 8
+                                    align: {y: 0.5}
+                                    padding: {left: 8, right: 8, top: 8, bottom: 8}
+                                    show_bg: true
                                     draw_bg: {
-                                        instance hover: 0.0
-                                        instance active: 1.0
-                                        instance border_radius: 6.0
+                                        instance dark_mode: 0.0
+                                        instance border_radius: 8.0
                                         fn pixel(self) -> vec4 {
                                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                                             sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            let normal = vec4(0.0, 0.0, 0.0, 0.0);
-                                            let active_color = (WHITE);
-                                            let bg = mix(normal, active_color, self.active);
+                                            let bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
                                             sdf.fill(bg);
                                             return sdf.result;
                                         }
                                     }
 
-                                    draw_text: {
-                                        instance active: 1.0
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                        fn get_color(self) -> vec4 {
-                                            let normal = vec4(0.6, 0.6, 0.65, 1.0);
-                                            let active = (MOXIN_PRIMARY);
-                                            return mix(normal, active, self.active);
-                                        }
-                                    }
-                                }
+                                    row_gender = <View> {
+                                        width: Fit, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 6
 
-                                filter_male_btn = <Button> {
-                                    width: Fit, height: 28
-                                    padding: {left: 12, right: 12}
-                                    text: "男声"
-
-                                    draw_bg: {
-                                        instance hover: 0.0
-                                        instance active: 0.0
-                                        instance border_radius: 6.0
-                                        fn pixel(self) -> vec4 {
-                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            let normal = vec4(0.0, 0.0, 0.0, 0.0);
-                                            let active_color = (WHITE);
-                                            let bg = mix(normal, active_color, self.active);
-                                            sdf.fill(bg);
-                                            return sdf.result;
+                                        row_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                text_style: { font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return (TEXT_TERTIARY);
+                                                }
+                                            }
+                                            text: "性别年龄"
                                         }
+
+                                        filter_male_btn = <VoiceFilterChip> { text: "男声" }
+                                        filter_female_btn = <VoiceFilterChip> { text: "女声" }
+                                        age_adult_btn = <VoiceFilterChip> { text: "成年" }
+                                        age_youth_btn = <VoiceFilterChip> { text: "青年" }
                                     }
 
-                                    draw_text: {
-                                        instance active: 0.0
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                        fn get_color(self) -> vec4 {
-                                            let normal = vec4(0.6, 0.6, 0.65, 1.0);
-                                            let active = (MOXIN_PRIMARY);
-                                            return mix(normal, active, self.active);
-                                        }
-                                    }
-                                }
+                                    row_style = <View> {
+                                        width: Fit, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 6
 
-                                filter_female_btn = <Button> {
-                                    width: Fit, height: 28
-                                    padding: {left: 12, right: 12}
-                                    text: "女声"
-
-                                    draw_bg: {
-                                        instance hover: 0.0
-                                        instance active: 0.0
-                                        instance border_radius: 6.0
-                                        fn pixel(self) -> vec4 {
-                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            let normal = vec4(0.0, 0.0, 0.0, 0.0);
-                                            let active_color = (WHITE);
-                                            let bg = mix(normal, active_color, self.active);
-                                            sdf.fill(bg);
-                                            return sdf.result;
+                                        row_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                text_style: { font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return (TEXT_TERTIARY);
+                                                }
+                                            }
+                                            text: "风格"
                                         }
+
+                                        style_sweet_btn = <VoiceFilterChip> { text: "甜美" }
+                                        style_magnetic_btn = <VoiceFilterChip> { text: "磁性" }
                                     }
 
-                                    draw_text: {
-                                        instance active: 0.0
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                        fn get_color(self) -> vec4 {
-                                            let normal = vec4(0.6, 0.6, 0.65, 1.0);
-                                            let active = (MOXIN_PRIMARY);
-                                            return mix(normal, active, self.active);
-                                        }
-                                    }
-                                }
+                                    row_trait = <View> {
+                                        width: Fit, height: Fit
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        spacing: 6
 
-                                filter_character_btn = <Button> {
-                                    width: Fit, height: 28
-                                    padding: {left: 12, right: 12}
-                                    text: "角色"
-
-                                    draw_bg: {
-                                        instance hover: 0.0
-                                        instance active: 0.0
-                                        instance border_radius: 6.0
-                                        fn pixel(self) -> vec4 {
-                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            let normal = vec4(0.0, 0.0, 0.0, 0.0);
-                                            let active_color = (WHITE);
-                                            let bg = mix(normal, active_color, self.active);
-                                            sdf.fill(bg);
-                                            return sdf.result;
+                                        row_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                text_style: { font_size: 11.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return (TEXT_TERTIARY);
+                                                }
+                                            }
+                                            text: "声音特质"
                                         }
-                                    }
 
-                                    draw_text: {
-                                        instance active: 0.0
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                        fn get_color(self) -> vec4 {
-                                            let normal = vec4(0.6, 0.6, 0.65, 1.0);
-                                            let active = (MOXIN_PRIMARY);
-                                            return mix(normal, active, self.active);
-                                        }
+                                        trait_prof_btn = <VoiceFilterChip> { text: "专业播音" }
+                                        trait_character_btn = <VoiceFilterChip> { text: "特色人物" }
                                     }
                                 }
                             }
@@ -2597,7 +3137,6 @@ live_design! {
                                                 width: Fit, height: 32
                                                 padding: {left: 12, right: 12}
                                                 text: "Delete"
-                                                visible: false
 
                                                 draw_bg: {
                                                     instance hover: 0.0
@@ -3139,7 +3678,6 @@ live_design! {
                                 width: Fit, height: 36
                                 padding: {left: 16, right: 16}
                                 text: "取消任务"
-                                visible: false
 
                                 draw_bg: {
                                     instance hover: 0.0
@@ -4147,7 +4685,7 @@ live_design! {
 
                     share_capcut_btn = <Button> {
                         width: Fill, height: 38
-                        text: "打开剪映"
+                        text: "分享到剪映"
                         draw_bg: {
                             instance dark_mode: 0.0
                             instance hover: 0.0
@@ -4172,7 +4710,7 @@ live_design! {
 
                     share_premiere_btn = <Button> {
                         width: Fill, height: 38
-                        text: "打开 Premiere Pro"
+                        text: "分享到 Premiere Pro"
                         draw_bg: {
                             instance dark_mode: 0.0
                             instance hover: 0.0
@@ -4197,7 +4735,7 @@ live_design! {
 
                     share_wechat_btn = <Button> {
                         width: Fill, height: 38
-                        text: "打开微信"
+                        text: "分享到微信"
                         draw_bg: {
                             instance dark_mode: 0.0
                             instance hover: 0.0
@@ -4561,7 +5099,7 @@ live_design! {
                                     return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
                                 }
                             }
-                            text: "领域"
+                            text: "风格"
                         }
                     }
                 }
@@ -4626,13 +5164,14 @@ live_design! {
                         picker_info = <View> {
                             width: Fill, height: Fit
                             flow: Down
-                            spacing: 6
+                            spacing: 8
 
                             picker_name = <Label> {
-                                width: Fill, height: Fit
+                                width: Fill, height: 24
                                 draw_text: {
                                     instance dark_mode: 0.0
                                     text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }
+                                    wrap: Ellipsis
                                     fn get_color(self) -> vec4 {
                                         return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                     }
@@ -5462,6 +6001,12 @@ pub struct TTSScreen {
     #[rust]
     library_language_filter: LanguageFilter,
     #[rust]
+    library_age_filter: u8, // bitmask: 0b01 = Adult, 0b10 = Youth
+    #[rust]
+    library_style_filter: u8, // bitmask: 0b01 = Sweet, 0b10 = Magnetic
+    #[rust]
+    library_trait_filter: u8, // bitmask: 0b01 = Professional, 0b10 = Character
+    #[rust]
     library_loading: bool,
     #[rust]
     library_card_areas: Vec<(usize, Area, Area, Area)>, // (voice_idx, card_area, preview_btn_area, delete_btn_area)
@@ -5495,9 +6040,9 @@ pub struct TTSScreen {
     #[rust]
     spinner_phase: f64,
 
-    // Settings panel state
+    // Right controls panel state: 0 = Voice Management, 1 = Settings, 2 = History
     #[rust]
-    settings_tab_active: bool, // true = Settings, false = History
+    controls_panel_tab: u8,
     
     // TTS parameters
     #[rust]
@@ -5525,9 +6070,7 @@ pub struct TTSScreen {
     #[rust]
     model_picker_card_areas: Vec<(usize, Area)>, // (model_idx, card_area)
     
-    // Voice picker modal
-    #[rust]
-    voice_picker_visible: bool,
+    // Voice picker (inline in settings panel)
     #[rust]
     voice_picker_search: String,
     #[rust]
@@ -5537,9 +6080,11 @@ pub struct TTSScreen {
     #[rust]
     voice_picker_gender_filter: VoiceFilter,
     #[rust]
-    voice_picker_age_filter: u8, // 0 = All, 1 = Adult, 2 = Youth
+    voice_picker_age_filter: u8, // bitmask: 0b01 = Adult, 0b10 = Youth
     #[rust]
-    voice_picker_domain_filter: u8, // 0 = All, 1 = General, 2 = Education, 3 = Entertainment, 4 = Business, 5 = News
+    voice_picker_style_filter: u8, // bitmask: 0b01 = Sweet, 0b10 = Magnetic
+    #[rust]
+    voice_picker_trait_filter: u8, // bitmask: 0b01 = Professional, 0b10 = Character
     #[rust]
     voice_picker_item_areas: Vec<(usize, Area, Area)>, // (item_idx, item_area, play_btn_area)
     #[rust]
@@ -5601,6 +6146,9 @@ impl Widget for TTSScreen {
             self.library_search_query = String::new();
             self.library_category_filter = VoiceFilter::All;
             self.library_language_filter = LanguageFilter::All;
+            self.library_age_filter = 0;
+            self.library_style_filter = 0;
+            self.library_trait_filter = 0;
             self.library_loading = false;
             self.library_card_areas = Vec::new();
 
@@ -5611,13 +6159,13 @@ impl Widget for TTSScreen {
             self.model_picker_card_areas = Vec::new();
 
             // Initialize voice picker state
-            self.voice_picker_visible = false;
             self.voice_picker_search = String::new();
             self.voice_picker_tab = 0;
             self.voice_picker_language_filter = LanguageFilter::All;
             self.voice_picker_gender_filter = VoiceFilter::All;
             self.voice_picker_age_filter = 0;
-            self.voice_picker_domain_filter = 0;
+            self.voice_picker_style_filter = 0;
+            self.voice_picker_trait_filter = 0;
             self.voice_picker_item_areas = Vec::new();
             self.voice_picker_active_voice_id = self.selected_voice_id.clone();
 
@@ -5631,32 +6179,10 @@ impl Widget for TTSScreen {
             self.tts_pitch = 0.0;
             self.tts_volume = 100.0;
             self.tts_slider_dragging = None;
-            self.settings_tab_active = true;
-            self.view
-                .view(ids!(
-                    content_wrapper
-                        .main_content
-                        .left_column
-                        .content_area
-                        .tts_page
-                        .cards_container
-                        .controls_panel
-                        .settings_panel
-                ))
-                .set_visible(cx, true);
-            self.view
-                .view(ids!(
-                    content_wrapper
-                        .main_content
-                        .left_column
-                        .content_area
-                        .tts_page
-                        .cards_container
-                        .controls_panel
-                        .history_panel
-                ))
-                .set_visible(cx, false);
+            self.controls_panel_tab = 1;
+            self.apply_controls_panel_tab_visibility(cx);
             self.update_settings_tabs(cx);
+            self.update_sidebar_nav_states(cx);
 
             // Initialize global settings state (default locale is zh)
             self.global_settings_visible = false;
@@ -6009,7 +6535,11 @@ impl Widget for TTSScreen {
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_tts))
             .clicked(&actions)
         {
+            self.controls_panel_tab = 1;
+            self.update_settings_tabs(cx);
+            self.apply_controls_panel_tab_visibility(cx);
             self.switch_page(cx, AppPage::TextToSpeech);
+            self.update_sidebar_nav_states(cx);
         }
 
         if self
@@ -6017,6 +6547,18 @@ impl Widget for TTSScreen {
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_library))
             .clicked(&actions)
         {
+            // Reset library filters when entering the page to avoid stale empty states.
+            self.library_category_filter = VoiceFilter::All;
+            self.library_age_filter = 0;
+            self.library_style_filter = 0;
+            self.library_trait_filter = 0;
+            self.library_language_filter = LanguageFilter::All;
+            self.library_search_query.clear();
+            self.view
+                .text_input(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.search_input))
+                .set_text(cx, "");
+            // Ensure library content is refreshed whenever user opens Voice Library.
+            self.load_voice_library(cx);
             self.switch_page(cx, AppPage::VoiceLibrary);
         }
 
@@ -6026,6 +6568,19 @@ impl Widget for TTSScreen {
             .clicked(&actions)
         {
             self.switch_page(cx, AppPage::VoiceClone);
+        }
+
+        if self
+            .view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_history))
+            .clicked(&actions)
+        {
+            self.controls_panel_tab = 2;
+            self.update_settings_tabs(cx);
+            self.apply_controls_panel_tab_visibility(cx);
+            self.update_history_display(cx);
+            self.switch_page(cx, AppPage::TextToSpeech);
+            self.update_sidebar_nav_states(cx);
         }
 
         // Handle global settings button click
@@ -6045,13 +6600,25 @@ impl Widget for TTSScreen {
         // Handle Settings/History tab clicks
         if self
             .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.voice_management_tab_btn))
+            .clicked(&actions)
+        {
+            self.controls_panel_tab = 0;
+            self.update_settings_tabs(cx);
+            self.apply_controls_panel_tab_visibility(cx);
+            self.update_sidebar_nav_states(cx);
+            self.view.redraw(cx);
+        }
+
+        if self
+            .view
             .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.settings_tab_btn))
             .clicked(&actions)
         {
-            self.settings_tab_active = true;
+            self.controls_panel_tab = 1;
             self.update_settings_tabs(cx);
-            self.view.view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel)).set_visible(cx, true);
-            self.view.view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.history_panel)).set_visible(cx, false);
+            self.apply_controls_panel_tab_visibility(cx);
+            self.update_sidebar_nav_states(cx);
             self.view.redraw(cx);
         }
 
@@ -6060,10 +6627,10 @@ impl Widget for TTSScreen {
             .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.history_tab_btn))
             .clicked(&actions)
         {
-            self.settings_tab_active = false;
+            self.controls_panel_tab = 2;
             self.update_settings_tabs(cx);
-            self.view.view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel)).set_visible(cx, false);
-            self.view.view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.history_panel)).set_visible(cx, true);
+            self.apply_controls_panel_tab_visibility(cx);
+            self.update_sidebar_nav_states(cx);
             self.update_history_display(cx);
             self.view.redraw(cx);
         }
@@ -6090,7 +6657,18 @@ impl Widget for TTSScreen {
         // Handle model picker button click
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.model_row.model_picker_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .bottom_bar
+                    .model_row
+                    .model_picker_btn
+            ))
             .clicked(&actions)
         {
             self.model_options = get_project_tts_models();
@@ -6131,7 +6709,7 @@ impl Widget for TTSScreen {
             .view
             .view(ids!(
                 content_wrapper.main_content.left_column.content_area.tts_page.cards_container
-                    .controls_panel.settings_panel.speed_row.speed_slider_row.speed_slider
+                    .input_section.bottom_bar.param_controls.speed_row.speed_slider_row.speed_slider
             ))
             .area();
         self.handle_tts_param_slider_event(cx, event, speed_slider_area, TtsParamSliderKind::Speed);
@@ -6140,7 +6718,7 @@ impl Widget for TTSScreen {
             .view
             .view(ids!(
                 content_wrapper.main_content.left_column.content_area.tts_page.cards_container
-                    .controls_panel.settings_panel.pitch_row.pitch_slider_row.pitch_slider
+                    .input_section.bottom_bar.param_controls.pitch_row.pitch_slider_row.pitch_slider
             ))
             .area();
         self.handle_tts_param_slider_event(cx, event, pitch_slider_area, TtsParamSliderKind::Pitch);
@@ -6149,137 +6727,134 @@ impl Widget for TTSScreen {
             .view
             .view(ids!(
                 content_wrapper.main_content.left_column.content_area.tts_page.cards_container
-                    .controls_panel.settings_panel.volume_row.volume_slider_row.volume_slider
+                    .input_section.bottom_bar.param_controls.volume_row.volume_slider_row.volume_slider
             ))
             .area();
         self.handle_tts_param_slider_event(cx, event, volume_slider_area, TtsParamSliderKind::Volume);
 
-        // Handle voice picker button click
-        if self
+        // Handle voice picker "select voice" click (legacy button + inline selected voice button).
+        let legacy_voice_picker_btn_clicked = self
             .view
             .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_picker_btn))
-            .clicked(&actions)
-        {
+            .clicked(&actions);
+        let inline_selected_voice_btn_clicked = self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.selected_voice_btn))
+            .clicked(&actions);
+        if legacy_voice_picker_btn_clicked || inline_selected_voice_btn_clicked {
             // Always refresh so My Voices immediately reflects newly cloned voices.
             self.load_voice_library(cx);
             self.voice_picker_tab = 0;
             self.voice_picker_search.clear();
             self.voice_picker_language_filter = LanguageFilter::All;
-            self.voice_picker_gender_filter = VoiceFilter::All;
-            self.voice_picker_age_filter = 0;
-            self.voice_picker_domain_filter = 0;
+            self.clear_voice_picker_tag_filters();
             self.voice_picker_active_voice_id = self.selected_voice_id.clone();
-            self.view
-                .text_input(ids!(voice_picker_modal.voice_picker_dialog.voice_search_row.voice_search_input))
-                .set_text(cx, "");
-            self.voice_picker_visible = true;
-            self.view.view(ids!(voice_picker_modal)).set_visible(cx, true);
             self.update_voice_picker_controls(cx);
             self.view.redraw(cx);
         }
 
-        // Handle voice picker back/close button
+        // Voice picker chips (multi-select; male/female are mutually exclusive)
         if self
             .view
-            .button(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_header.voice_picker_back_btn))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_male_btn))
             .clicked(&actions)
         {
-            self.voice_picker_visible = false;
-            self.view.view(ids!(voice_picker_modal)).set_visible(cx, false);
-            self.view.redraw(cx);
+            let was_active = self.voice_picker_gender_filter == VoiceFilter::Male;
+            self.voice_picker_gender_filter = if was_active { VoiceFilter::All } else { VoiceFilter::Male };
+            self.update_voice_picker_controls(cx);
         }
 
-        // Handle voice picker backdrop click
         if self
             .view
-            .view(ids!(voice_picker_modal.voice_picker_backdrop))
-            .finger_up(&actions)
-            .is_some()
-        {
-            self.voice_picker_visible = false;
-            self.view.view(ids!(voice_picker_modal)).set_visible(cx, false);
-            self.view.redraw(cx);
-        }
-
-        // Voice picker tabs
-        if self
-            .view
-            .button(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_tabs.voice_explore_tab))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_female_btn))
             .clicked(&actions)
         {
-            self.voice_picker_tab = 0;
+            let was_active = self.voice_picker_gender_filter == VoiceFilter::Female;
+            self.voice_picker_gender_filter = if was_active { VoiceFilter::All } else { VoiceFilter::Female };
             self.update_voice_picker_controls(cx);
         }
 
         if self
             .view
-            .button(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_tabs.voice_my_voices_tab))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_sweet_btn))
             .clicked(&actions)
         {
-            self.voice_picker_tab = 1;
+            const SWEET_BIT: u8 = 0b01;
+            if self.voice_picker_style_filter & SWEET_BIT != 0 {
+                self.voice_picker_style_filter &= !SWEET_BIT;
+            } else {
+                self.voice_picker_style_filter |= SWEET_BIT;
+            }
             self.update_voice_picker_controls(cx);
         }
 
-        // Voice picker search
-        if let Some(search_text) = self
+        if self
             .view
-            .text_input(ids!(voice_picker_modal.voice_picker_dialog.voice_search_row.voice_search_input))
-            .changed(&actions)
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_magnetic_btn))
+            .clicked(&actions)
         {
-            self.voice_picker_search = search_text;
+            const MAGNETIC_BIT: u8 = 0b10;
+            if self.voice_picker_style_filter & MAGNETIC_BIT != 0 {
+                self.voice_picker_style_filter &= !MAGNETIC_BIT;
+            } else {
+                self.voice_picker_style_filter |= MAGNETIC_BIT;
+            }
             self.update_voice_picker_controls(cx);
         }
 
-        // Voice picker filters (dropdowns)
-        let language_dd = self
+        if self
             .view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_language_wrap.filter_language_dd));
-        if let Some(idx) = language_dd.changed(&actions) {
-            self.voice_picker_language_filter = match idx {
-                1 => LanguageFilter::Chinese,
-                2 => LanguageFilter::English,
-                _ => LanguageFilter::All,
-            };
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_adult_btn))
+            .clicked(&actions)
+        {
+            const ADULT_BIT: u8 = 0b01;
+            if self.voice_picker_age_filter & ADULT_BIT != 0 {
+                self.voice_picker_age_filter &= !ADULT_BIT;
+            } else {
+                self.voice_picker_age_filter |= ADULT_BIT;
+            }
             self.update_voice_picker_controls(cx);
         }
 
-        let gender_dd = self
+        if self
             .view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_gender_wrap.filter_gender_dd));
-        if let Some(idx) = gender_dd.changed(&actions) {
-            self.voice_picker_gender_filter = match idx {
-                1 => VoiceFilter::Male,
-                2 => VoiceFilter::Female,
-                3 => VoiceFilter::Character,
-                _ => VoiceFilter::All,
-            };
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_youth_btn))
+            .clicked(&actions)
+        {
+            const YOUTH_BIT: u8 = 0b10;
+            if self.voice_picker_age_filter & YOUTH_BIT != 0 {
+                self.voice_picker_age_filter &= !YOUTH_BIT;
+            } else {
+                self.voice_picker_age_filter |= YOUTH_BIT;
+            }
             self.update_voice_picker_controls(cx);
         }
 
-        let age_dd = self
+        if self
             .view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_age_wrap.filter_age_dd));
-        if let Some(idx) = age_dd.changed(&actions) {
-            self.voice_picker_age_filter = match idx {
-                1 => 1,
-                2 => 2,
-                _ => 0,
-            };
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_prof_btn))
+            .clicked(&actions)
+        {
+            const PROF_BIT: u8 = 0b01;
+            if self.voice_picker_trait_filter & PROF_BIT != 0 {
+                self.voice_picker_trait_filter &= !PROF_BIT;
+            } else {
+                self.voice_picker_trait_filter |= PROF_BIT;
+            }
             self.update_voice_picker_controls(cx);
         }
 
-        let domain_dd = self
+        if self
             .view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_domain_wrap.filter_domain_dd));
-        if let Some(idx) = domain_dd.changed(&actions) {
-            self.voice_picker_domain_filter = match idx {
-                1 => 1,
-                2 => 2,
-                3 => 3,
-                4 => 4,
-                5 => 5,
-                _ => 0,
-            };
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_character_btn))
+            .clicked(&actions)
+        {
+            const CHARACTER_BIT: u8 = 0b10;
+            if self.voice_picker_trait_filter & CHARACTER_BIT != 0 {
+                self.voice_picker_trait_filter &= !CHARACTER_BIT;
+            } else {
+                self.voice_picker_trait_filter |= CHARACTER_BIT;
+            }
             self.update_voice_picker_controls(cx);
         }
 
@@ -6421,24 +6996,76 @@ impl Widget for TTSScreen {
             self.refresh_voice_library(cx);
         }
 
-        // Handle Voice Library category filter buttons
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_all_btn)).clicked(&actions) {
-            self.library_category_filter = VoiceFilter::All;
+        // Handle Voice Library category tags
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.filter_male_btn)).clicked(&actions) {
+            let was_active = self.library_category_filter == VoiceFilter::Male;
+            self.library_category_filter = if was_active { VoiceFilter::All } else { VoiceFilter::Male };
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_male_btn)).clicked(&actions) {
-            self.library_category_filter = VoiceFilter::Male;
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.filter_female_btn)).clicked(&actions) {
+            let was_active = self.library_category_filter == VoiceFilter::Female;
+            self.library_category_filter = if was_active { VoiceFilter::All } else { VoiceFilter::Female };
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_female_btn)).clicked(&actions) {
-            self.library_category_filter = VoiceFilter::Female;
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.age_adult_btn)).clicked(&actions) {
+            const ADULT_BIT: u8 = 0b01;
+            if self.library_age_filter & ADULT_BIT != 0 {
+                self.library_age_filter &= !ADULT_BIT;
+            } else {
+                self.library_age_filter |= ADULT_BIT;
+            }
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_character_btn)).clicked(&actions) {
-            self.library_category_filter = VoiceFilter::Character;
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.age_youth_btn)).clicked(&actions) {
+            const YOUTH_BIT: u8 = 0b10;
+            if self.library_age_filter & YOUTH_BIT != 0 {
+                self.library_age_filter &= !YOUTH_BIT;
+            } else {
+                self.library_age_filter |= YOUTH_BIT;
+            }
+            self.update_category_filter_buttons(cx);
+            self.update_library_display(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_style.style_sweet_btn)).clicked(&actions) {
+            const SWEET_BIT: u8 = 0b01;
+            if self.library_style_filter & SWEET_BIT != 0 {
+                self.library_style_filter &= !SWEET_BIT;
+            } else {
+                self.library_style_filter |= SWEET_BIT;
+            }
+            self.update_category_filter_buttons(cx);
+            self.update_library_display(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_style.style_magnetic_btn)).clicked(&actions) {
+            const MAGNETIC_BIT: u8 = 0b10;
+            if self.library_style_filter & MAGNETIC_BIT != 0 {
+                self.library_style_filter &= !MAGNETIC_BIT;
+            } else {
+                self.library_style_filter |= MAGNETIC_BIT;
+            }
+            self.update_category_filter_buttons(cx);
+            self.update_library_display(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_trait.trait_prof_btn)).clicked(&actions) {
+            const PROF_BIT: u8 = 0b01;
+            if self.library_trait_filter & PROF_BIT != 0 {
+                self.library_trait_filter &= !PROF_BIT;
+            } else {
+                self.library_trait_filter |= PROF_BIT;
+            }
+            self.update_category_filter_buttons(cx);
+            self.update_library_display(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_trait.trait_character_btn)).clicked(&actions) {
+            const CHARACTER_BIT: u8 = 0b10;
+            if self.library_trait_filter & CHARACTER_BIT != 0 {
+                self.library_trait_filter &= !CHARACTER_BIT;
+            } else {
+                self.library_trait_filter |= CHARACTER_BIT;
+            }
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
@@ -6627,7 +7254,7 @@ impl Widget for TTSScreen {
         }
 
         // Handle Voice Picker item interactions
-        if self.voice_picker_visible {
+        if self.controls_panel_tab == 1 {
             let picker_voices = self.get_voice_picker_voices();
             for (item_idx, item_area, play_btn_area) in self.voice_picker_item_areas.clone() {
                 if item_idx >= picker_voices.len() {
@@ -6660,8 +7287,6 @@ impl Widget for TTSScreen {
                         }
                         self.select_voice(cx, voice.clone());
                         self.voice_picker_active_voice_id = Some(voice.id.clone());
-                        self.voice_picker_visible = false;
-                        self.view.view(ids!(voice_picker_modal)).set_visible(cx, false);
                         self.update_voice_picker_controls(cx);
                     }
                     _ => {}
@@ -6670,7 +7295,7 @@ impl Widget for TTSScreen {
         }
 
         // Handle history card interactions
-        if !self.settings_tab_active {
+        if self.controls_panel_tab == 2 {
             for (item_idx, card_area, play_area, use_area, download_area, share_area, delete_area) in
                 self.history_item_areas.clone()
             {
@@ -7278,7 +7903,7 @@ impl Widget for TTSScreen {
         )).widget_uid();
         let voice_picker_list_uid = self
             .view
-            .portal_list(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_list))
+            .portal_list(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_list))
             .widget_uid();
         let model_picker_list_uid = self
             .view
@@ -7446,7 +8071,7 @@ impl Widget for TTSScreen {
                     while let Some(item_id) = list.next_visible_item(cx) {
                         if item_id < picker_voices.len() {
                             let voice = &picker_voices[item_id];
-                            let name = voice.name.clone();
+                            let name = Self::single_line_text(&voice.name);
                             let desc = self.localized_voice_description(voice);
                             let initial = name.chars().next().unwrap_or('?').to_string();
                             let highlighted_voice_id = self
@@ -7853,6 +8478,9 @@ impl TTSScreen {
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_clone))
             .set_text(cx, self.tr("📋 音色克隆", "📋 Voice Clone"));
         self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_history))
+            .set_text(cx, self.tr("🕘 历史", "🕘 History"));
+        self.view
             .label(ids!(app_layout.sidebar.sidebar_footer.user_details.user_name))
             .set_text(cx, self.tr("用户", "User"));
 
@@ -7879,6 +8507,19 @@ impl TTSScreen {
                     empty_text: (if en { "Enter text to convert to speech..." } else { "请输入要转换的文本..." })
                 },
             );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_tabs
+                    .voice_management_tab_btn
+            ))
+            .set_text(cx, self.tr("音色管理", "Voice"));
         self.view
             .button(ids!(
                 content_wrapper
@@ -7927,8 +8568,8 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
                     .model_row
                     .model_label
             ))
@@ -7941,8 +8582,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .speed_row
                     .speed_header
                     .speed_label
@@ -7956,8 +8598,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .speed_row
                     .speed_slider_row
                     .speed_min_slot
@@ -7972,8 +8615,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .speed_row
                     .speed_slider_row
                     .speed_max_slot
@@ -7988,8 +8632,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .pitch_row
                     .pitch_header
                     .pitch_label
@@ -8003,8 +8648,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .pitch_row
                     .pitch_slider_row
                     .pitch_min_slot
@@ -8019,8 +8665,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .pitch_row
                     .pitch_slider_row
                     .pitch_max_slot
@@ -8035,8 +8682,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .volume_row
                     .volume_header
                     .volume_label
@@ -8050,8 +8698,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .volume_row
                     .volume_slider_row
                     .volume_min_slot
@@ -8066,8 +8715,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .volume_row
                     .volume_slider_row
                     .volume_max_slot
@@ -8097,29 +8747,65 @@ impl TTSScreen {
                     .content_area
                     .library_page
                     .library_header
+                    .title_and_tags
                     .library_title
             ))
             .set_text(cx, self.tr("音色库", "Voice Library"));
         self.view
-            .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_all_btn
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.row_label
             ))
-            .set_text(cx, self.tr("全部", "All"));
+            .set_text(cx, self.tr("性别年龄", "Gender/Age"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_male_btn
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.filter_male_btn
             ))
             .set_text(cx, self.tr("男声", "Male"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_female_btn
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.filter_female_btn
             ))
             .set_text(cx, self.tr("女声", "Female"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_character_btn
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.age_adult_btn
             ))
-            .set_text(cx, self.tr("角色", "Character"));
+            .set_text(cx, self.tr("成年", "Adult"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.age_youth_btn
+            ))
+            .set_text(cx, self.tr("青年", "Youth"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_style.row_label
+            ))
+            .set_text(cx, self.tr("风格", "Style"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_style.style_sweet_btn
+            ))
+            .set_text(cx, self.tr("甜美", "Sweet"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_style.style_magnetic_btn
+            ))
+            .set_text(cx, self.tr("磁性", "Magnetic"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_trait.row_label
+            ))
+            .set_text(cx, self.tr("声音特质", "Traits"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_trait.trait_prof_btn
+            ))
+            .set_text(cx, self.tr("专业播音", "Pro Voice"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_trait.trait_character_btn
+            ))
+            .set_text(cx, self.tr("特色人物", "Character"));
         self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.library_page.library_header.language_filter.lang_all_btn
@@ -8299,13 +8985,13 @@ impl TTSScreen {
             .set_text(cx, self.tr("系统打开", "Open with system app"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_capcut_btn))
-            .set_text(cx, self.tr("打开剪映", "Open CapCut (manual import)"));
+            .set_text(cx, self.tr("分享到剪映", "Share to CapCut"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_premiere_btn))
-            .set_text(cx, self.tr("打开 Premiere Pro", "Share to Premiere Pro"));
+            .set_text(cx, self.tr("分享到 Premiere Pro", "Share to Premiere Pro"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_wechat_btn))
-            .set_text(cx, self.tr("打开微信", "Open WeChat (manual send)"));
+            .set_text(cx, self.tr("分享到微信", "Share to WeChat"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_finder_btn))
             .set_text(cx, self.tr("在访达中显示", "Reveal in Finder"));
@@ -8314,22 +9000,41 @@ impl TTSScreen {
             .set_text(cx, self.tr("取消", "Cancel"));
 
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_header.voice_picker_title))
-            .set_text(cx, self.tr("选择音色", "Select a voice"));
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.select_voice_title))
+            .set_text(cx, self.tr("选择音色", "Select Voice"));
         self.view
-            .button(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_tabs.voice_explore_tab))
-            .set_text(cx, self.tr("内置", "Built-in"));
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.tag_group_label))
+            .set_text(cx, self.tr("性别年龄", "Gender/Age"));
         self.view
-            .button(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_tabs.voice_my_voices_tab))
-            .set_text(cx, self.tr("我的音色", "My Voices"));
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.tag_group_label))
+            .set_text(cx, self.tr("风格", "Style"));
         self.view
-            .text_input(ids!(voice_picker_modal.voice_picker_dialog.voice_search_row.voice_search_input))
-            .apply_over(
-                cx,
-                live! {
-                    empty_text: (if en { "Start typing to search..." } else { "开始输入搜索..." })
-                },
-            );
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.tag_group_label))
+            .set_text(cx, self.tr("声音特质", "Traits"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_male_btn))
+            .set_text(cx, self.tr("男声", "Male"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_female_btn))
+            .set_text(cx, self.tr("女声", "Female"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_adult_btn))
+            .set_text(cx, self.tr("成年", "Adult"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_youth_btn))
+            .set_text(cx, self.tr("青年", "Youth"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_sweet_btn))
+            .set_text(cx, self.tr("甜美", "Sweet"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_magnetic_btn))
+            .set_text(cx, self.tr("磁性", "Magnetic"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_prof_btn))
+            .set_text(cx, self.tr("专业播音", "Pro Voice"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_character_btn))
+            .set_text(cx, self.tr("特色人物", "Character"));
 
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_header.settings_title))
@@ -8411,20 +9116,57 @@ impl TTSScreen {
         self.update_model_picker_controls(cx);
     }
 
-    /// Switch to a different page and update UI accordingly
-    fn switch_page(&mut self, cx: &mut Cx, page: AppPage) {
-        if self.current_page == page {
-            return; // Already on this page
+    fn apply_controls_panel_tab_visibility(&mut self, cx: &mut Cx) {
+        let show_voice = self.controls_panel_tab == 0;
+        let show_settings = self.controls_panel_tab == 1;
+        let show_history = self.controls_panel_tab == 2;
+
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.voice_management_panel))
+            .set_visible(cx, show_voice);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel))
+            .set_visible(cx, show_settings);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.history_panel))
+            .set_visible(cx, show_history);
+        self.apply_tts_history_mode_layout(cx);
+    }
+
+    fn apply_tts_history_mode_layout(&mut self, cx: &mut Cx) {
+        let history_mode =
+            self.current_page == AppPage::TextToSpeech && self.controls_panel_tab == 2;
+
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.page_header))
+            .set_visible(cx, !history_mode);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.input_section))
+            .set_visible(cx, !history_mode);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs))
+            .set_visible(cx, !history_mode);
+
+        if history_mode {
+            self.view
+                .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel))
+                .apply_over(cx, live! { width: Fill });
+        } else {
+            self.view
+                .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel))
+                .apply_over(cx, live! { width: 320 });
         }
+    }
 
-        self.current_page = page;
-        self.add_log(cx, &format!("[INFO] [ui] Switching to {:?} page", page));
-
-        // Update navigation button states
-        let (tts_active, library_active, clone_active) = match page {
-            AppPage::TextToSpeech => (1.0, 0.0, 0.0),
-            AppPage::VoiceLibrary => (0.0, 1.0, 0.0),
-            AppPage::VoiceClone | AppPage::TaskDetail => (0.0, 0.0, 1.0),
+    fn update_sidebar_nav_states(&mut self, cx: &mut Cx) {
+        let tts_context = self.current_page == AppPage::TextToSpeech;
+        let tts_active = if tts_context && self.controls_panel_tab != 2 { 1.0 } else { 0.0 };
+        let history_active = if tts_context && self.controls_panel_tab == 2 { 1.0 } else { 0.0 };
+        let library_active = if self.current_page == AppPage::VoiceLibrary { 1.0 } else { 0.0 };
+        let clone_active = if self.current_page == AppPage::VoiceClone || self.current_page == AppPage::TaskDetail {
+            1.0
+        } else {
+            0.0
         };
 
         self.view
@@ -8436,7 +9178,15 @@ impl TTSScreen {
                     draw_text: { active: (tts_active) }
                 },
             );
-
+        self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_history))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (history_active) }
+                    draw_text: { active: (history_active) }
+                },
+            );
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_library))
             .apply_over(
@@ -8446,7 +9196,6 @@ impl TTSScreen {
                     draw_text: { active: (library_active) }
                 },
             );
-
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_clone))
             .apply_over(
@@ -8456,6 +9205,18 @@ impl TTSScreen {
                     draw_text: { active: (clone_active) }
                 },
             );
+    }
+
+    /// Switch to a different page and update UI accordingly
+    fn switch_page(&mut self, cx: &mut Cx, page: AppPage) {
+        if self.current_page == page {
+            self.update_sidebar_nav_states(cx);
+            return; // Already on this page
+        }
+
+        self.current_page = page;
+        self.add_log(cx, &format!("[INFO] [ui] Switching to {:?} page", page));
+        self.update_sidebar_nav_states(cx);
 
         // Show/hide page content based on current_page
         let show_tts = page == AppPage::TextToSpeech;
@@ -8508,6 +9269,11 @@ impl TTSScreen {
             .view(ids!(content_wrapper.audio_player_bar))
             .set_visible(cx, show_tts && self.has_generated_audio);
 
+        if show_library {
+            self.update_library_display(cx);
+        }
+
+        self.apply_tts_history_mode_layout(cx);
         self.view.redraw(cx);
     }
 
@@ -9892,29 +10658,11 @@ impl TTSScreen {
         };
         self.add_log(cx, &format!("[DEBUG] Sending prompt: {}", prompt_preview));
 
-        let payload = serde_json::json!({
-            "prompt": prompt,
-            "speed": self.pending_generation_speed,
-            "pitch": self.pending_generation_pitch,
-            "volume": self.pending_generation_volume,
-        });
-        let payload_text = payload.to_string();
-
-        self.add_log(
-            cx,
-            &format!(
-                "[DEBUG] [tts] Params snapshot: speed={:.2}, pitch={:+.1}, volume={:.0}%",
-                self.pending_generation_speed,
-                self.pending_generation_pitch,
-                self.pending_generation_volume
-            ),
-        );
-
-        // Send prompt payload to dora
+        // Send prompt to dora
         let send_result = self
             .dora
             .as_ref()
-            .map(|d| d.send_prompt(&payload_text))
+            .map(|d| d.send_prompt(&prompt))
             .unwrap_or(false);
 
         if send_result {
@@ -10072,23 +10820,12 @@ impl TTSScreen {
                 cx,
                 &format!("[INFO] [share] Shared audio via {}: {}", Self::share_target_key(target), share_file.display()),
             );
-            let success_toast = match target {
-                ShareTarget::CapCut => self.tr(
-                    "已打开剪映并在访达定位音频，请拖拽或手动导入",
-                    "CapCut opened and file revealed. Drag it into CapCut or import manually",
-                ),
-                ShareTarget::WeChat => self.tr(
-                    "已打开微信并在访达定位音频，请拖拽到会话发送",
-                    "WeChat opened and file revealed. Drag the file into a chat to send",
-                ),
-                _ => self.tr(
+            self.show_toast(
+                cx,
+                self.tr(
                     "已打开分享目标，请在目标应用中继续发送",
                     "Share target opened. Continue sending in the target app",
                 ),
-            };
-            self.show_toast(
-                cx,
-                success_toast,
             );
             self.close_share_modal(cx);
         } else {
@@ -10290,26 +11027,6 @@ impl TTSScreen {
         false
     }
 
-    fn open_macos_app_only(app_name: &str) -> bool {
-        #[cfg(target_os = "macos")]
-        {
-            let mut cmd = std::process::Command::new("open");
-            cmd.arg("-a").arg(app_name);
-            return Self::command_succeeds(&mut cmd);
-        }
-        #[allow(unreachable_code)]
-        false
-    }
-
-    fn open_macos_app_only_with_candidates(candidates: &[&str]) -> bool {
-        for app in candidates {
-            if Self::open_macos_app_only(app) {
-                return true;
-            }
-        }
-        false
-    }
-
     fn launch_share_target(path: &PathBuf, target: ShareTarget) -> bool {
         #[cfg(target_os = "macos")]
         {
@@ -10317,10 +11034,8 @@ impl TTSScreen {
                 ShareTarget::System => Self::open_path_with_system(path),
                 ShareTarget::Finder => Self::reveal_in_file_manager(path),
                 ShareTarget::CapCut => {
-                    let opened_app =
-                        Self::open_macos_app_only_with_candidates(&["CapCut", "JianyingPro"]);
-                    let revealed_file = Self::reveal_in_file_manager(path);
-                    opened_app || revealed_file
+                    Self::open_with_macos_candidates(path, &["CapCut", "JianyingPro"])
+                        || Self::open_path_with_system(path)
                 }
                 ShareTarget::Premiere => {
                     Self::open_with_macos_candidates(
@@ -10334,10 +11049,8 @@ impl TTSScreen {
                     ) || Self::open_path_with_system(path)
                 }
                 ShareTarget::WeChat => {
-                    let opened_app =
-                        Self::open_macos_app_only_with_candidates(&["WeChat", "wechat", "微信"]);
-                    let revealed_file = Self::reveal_in_file_manager(path);
-                    opened_app || revealed_file
+                    Self::open_with_macos_candidates(path, &["WeChat", "wechat"])
+                        || Self::open_path_with_system(path)
                 }
             };
         }
@@ -10484,18 +11197,30 @@ impl TTSScreen {
 
     /// Update category filter button states
     fn update_category_filter_buttons(&mut self, cx: &mut Cx) {
-        let all_active = if self.library_category_filter == VoiceFilter::All { 1.0 } else { 0.0 };
         let male_active = if self.library_category_filter == VoiceFilter::Male { 1.0 } else { 0.0 };
         let female_active = if self.library_category_filter == VoiceFilter::Female { 1.0 } else { 0.0 };
-        let character_active = if self.library_category_filter == VoiceFilter::Character { 1.0 } else { 0.0 };
+        let adult_active = if self.library_age_filter & 0b01 != 0 { 1.0 } else { 0.0 };
+        let youth_active = if self.library_age_filter & 0b10 != 0 { 1.0 } else { 0.0 };
+        let sweet_active = if self.library_style_filter & 0b01 != 0 { 1.0 } else { 0.0 };
+        let magnetic_active = if self.library_style_filter & 0b10 != 0 { 1.0 } else { 0.0 };
+        let prof_active = if self.library_trait_filter & 0b01 != 0 { 1.0 } else { 0.0 };
+        let character_active = if self.library_trait_filter & 0b10 != 0 { 1.0 } else { 0.0 };
 
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_all_btn))
-            .apply_over(cx, live! { draw_bg: { active: (all_active) } draw_text: { active: (all_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_male_btn))
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.filter_male_btn))
             .apply_over(cx, live! { draw_bg: { active: (male_active) } draw_text: { active: (male_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_female_btn))
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.filter_female_btn))
             .apply_over(cx, live! { draw_bg: { active: (female_active) } draw_text: { active: (female_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.filter_character_btn))
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.age_adult_btn))
+            .apply_over(cx, live! { draw_bg: { active: (adult_active) } draw_text: { active: (adult_active) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_gender.age_youth_btn))
+            .apply_over(cx, live! { draw_bg: { active: (youth_active) } draw_text: { active: (youth_active) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_style.style_sweet_btn))
+            .apply_over(cx, live! { draw_bg: { active: (sweet_active) } draw_text: { active: (sweet_active) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_style.style_magnetic_btn))
+            .apply_over(cx, live! { draw_bg: { active: (magnetic_active) } draw_text: { active: (magnetic_active) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_trait.trait_prof_btn))
+            .apply_over(cx, live! { draw_bg: { active: (prof_active) } draw_text: { active: (prof_active) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.category_filter.row_trait.trait_character_btn))
             .apply_over(cx, live! { draw_bg: { active: (character_active) } draw_text: { active: (character_active) } });
     }
 
@@ -10513,12 +11238,18 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { active: (en_active) } draw_text: { active: (en_active) } });
     }
 
-    /// Update Settings/History tab states
+    /// Update right-side controls tab states
     fn update_settings_tabs(&mut self, cx: &mut Cx) {
-        let settings_active = if self.settings_tab_active { 1.0 } else { 0.0 };
-        let history_active = if self.settings_tab_active { 0.0 } else { 1.0 };
+        let voice_active = if self.controls_panel_tab == 0 { 1.0 } else { 0.0 };
+        let settings_active = if self.controls_panel_tab == 1 { 1.0 } else { 0.0 };
+        let history_active = if self.controls_panel_tab == 2 { 1.0 } else { 0.0 };
         let dark_mode = self.dark_mode;
 
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.voice_management_tab_btn))
+            .apply_over(cx, live! {
+                draw_bg: { active: (voice_active) }
+                draw_text: { active: (voice_active), dark_mode: (dark_mode) }
+            });
         self.view.button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.settings_tab_btn))
             .apply_over(cx, live! {
                 draw_bg: { active: (settings_active) }
@@ -10608,8 +11339,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .speed_row
                     .speed_header
                     .speed_value
@@ -10623,8 +11355,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .pitch_row
                     .pitch_header
                     .pitch_value
@@ -10638,8 +11371,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .volume_row
                     .volume_header
                     .volume_value
@@ -10654,8 +11388,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .speed_row
                     .speed_slider_row
                     .speed_slider
@@ -10678,8 +11413,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .pitch_row
                     .pitch_slider_row
                     .pitch_slider
@@ -10702,8 +11438,9 @@ impl TTSScreen {
                     .content_area
                     .tts_page
                     .cards_container
-                    .controls_panel
-                    .settings_panel
+                    .input_section
+                    .bottom_bar
+                    .param_controls
                     .volume_row
                     .volume_slider_row
                     .volume_slider
@@ -10764,10 +11501,10 @@ impl TTSScreen {
 
         if changed {
             self.update_tts_param_controls(cx);
-            return;
+            self.apply_tts_param_to_audio(cx);
+        } else {
+            self.update_tts_param_controls(cx);
         }
-
-        self.update_tts_param_controls(cx);
     }
 
     fn slider_ratio_from_rect(abs_x: f64, rect: Rect) -> f64 {
@@ -10821,15 +11558,82 @@ impl TTSScreen {
         }
     }
 
+    fn resample_linear(samples: &[f32], ratio: f64) -> Vec<f32> {
+        if samples.is_empty() {
+            return Vec::new();
+        }
+        if ratio <= 0.0 {
+            return samples.to_vec();
+        }
+
+        let new_len = ((samples.len() as f64) * ratio).round().max(1.0) as usize;
+        if new_len == samples.len() {
+            return samples.to_vec();
+        }
+        if samples.len() == 1 {
+            return vec![samples[0]; new_len];
+        }
+
+        let last_index = (samples.len() - 1) as f64;
+        let denom = (new_len - 1).max(1) as f64;
+        let mut out = Vec::with_capacity(new_len);
+        for i in 0..new_len {
+            let src = (i as f64 / denom) * last_index;
+            let idx = src.floor() as usize;
+            let frac = src - idx as f64;
+            let s1 = samples[idx];
+            let s2 = samples.get(idx + 1).copied().unwrap_or(s1);
+            out.push((s1 as f64 + (s2 - s1) as f64 * frac) as f32);
+        }
+        out
+    }
+
     fn rebuild_processed_audio_samples(&mut self) {
         if self.stored_audio_samples.is_empty() {
             self.processed_audio_samples.clear();
             return;
         }
 
-        // Generated audio should remain immutable after completion.
-        // Speed/Pitch/Volume changes only apply to the next synthesis request.
-        self.processed_audio_samples = self.stored_audio_samples.clone();
+        let mut processed = self.stored_audio_samples.clone();
+
+        // Speed: larger speed means fewer samples (faster playback).
+        if (self.tts_speed - 1.0).abs() > 0.001 {
+            processed = Self::resample_linear(&processed, 1.0 / self.tts_speed.max(0.01));
+        }
+
+        // Pitch: semitone shift using resampling ratio (duration also changes).
+        if self.tts_pitch.abs() > 0.001 {
+            let pitch_ratio = 2.0_f64.powf(self.tts_pitch / 12.0);
+            processed = Self::resample_linear(&processed, 1.0 / pitch_ratio.max(0.01));
+        }
+
+        let gain = (self.tts_volume / 100.0).clamp(0.0, 2.0) as f32;
+        if (gain - 1.0).abs() > f32::EPSILON {
+            for sample in &mut processed {
+                *sample = (*sample * gain).clamp(-1.0, 1.0);
+            }
+        }
+
+        self.processed_audio_samples = processed;
+    }
+
+    fn apply_tts_param_to_audio(&mut self, cx: &mut Cx) {
+        if self.stored_audio_samples.is_empty() {
+            self.processed_audio_samples.clear();
+            return;
+        }
+
+        if self.tts_status == TTSStatus::Playing {
+            if let Some(player) = &self.audio_player {
+                player.stop();
+            }
+            self.tts_status = TTSStatus::Ready;
+        }
+
+        self.rebuild_processed_audio_samples();
+        self.audio_playing_time = 0.0;
+        self.update_playback_progress(cx);
+        self.update_player_bar(cx);
     }
 
     /// Apply dark mode to the entire UI
@@ -10934,7 +11738,7 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
 
         // Apply to voice picker modal
-        self.view.view(ids!(voice_picker_modal.voice_picker_dialog))
+        self.view.view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
 
         // Apply to settings tabs and modal controls that depend on dark_mode
@@ -11069,14 +11873,15 @@ impl TTSScreen {
         self.library_voices
             .iter()
             .filter(|v| match self.voice_picker_tab {
-                0 => v.source == VoiceSource::Builtin,
+                0 => true,
                 1 => v.source != VoiceSource::Builtin,
                 _ => true,
             })
             .filter(|v| v.matches_language(&self.voice_picker_language_filter))
             .filter(|v| v.matches_filter(&self.voice_picker_gender_filter))
             .filter(|v| self.matches_voice_age_filter(v))
-            .filter(|v| self.matches_voice_domain_filter(v))
+            .filter(|v| self.matches_voice_style_filter(v))
+            .filter(|v| self.matches_voice_trait_filter(v))
             .filter(|v| {
                 if self.voice_picker_search.trim().is_empty() {
                     true
@@ -11088,8 +11893,24 @@ impl TTSScreen {
             .collect()
     }
 
+    fn voice_text(voice: &Voice) -> String {
+        format!("{} {}", voice.name, voice.description).to_lowercase()
+    }
+
+    fn single_line_text(text: &str) -> String {
+        // Normalize hidden newlines/tabs from persisted voice names to keep UI single-line.
+        let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        collapsed.replace(" )", ")")
+    }
+
     fn infer_voice_age_group(voice: &Voice) -> u8 {
-        let text = format!("{} {}", voice.name, voice.description).to_lowercase();
+        match voice.id.as_str() {
+            // More energetic/young sounding built-in presets.
+            "Yang Mi" | "Zhou Jielun" | "Ellen" => return 2,
+            _ => {}
+        }
+
+        let text = Self::voice_text(voice);
         if text.contains("young")
             || text.contains("youth")
             || text.contains("teen")
@@ -11097,6 +11918,10 @@ impl TTSScreen {
             || text.contains("kid")
             || text.contains("boy")
             || text.contains("girl")
+            || text.contains("energetic")
+            || text.contains("青年")
+            || text.contains("年轻")
+            || text.contains("学生")
         {
             2
         } else {
@@ -11104,361 +11929,228 @@ impl TTSScreen {
         }
     }
 
-    fn infer_voice_domain(voice: &Voice) -> u8 {
-        let text = format!("{} {}", voice.name, voice.description).to_lowercase();
-        if text.contains("professor")
-            || text.contains("law")
-            || text.contains("analytical")
+    fn infer_voice_style(voice: &Voice) -> u8 {
+        match voice.id.as_str() {
+            // Sweet / warm / gentle oriented built-in presets.
+            "Yang Mi" | "Maple" | "Juniper" | "Ellen" => return 1,
+            // Stronger / deeper / distinctive built-in presets.
+            "Luo Xiang" | "Zhou Jielun" | "Ma Yun" | "Chen Yifan" | "Zhao Daniu"
+            | "Ma Baoguo" | "Shen Yi" | "Cove" | "Trump" => return 2,
+            _ => {}
+        }
+
+        let text = Self::voice_text(voice);
+        if text.contains("sweet")
+            || text.contains("charming")
+            || text.contains("gentle")
+            || text.contains("warm")
+            || text.contains("soft")
+            || text.contains("soothing")
+            || text.contains("friendly")
+            || text.contains("甜美")
+            || text.contains("温柔")
+            || text.contains("柔和")
+        {
+            1
+        } else {
+            2
+        }
+    }
+
+    fn infer_voice_trait(voice: &Voice) -> u8 {
+        use crate::voice_data::VoiceCategory;
+
+        match voice.id.as_str() {
+            // Professional broadcast/commentary leaning presets.
+            "Luo Xiang" | "Chen Yifan" | "Shen Yi" | "Cove" | "Zhao Daniu" => return 1,
+            // Highly distinctive character/persona presets.
+            "Doubao" | "BYS" | "Ma Baoguo" | "Trump" => return 2,
+            _ => {}
+        }
+
+        if voice.category == VoiceCategory::Character {
+            return 2;
+        }
+
+        let text = Self::voice_text(voice);
+        if text.contains("professional")
+            || text.contains("professor")
             || text.contains("analyst")
-            || text.contains("education")
+            || text.contains("commentator")
+            || text.contains("播音")
+            || text.contains("解说")
+            || text.contains("主持")
+        {
+            1
+        } else if text.contains("distinctive")
+            || text.contains("character")
+            || text.contains("个性")
+            || text.contains("特色")
+            || text.contains("martial")
         {
             2
-        } else if text.contains("singer")
-            || text.contains("actress")
-            || text.contains("talk show")
-            || text.contains("storyteller")
-            || text.contains("narrator")
-            || text.contains("podcast")
-            || text.contains("martial arts")
-        {
-            3
-        } else if text.contains("entrepreneur") || text.contains("business") {
-            4
-        } else if text.contains("commentator") || text.contains("news") {
-            5
         } else {
+            // Keep unmatched voices in the professional bucket so filters stay useful.
             1
         }
+    }
+
+    fn selected_voice_trait_labels(&self, voice: &Voice) -> (Option<String>, String, String) {
+        let text = Self::voice_text(voice);
+        let gender = if text.contains("child")
+            || text.contains("kid")
+            || text.contains("boy")
+            || text.contains("girl")
+        {
+            Some(self.tr("童声", "Child").to_string())
+        } else {
+            match voice.category {
+                crate::voice_data::VoiceCategory::Male => Some(self.tr("男声", "Male").to_string()),
+                crate::voice_data::VoiceCategory::Female => Some(self.tr("女声", "Female").to_string()),
+                crate::voice_data::VoiceCategory::Character => None,
+            }
+        };
+        let age = match Self::infer_voice_age_group(voice) {
+            2 => self.tr("青年音", "Youth").to_string(),
+            _ => self.tr("成年音", "Adult").to_string(),
+        };
+        let style = match Self::infer_voice_style(voice) {
+            1 => self.tr("甜美", "Sweet").to_string(),
+            _ => self.tr("磁性", "Magnetic").to_string(),
+        };
+
+        (gender, age, style)
     }
 
     fn matches_voice_age_filter(&self, voice: &Voice) -> bool {
         if self.voice_picker_age_filter == 0 {
             return true;
         }
-        Self::infer_voice_age_group(voice) == self.voice_picker_age_filter
+        let age_bit = match Self::infer_voice_age_group(voice) {
+            1 => 0b01, // Adult
+            2 => 0b10, // Youth
+            _ => 0,
+        };
+        age_bit != 0 && (self.voice_picker_age_filter & age_bit) != 0
     }
 
-    fn matches_voice_domain_filter(&self, voice: &Voice) -> bool {
-        if self.voice_picker_domain_filter == 0 {
+    fn matches_voice_style_filter(&self, voice: &Voice) -> bool {
+        if self.voice_picker_style_filter == 0 {
             return true;
         }
-        Self::infer_voice_domain(voice) == self.voice_picker_domain_filter
+        let style_bit = match Self::infer_voice_style(voice) {
+            1 => 0b01, // Sweet
+            2 => 0b10, // Magnetic
+            _ => 0,
+        };
+        style_bit != 0 && (self.voice_picker_style_filter & style_bit) != 0
+    }
+
+    fn matches_voice_trait_filter(&self, voice: &Voice) -> bool {
+        if self.voice_picker_trait_filter == 0 {
+            return true;
+        }
+        let trait_bit = match Self::infer_voice_trait(voice) {
+            1 => 0b01, // Professional
+            2 => 0b10, // Character
+            _ => 0,
+        };
+        trait_bit != 0 && (self.voice_picker_trait_filter & trait_bit) != 0
+    }
+
+    fn clear_voice_picker_tag_filters(&mut self) {
+        self.voice_picker_gender_filter = VoiceFilter::All;
+        self.voice_picker_age_filter = 0;
+        self.voice_picker_style_filter = 0;
+        self.voice_picker_trait_filter = 0;
     }
 
     fn update_voice_picker_controls(&mut self, cx: &mut Cx) {
-        let en = self.is_english();
-        let built_in_active = if self.voice_picker_tab == 0 { 1.0 } else { 0.0 };
-        let my_voices_active = if self.voice_picker_tab == 1 { 1.0 } else { 0.0 };
+        let dark_mode = self.dark_mode;
+        let male_active = if self.voice_picker_gender_filter == VoiceFilter::Male { 1.0 } else { 0.0 };
+        let female_active = if self.voice_picker_gender_filter == VoiceFilter::Female { 1.0 } else { 0.0 };
+        let adult_active = if self.voice_picker_age_filter & 0b01 != 0 { 1.0 } else { 0.0 };
+        let youth_active = if self.voice_picker_age_filter & 0b10 != 0 { 1.0 } else { 0.0 };
+        let sweet_active = if self.voice_picker_style_filter & 0b01 != 0 { 1.0 } else { 0.0 };
+        let magnetic_active = if self.voice_picker_style_filter & 0b10 != 0 { 1.0 } else { 0.0 };
+        let prof_active = if self.voice_picker_trait_filter & 0b01 != 0 { 1.0 } else { 0.0 };
+        let character_active = if self.voice_picker_trait_filter & 0b10 != 0 { 1.0 } else { 0.0 };
+
+        let active_voice_id = self
+            .voice_picker_active_voice_id
+            .as_ref()
+            .or(self.selected_voice_id.as_ref());
+        let active_voice_name = active_voice_id
+            .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
+            .map(|v| Self::single_line_text(&v.name))
+            .unwrap_or_else(|| self.tr("请选择", "Select").to_string());
 
         self.view
-            .button(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_tabs.voice_explore_tab))
-            .apply_over(
-                cx,
-                live! {
-                    draw_bg: { active: (built_in_active) }
-                    draw_text: { active: (built_in_active), dark_mode: (self.dark_mode) }
-                },
-            );
-        self.view
-            .button(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_tabs.voice_my_voices_tab))
-            .apply_over(
-                cx,
-                live! {
-                    draw_bg: { active: (my_voices_active) }
-                    draw_text: { active: (my_voices_active), dark_mode: (self.dark_mode) }
-                },
-            );
-        self.view
-            .view(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_tabs))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (self.dark_mode) } });
-        self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_header.voice_picker_title))
-            .apply_over(cx, live! { draw_text: { dark_mode: (self.dark_mode) } });
-        self.view
-            .button(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_header.voice_picker_back_btn))
-            .apply_over(cx, live! { draw_text: { dark_mode: (self.dark_mode) } });
-        self.view
-            .text_input(ids!(voice_picker_modal.voice_picker_dialog.voice_search_row.voice_search_input))
-            .apply_over(
-                cx,
-                live! {
-                    draw_bg: { dark_mode: (self.dark_mode) }
-                    draw_text: { dark_mode: (self.dark_mode) }
-                },
-            );
-        self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_empty))
-            .apply_over(cx, live! { draw_text: { dark_mode: (self.dark_mode) } });
-
-        let language_idx = match self.voice_picker_language_filter {
-            LanguageFilter::All => 0,
-            LanguageFilter::Chinese => 1,
-            LanguageFilter::English => 2,
-        };
-        let gender_idx = match self.voice_picker_gender_filter {
-            VoiceFilter::All => 0,
-            VoiceFilter::Male => 1,
-            VoiceFilter::Female => 2,
-            VoiceFilter::Character => 3,
-            _ => 0,
-        };
-        let age_idx = self.voice_picker_age_filter.min(2) as usize;
-        let domain_idx = self.voice_picker_domain_filter.min(5) as usize;
-
-        let language_labels = if en {
-            vec!["All".to_string(), "Chinese".to_string(), "English".to_string()]
-        } else {
-            vec!["全部".to_string(), "中文".to_string(), "英文".to_string()]
-        };
-        let gender_labels = if en {
-            vec![
-                "All".to_string(),
-                "Male".to_string(),
-                "Female".to_string(),
-                "Character".to_string(),
-            ]
-        } else {
-            vec![
-                "全部".to_string(),
-                "男".to_string(),
-                "女".to_string(),
-                "角色".to_string(),
-            ]
-        };
-        let age_labels = if en {
-            vec!["All".to_string(), "Adult".to_string(), "Youth".to_string()]
-        } else {
-            vec!["全部".to_string(), "成人".to_string(), "青年".to_string()]
-        };
-        let domain_labels = if en {
-            vec![
-                "All".to_string(),
-                "General".to_string(),
-                "Education".to_string(),
-                "Entertainment".to_string(),
-                "Business".to_string(),
-                "News".to_string(),
-            ]
-        } else {
-            vec![
-                "全部".to_string(),
-                "通用".to_string(),
-                "教育".to_string(),
-                "娱乐".to_string(),
-                "商务".to_string(),
-                "新闻".to_string(),
-            ]
-        };
-
-        let language_caption = if en {
-            match self.voice_picker_language_filter {
-                LanguageFilter::All => "Language",
-                LanguageFilter::Chinese => "Chinese",
-                LanguageFilter::English => "English",
-            }
-        } else {
-            match self.voice_picker_language_filter {
-                LanguageFilter::All => "语言",
-                LanguageFilter::Chinese => "中文",
-                LanguageFilter::English => "英文",
-            }
-        };
-        let gender_caption = if en {
-            match self.voice_picker_gender_filter {
-                VoiceFilter::All => "Gender",
-                VoiceFilter::Male => "Male",
-                VoiceFilter::Female => "Female",
-                VoiceFilter::Character => "Character",
-                _ => "Gender",
-            }
-        } else {
-            match self.voice_picker_gender_filter {
-                VoiceFilter::All => "性别",
-                VoiceFilter::Male => "男",
-                VoiceFilter::Female => "女",
-                VoiceFilter::Character => "角色",
-                _ => "性别",
-            }
-        };
-        let age_caption = if en {
-            match self.voice_picker_age_filter {
-                1 => "Adult",
-                2 => "Youth",
-                _ => "Age",
-            }
-        } else {
-            match self.voice_picker_age_filter {
-                1 => "成人",
-                2 => "青年",
-                _ => "年龄",
-            }
-        };
-        let domain_caption = if en {
-            match self.voice_picker_domain_filter {
-                1 => "General",
-                2 => "Education",
-                3 => "Entertainment",
-                4 => "Business",
-                5 => "News",
-                _ => "Domain",
-            }
-        } else {
-            match self.voice_picker_domain_filter {
-                1 => "通用",
-                2 => "教育",
-                3 => "娱乐",
-                4 => "商务",
-                5 => "新闻",
-                _ => "领域",
-            }
-        };
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.selected_voice_btn))
+            .set_text(cx, &active_voice_name);
 
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_language_wrap.filter_language_label))
-            .set_text(cx, language_caption);
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_gender_wrap.filter_gender_label))
-            .set_text(cx, gender_caption);
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.selected_voice_btn))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_age_wrap.filter_age_label))
-            .set_text(cx, age_caption);
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.select_voice_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_domain_wrap.filter_domain_label))
-            .set_text(cx, domain_caption);
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.tag_group_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.tag_group_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.tag_group_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_language_wrap.filter_language_label))
-            .apply_over(cx, live! { draw_text: { dark_mode: (self.dark_mode) } });
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_male_btn))
+            .apply_over(cx, live! { draw_bg: { active: (male_active), dark_mode: (dark_mode) } draw_text: { active: (male_active), dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_gender_wrap.filter_gender_label))
-            .apply_over(cx, live! { draw_text: { dark_mode: (self.dark_mode) } });
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_female_btn))
+            .apply_over(cx, live! { draw_bg: { active: (female_active), dark_mode: (dark_mode) } draw_text: { active: (female_active), dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_age_wrap.filter_age_label))
-            .apply_over(cx, live! { draw_text: { dark_mode: (self.dark_mode) } });
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_adult_btn))
+            .apply_over(cx, live! { draw_bg: { active: (adult_active), dark_mode: (dark_mode) } draw_text: { active: (adult_active), dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_domain_wrap.filter_domain_label))
-            .apply_over(cx, live! { draw_text: { dark_mode: (self.dark_mode) } });
-
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_youth_btn))
+            .apply_over(cx, live! { draw_bg: { active: (youth_active), dark_mode: (dark_mode) } draw_text: { active: (youth_active), dark_mode: (dark_mode) } });
         self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_language_wrap.filter_language_dd))
-            .set_labels(cx, language_labels);
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_sweet_btn))
+            .apply_over(cx, live! { draw_bg: { active: (sweet_active), dark_mode: (dark_mode) } draw_text: { active: (sweet_active), dark_mode: (dark_mode) } });
         self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_language_wrap.filter_language_dd))
-            .set_selected_item(cx, language_idx);
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_magnetic_btn))
+            .apply_over(cx, live! { draw_bg: { active: (magnetic_active), dark_mode: (dark_mode) } draw_text: { active: (magnetic_active), dark_mode: (dark_mode) } });
         self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_language_wrap.filter_language_dd))
-            .apply_over(
-                cx,
-                live! {
-                    draw_bg: { dark_mode: (self.dark_mode) }
-                    popup_menu: {
-                        draw_bg: { dark_mode: (self.dark_mode) }
-                        menu_item: {
-                            draw_bg: { dark_mode: (self.dark_mode) }
-                            draw_text: { dark_mode: (self.dark_mode) }
-                        }
-                    }
-                },
-            );
-
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_prof_btn))
+            .apply_over(cx, live! { draw_bg: { active: (prof_active), dark_mode: (dark_mode) } draw_text: { active: (prof_active), dark_mode: (dark_mode) } });
         self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_gender_wrap.filter_gender_dd))
-            .set_labels(cx, gender_labels);
-        self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_gender_wrap.filter_gender_dd))
-            .set_selected_item(cx, gender_idx);
-        self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_gender_wrap.filter_gender_dd))
-            .apply_over(
-                cx,
-                live! {
-                    draw_bg: { dark_mode: (self.dark_mode) }
-                    popup_menu: {
-                        draw_bg: { dark_mode: (self.dark_mode) }
-                        menu_item: {
-                            draw_bg: { dark_mode: (self.dark_mode) }
-                            draw_text: { dark_mode: (self.dark_mode) }
-                        }
-                    }
-                },
-            );
-
-        self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_age_wrap.filter_age_dd))
-            .set_labels(cx, age_labels);
-        self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_age_wrap.filter_age_dd))
-            .set_selected_item(cx, age_idx);
-        self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_age_wrap.filter_age_dd))
-            .apply_over(
-                cx,
-                live! {
-                    draw_bg: { dark_mode: (self.dark_mode) }
-                    popup_menu: {
-                        draw_bg: { dark_mode: (self.dark_mode) }
-                        menu_item: {
-                            draw_bg: { dark_mode: (self.dark_mode) }
-                            draw_text: { dark_mode: (self.dark_mode) }
-                        }
-                    }
-                },
-            );
-
-        self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_domain_wrap.filter_domain_dd))
-            .set_labels(cx, domain_labels);
-        self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_domain_wrap.filter_domain_dd))
-            .set_selected_item(cx, domain_idx);
-        self.view
-            .drop_down(ids!(voice_picker_modal.voice_picker_dialog.voice_filter_row.filter_domain_wrap.filter_domain_dd))
-            .apply_over(
-                cx,
-                live! {
-                    draw_bg: { dark_mode: (self.dark_mode) }
-                    popup_menu: {
-                        draw_bg: { dark_mode: (self.dark_mode) }
-                        menu_item: {
-                            draw_bg: { dark_mode: (self.dark_mode) }
-                            draw_text: { dark_mode: (self.dark_mode) }
-                        }
-                    }
-                },
-            );
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_character_btn))
+            .apply_over(cx, live! { draw_bg: { active: (character_active), dark_mode: (dark_mode) } draw_text: { active: (character_active), dark_mode: (dark_mode) } });
 
         let filtered = self.get_voice_picker_voices();
         let is_empty = filtered.is_empty();
-        let any_filter_active = self.voice_picker_language_filter != LanguageFilter::All
-            || self.voice_picker_gender_filter != VoiceFilter::All
+        let any_filter_active = self.voice_picker_gender_filter != VoiceFilter::All
             || self.voice_picker_age_filter != 0
-            || self.voice_picker_domain_filter != 0
-            || !self.voice_picker_search.trim().is_empty();
-
-        let has_custom_voice = self
-            .library_voices
-            .iter()
-            .any(|v| v.source != crate::voice_data::VoiceSource::Builtin);
-        let empty_text = if self.voice_picker_tab == 1 && !has_custom_voice {
-            self.tr(
-                "“我的音色”里还没有音色，请先在“音色克隆”中创建。",
-                "No voices in My Voices yet. Create one in Voice Clone.",
-            )
-        } else if any_filter_active {
-            ""
-        } else if self.voice_picker_tab == 0 {
-            ""
+            || self.voice_picker_style_filter != 0
+            || self.voice_picker_trait_filter != 0;
+        let empty_text = if any_filter_active {
+            self.tr("暂无符合标签的音色。", "No voices match current tags.")
         } else {
             self.tr("暂无可用音色。", "No voices available.")
         };
-        let show_empty_text = is_empty && !empty_text.trim().is_empty();
 
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_empty))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_empty))
             .set_text(cx, empty_text);
         self.view
-            .label(ids!(voice_picker_modal.voice_picker_dialog.voice_picker_empty))
-            .set_visible(cx, show_empty_text);
+            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_empty))
+            .set_visible(cx, is_empty);
 
         self.view.redraw(cx);
     }
@@ -11474,8 +12166,8 @@ impl TTSScreen {
                         .content_area
                         .tts_page
                         .cards_container
-                        .controls_panel
-                        .settings_panel
+                        .input_section
+                        .bottom_bar
                         .model_row
                         .model_picker_btn
                 ))
@@ -11500,8 +12192,8 @@ impl TTSScreen {
                         .content_area
                         .tts_page
                         .cards_container
-                        .controls_panel
-                        .settings_panel
+                        .input_section
+                        .bottom_bar
                         .model_row
                         .model_picker_btn
                 ))
@@ -11583,6 +12275,7 @@ impl TTSScreen {
             if self.voice_picker_active_voice_id.is_none() {
                 self.voice_picker_active_voice_id = Some(voice.id.clone());
             }
+            let (gender_label, age_label, style_label) = self.selected_voice_trait_labels(&voice);
             let source_tag = match voice.source {
                 crate::voice_data::VoiceSource::Builtin => self.tr("内置", "Built-in"),
                 _ => self.tr("我的音色", "My Voice"),
@@ -11603,6 +12296,104 @@ impl TTSScreen {
                         .voice_picker_btn
                 ))
                 .set_text(cx, &picker_text);
+            self.view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                ))
+                .set_visible(cx, true);
+            self.view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .gender_badge
+                ))
+                .set_visible(cx, gender_label.is_some());
+            if let Some(gender_label) = gender_label {
+                self.view
+                    .label(ids!(
+                        content_wrapper
+                            .main_content
+                            .left_column
+                            .content_area
+                            .tts_page
+                            .cards_container
+                            .controls_panel
+                            .settings_panel
+                            .voice_row
+                            .voice_tags_row
+                            .gender_badge
+                            .gender_badge_label
+                    ))
+                    .set_text(cx, &gender_label);
+            }
+            self.view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .age_badge
+                        .age_badge_label
+                ))
+                .set_text(cx, &age_label);
+            self.view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .style_badge
+                        .style_badge_label
+                ))
+                .set_text(cx, &style_label);
+            let dark_mode = self.dark_mode;
+            self.view.view(ids!(
+                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.gender_badge
+            )).apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            self.view.label(ids!(
+                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.gender_badge.gender_badge_label
+            )).apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+            self.view.view(ids!(
+                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.age_badge
+            )).apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            self.view.label(ids!(
+                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.age_badge.age_badge_label
+            )).apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+            self.view.view(ids!(
+                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.style_badge
+            )).apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            self.view.label(ids!(
+                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.style_badge.style_badge_label
+            )).apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         } else {
             self.selected_voice_id = None;
             self.voice_picker_active_voice_id = None;
@@ -11620,6 +12411,20 @@ impl TTSScreen {
                         .voice_picker_btn
                 ))
                 .set_text(cx, self.tr("🎤 选择音色", "🎤 Select a voice"));
+            self.view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                ))
+                .set_visible(cx, false);
         }
     }
 
@@ -11634,11 +12439,50 @@ impl TTSScreen {
         );
     }
 
-    /// Filter voices based on category, language, and search query
+    fn matches_library_age_filter(&self, voice: &Voice) -> bool {
+        if self.library_age_filter == 0 {
+            return true;
+        }
+        let age_bit = match Self::infer_voice_age_group(voice) {
+            1 => 0b01, // Adult
+            2 => 0b10, // Youth
+            _ => 0,
+        };
+        age_bit != 0 && (self.library_age_filter & age_bit) != 0
+    }
+
+    fn matches_library_style_filter(&self, voice: &Voice) -> bool {
+        if self.library_style_filter == 0 {
+            return true;
+        }
+        let style_bit = match Self::infer_voice_style(voice) {
+            1 => 0b01, // Sweet
+            2 => 0b10, // Magnetic
+            _ => 0,
+        };
+        style_bit != 0 && (self.library_style_filter & style_bit) != 0
+    }
+
+    fn matches_library_trait_filter(&self, voice: &Voice) -> bool {
+        if self.library_trait_filter == 0 {
+            return true;
+        }
+        let trait_bit = match Self::infer_voice_trait(voice) {
+            1 => 0b01, // Professional
+            2 => 0b10, // Character
+            _ => 0,
+        };
+        trait_bit != 0 && (self.library_trait_filter & trait_bit) != 0
+    }
+
+    /// Filter voices based on category tags, language, and search query
     fn get_filtered_voices(&self) -> Vec<Voice> {
             self.library_voices
                 .iter()
             .filter(|v| v.matches_filter(&self.library_category_filter))
+            .filter(|v| self.matches_library_age_filter(v))
+            .filter(|v| self.matches_library_style_filter(v))
+            .filter(|v| self.matches_library_trait_filter(v))
             .filter(|v| v.matches_language(&self.library_language_filter))
                 .filter(|v| {
                 if self.library_search_query.is_empty() {
@@ -11655,6 +12499,9 @@ impl TTSScreen {
 
     /// Update library display
     fn update_library_display(&mut self, cx: &mut Cx) {
+        self.update_category_filter_buttons(cx);
+        self.update_language_filter_buttons(cx);
+
         let filtered = self.get_filtered_voices();
         let total_count = self.library_voices.len();
         let filtered_count = filtered.len();
