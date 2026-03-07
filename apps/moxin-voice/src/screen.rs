@@ -10411,9 +10411,17 @@ impl TTSScreen {
             return;
         }
 
-        let dataflow_path = PathBuf::from("apps/moxin-voice/dataflow/tts.yml");
+        let dataflow_path = std::env::var("MOXIN_DATAFLOW_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("apps/moxin-voice/dataflow/tts.yml"));
         if !dataflow_path.exists() {
-            self.add_log(cx, "[ERROR] [tts] Dataflow file not found: apps/moxin-voice/dataflow/tts.yml");
+            self.add_log(
+                cx,
+                &format!(
+                    "[ERROR] [tts] Dataflow file not found: {}",
+                    dataflow_path.display()
+                ),
+            );
             return;
         }
 

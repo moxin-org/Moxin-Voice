@@ -64,6 +64,22 @@ pub struct DataflowController {
 }
 
 impl DataflowController {
+    fn dora_runtime_dir() -> PathBuf {
+        if let Ok(dir) = std::env::var("MOXIN_DORA_RUNTIME_DIR") {
+            return PathBuf::from(dir);
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(".dora").join("runtime");
+        }
+        PathBuf::from(".").join(".dora").join("runtime")
+    }
+
+    fn ensure_runtime_dir() -> PathBuf {
+        let dir = Self::dora_runtime_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
     /// Create a new controller for a dataflow
     pub fn new(dataflow_path: impl AsRef<Path>) -> BridgeResult<Self> {
         let original_path = dataflow_path.as_ref();
@@ -123,10 +139,13 @@ impl DataflowController {
 
     /// Ensure dora daemon is running
     pub fn ensure_daemon(&mut self) -> BridgeResult<()> {
+        let runtime_dir = Self::ensure_runtime_dir();
+
         // Check if daemon is already running by using `dora list`
         // If it succeeds, daemon is running
         let status = Command::new("dora")
             .arg("list")
+            .current_dir(&runtime_dir)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
@@ -140,6 +159,7 @@ impl DataflowController {
                 info!("Starting dora daemon...");
                 let child = Command::new("dora")
                     .arg("up")
+                    .current_dir(&runtime_dir)
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .spawn()
@@ -182,11 +202,7 @@ impl DataflowController {
             return Err(BridgeError::StartFailed(msg));
         }
 
-        // Build command - run from dataflow's directory with just the filename
-        let dataflow_dir = self
-            .dataflow_path
-            .parent()
-            .ok_or_else(|| BridgeError::StartFailed("Invalid dataflow path".to_string()))?;
+        let runtime_dir = Self::ensure_runtime_dir();
 
         let mut cmd = Command::new("dora");
         cmd.arg("start")
@@ -194,7 +210,7 @@ impl DataflowController {
             // the actual dataflow file location.
             .arg(&self.dataflow_path)
             .arg("--detach")
-            .current_dir(dataflow_dir);
+            .current_dir(&runtime_dir);
 
         // Add environment variables
         for (key, value) in &self.env_vars {
@@ -276,10 +292,12 @@ impl DataflowController {
             .map(|d| format!("{}s", d.as_secs()))
             .unwrap_or_else(|| "default".to_string());
         info!("Stopping dataflow: {} (grace: {})", dataflow_id, grace_str);
+        let runtime_dir = Self::ensure_runtime_dir();
 
         // Build dora stop command
         let mut cmd = Command::new("dora");
         cmd.arg("stop").arg(&dataflow_id);
+        cmd.current_dir(&runtime_dir);
 
         // Add grace duration if specified
         if let Some(duration) = grace_duration {
@@ -314,8 +332,10 @@ impl DataflowController {
                 ref started_at,
             } => {
                 // Query dora for node status
+                let runtime_dir = Self::ensure_runtime_dir();
                 let output = Command::new("dora")
                     .arg("list")
+                    .current_dir(&runtime_dir)
                     .output()
                     .map_err(|e| BridgeError::Unknown(format!("Failed to query status: {}", e)))?;
 
