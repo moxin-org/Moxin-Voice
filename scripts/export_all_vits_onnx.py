@@ -6,13 +6,39 @@
 """
 
 import sys
+import os
 import subprocess
 from pathlib import Path
 
 MOYOYO_TTS = Path(__file__).parent.parent / "node-hub/dora-primespeech/dora_primespeech/moyoyo_tts"
-SRC_WEIGHTS = Path.home() / ".dora/models/primespeech/moyoyo/SoVITS_weights"
-DST_BASE    = Path.home() / ".OminiX/models/gpt-sovits-mlx/voices"
-EXPORT_SCRIPT = Path.home() / "Documents/projects/OminiX-MLX/gpt-sovits-mlx/scripts/export_vits_onnx.py"
+if not MOYOYO_TTS.exists():
+    # Bundle path fallback
+    MOYOYO_TTS = Path(__file__).parent / "node-hub/dora-primespeech/dora_primespeech/moyoyo_tts"
+
+SRC_WEIGHTS = Path(
+    os.environ.get(
+        "PRIMESPEECH_SOVITS_SRC",
+        str(Path.home() / ".dora/models/primespeech/moyoyo/SoVITS_weights"),
+    )
+)
+DST_BASE = Path(
+    os.environ.get(
+        "GPT_SOVITS_VOICES_DIR",
+        str(Path.home() / ".OminiX/models/gpt-sovits-mlx/voices"),
+    )
+)
+
+EXPORT_SCRIPT = Path(
+    os.environ.get(
+        "OMINIX_EXPORT_VITS_SCRIPT",
+        str(
+            Path(__file__).parent.parent
+            / "node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts/export_vits_onnx.py"
+        ),
+    )
+)
+if not EXPORT_SCRIPT.exists():
+    EXPORT_SCRIPT = Path(__file__).parent / "omx-scripts/export_vits_onnx.py"
 
 # (voice_dir_name, sovits_pth_filename)
 VOICES = [

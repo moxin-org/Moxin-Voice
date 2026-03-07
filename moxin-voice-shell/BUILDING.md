@@ -67,7 +67,11 @@ cargo build -p moxin-voice --release
 # Run
 ./target/release/moxin-voice
 
-# Create .app bundle (Dock name/logo from Info.plist)
+# Create .app bundle (includes:
+# - moxin-voice-shell
+# - moxin-tts-node
+# - optional moxin-fewshot-trainer
+# - bundled dataflow + preflight/bootstrap scripts)
 ./scripts/build_macos_app.sh \
   --app-name "Moxin Voice" \
   --bundle-id "com.moxin.voice" \
@@ -75,7 +79,15 @@ cargo build -p moxin-voice --release
 
 # Open app bundle
 open "./dist/Moxin Voice.app"
+
+# Build distributable DMG from the app bundle
+./scripts/build_macos_dmg.sh \
+  --app-path "./dist/Moxin Voice.app" \
+  --dmg-name "Moxin Voice.dmg"
 ```
+
+The launcher will run preflight checks on startup and can trigger bootstrap
+for missing runtime dependencies (Conda/Python nodes/Dora).
 
 #### Linux
 

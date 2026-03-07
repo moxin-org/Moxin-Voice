@@ -19,8 +19,21 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 MOYOYO_TTS = Path(__file__).parent.parent / "node-hub/dora-primespeech/dora_primespeech/moyoyo_tts"
-SRC_WEIGHTS = Path.home() / ".dora/models/primespeech/moyoyo"
-DST_VOICES  = Path.home() / ".OminiX/models/gpt-sovits-mlx/voices"
+if not MOYOYO_TTS.exists():
+    MOYOYO_TTS = Path(__file__).parent / "node-hub/dora-primespeech/dora_primespeech/moyoyo_tts"
+
+SRC_WEIGHTS = Path(
+    os.environ.get(
+        "PRIMESPEECH_MOYOYO_SRC",
+        str(Path.home() / ".dora/models/primespeech/moyoyo"),
+    )
+)
+DST_VOICES = Path(
+    os.environ.get(
+        "GPT_SOVITS_VOICES_DIR",
+        str(Path.home() / ".OminiX/models/gpt-sovits-mlx/voices"),
+    )
+)
 
 # 使用 Doubao 基础模型提取 ssl_proj + quantizer（这些权重在各音色中通常相同）
 BASE_SOVITS_PTH = SRC_WEIGHTS / "SoVITS_weights/doubao-mixed.pth"

@@ -1,0 +1,52 @@
+nodes:
+  - id: moxin-audio-input
+    path: dynamic
+    outputs:
+      - audio
+
+  - id: asr
+    # Use wrapper to resolve conda env binary without relying on daemon PATH.
+    path: ../scripts/macos_run_dora_asr.sh
+    inputs:
+      audio: moxin-audio-input/audio
+    outputs:
+      - transcription
+      - status
+      - log
+    env:
+      USE_GPU: "false"
+      ASR_ENGINE: "funasr"
+      LANGUAGE: "zh"
+      LOG_LEVEL: "INFO"
+
+  - id: moxin-asr-listener
+    path: dynamic
+    inputs:
+      transcription: asr/transcription
+
+  - id: moxin-prompt-input
+    path: dynamic
+    outputs:
+      - control
+
+  - id: primespeech-tts
+    # Relative to this file:
+    # Contents/Resources/dataflow/tts.yml -> Contents/MacOS/moxin-tts-node
+    path: ../../MacOS/moxin-tts-node
+    inputs:
+      text: moxin-prompt-input/control
+    outputs:
+      - audio
+      - status
+      - segment_complete
+      - log
+    env:
+      VOICE_NAME: "Doubao"
+      LOG_LEVEL: INFO
+
+  - id: moxin-audio-player
+    path: dynamic
+    inputs:
+      audio: primespeech-tts/audio
+    outputs:
+      - buffer_status

@@ -6,12 +6,26 @@
 """
 
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
 
-# 将 OminiX-MLX 的 scripts 目录加入 path，复用转换函数
-OMINIX_SCRIPTS = Path.home() / "Documents/projects/OminiX-MLX/gpt-sovits-mlx/scripts"
+# 将 OminiX-MLX 的 scripts 目录加入 path，复用转换函数。
+# 优先级：
+#   1) OMINIX_SCRIPTS 环境变量
+#   2) 本仓库 patch 目录（开发态）
+#   3) 本脚本相邻目录下的 omx-scripts（打包态）
+OMINIX_SCRIPTS = Path(
+    os.environ.get("OMINIX_SCRIPTS", "")
+) if os.environ.get("OMINIX_SCRIPTS") else None
+if OMINIX_SCRIPTS is None or not OMINIX_SCRIPTS.exists():
+    repo_fallback = (
+        Path(__file__).parent.parent
+        / "node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts"
+    )
+    bundle_fallback = Path(__file__).parent / "omx-scripts"
+    OMINIX_SCRIPTS = repo_fallback if repo_fallback.exists() else bundle_fallback
 sys.path.insert(0, str(OMINIX_SCRIPTS))
 
 # SoVITS .pth 用 pickle 保存，加载时需要 GPT-SoVITS 的 utils 模块在 sys.path 上
@@ -25,8 +39,8 @@ from setup_models import convert_gpt, convert_sovits, convert_hubert, convert_be
 # 路径配置
 # ---------------------------------------------------------------------------
 
-SRC = Path.home() / ".dora/models/primespeech/moyoyo"
-DST = Path.home() / ".OminiX/models/gpt-sovits-mlx"
+SRC = Path(os.environ.get("PRIMESPEECH_MOYOYO_SRC", str(Path.home() / ".dora/models/primespeech/moyoyo")))
+DST = Path(os.environ.get("GPT_SOVITS_MODEL_DIR", str(Path.home() / ".OminiX/models/gpt-sovits-mlx")))
 
 # ---------------------------------------------------------------------------
 # 15 个预置音色（从 config.py VOICE_CONFIGS 提取的精确文件名）
