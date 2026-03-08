@@ -8985,13 +8985,13 @@ impl TTSScreen {
             .set_text(cx, self.tr("系统打开", "Open with system app"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_capcut_btn))
-            .set_text(cx, self.tr("分享到剪映", "Share to CapCut"));
+            .set_text(cx, self.tr("打开剪映", "Open CapCut (manual import)"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_premiere_btn))
             .set_text(cx, self.tr("分享到 Premiere Pro", "Share to Premiere Pro"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_wechat_btn))
-            .set_text(cx, self.tr("分享到微信", "Share to WeChat"));
+            .set_text(cx, self.tr("打开微信", "Open WeChat (manual send)"));
         self.view
             .button(ids!(share_modal.share_dialog.share_actions.share_finder_btn))
             .set_text(cx, self.tr("在访达中显示", "Reveal in Finder"));
@@ -10658,11 +10658,29 @@ impl TTSScreen {
         };
         self.add_log(cx, &format!("[DEBUG] Sending prompt: {}", prompt_preview));
 
-        // Send prompt to dora
+        let payload = serde_json::json!({
+            "prompt": prompt,
+            "speed": self.pending_generation_speed,
+            "pitch": self.pending_generation_pitch,
+            "volume": self.pending_generation_volume,
+        });
+        let payload_text = payload.to_string();
+
+        self.add_log(
+            cx,
+            &format!(
+                "[DEBUG] [tts] Params snapshot: speed={:.2}, pitch={:+.1}, volume={:.0}%",
+                self.pending_generation_speed,
+                self.pending_generation_pitch,
+                self.pending_generation_volume
+            ),
+        );
+
+        // Send prompt payload to dora
         let send_result = self
             .dora
             .as_ref()
-            .map(|d| d.send_prompt(&prompt))
+            .map(|d| d.send_prompt(&payload_text))
             .unwrap_or(false);
 
         if send_result {
@@ -10820,13 +10838,21 @@ impl TTSScreen {
                 cx,
                 &format!("[INFO] [share] Shared audio via {}: {}", Self::share_target_key(target), share_file.display()),
             );
-            self.show_toast(
-                cx,
-                self.tr(
+            let success_toast = match target {
+                ShareTarget::CapCut => self.tr(
+                    "已打开剪映并在访达定位音频，请拖拽或手动导入",
+                    "CapCut opened and file revealed. Drag it into CapCut or import manually",
+                ),
+                ShareTarget::WeChat => self.tr(
+                    "已打开微信并在访达定位音频，请拖拽到会话发送",
+                    "WeChat opened and file revealed. Drag the file into a chat to send",
+                ),
+                _ => self.tr(
                     "已打开分享目标，请在目标应用中继续发送",
                     "Share target opened. Continue sending in the target app",
                 ),
-            );
+            };
+            self.show_toast(cx, success_toast);
             self.close_share_modal(cx);
         } else {
             self.add_log(
@@ -11027,6 +11053,26 @@ impl TTSScreen {
         false
     }
 
+    fn open_macos_app_only(app_name: &str) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            let mut cmd = std::process::Command::new("open");
+            cmd.arg("-a").arg(app_name);
+            return Self::command_succeeds(&mut cmd);
+        }
+        #[allow(unreachable_code)]
+        false
+    }
+
+    fn open_macos_app_only_with_candidates(candidates: &[&str]) -> bool {
+        for app in candidates {
+            if Self::open_macos_app_only(app) {
+                return true;
+            }
+        }
+        false
+    }
+
     fn launch_share_target(path: &PathBuf, target: ShareTarget) -> bool {
         #[cfg(target_os = "macos")]
         {
@@ -11034,8 +11080,10 @@ impl TTSScreen {
                 ShareTarget::System => Self::open_path_with_system(path),
                 ShareTarget::Finder => Self::reveal_in_file_manager(path),
                 ShareTarget::CapCut => {
-                    Self::open_with_macos_candidates(path, &["CapCut", "JianyingPro"])
-                        || Self::open_path_with_system(path)
+                    let opened_app =
+                        Self::open_macos_app_only_with_candidates(&["CapCut", "JianyingPro"]);
+                    let revealed_file = Self::reveal_in_file_manager(path);
+                    opened_app || revealed_file
                 }
                 ShareTarget::Premiere => {
                     Self::open_with_macos_candidates(
@@ -11049,8 +11097,10 @@ impl TTSScreen {
                     ) || Self::open_path_with_system(path)
                 }
                 ShareTarget::WeChat => {
-                    Self::open_with_macos_candidates(path, &["WeChat", "wechat"])
-                        || Self::open_path_with_system(path)
+                    let opened_app =
+                        Self::open_macos_app_only_with_candidates(&["WeChat", "wechat", "微信"]);
+                    let revealed_file = Self::reveal_in_file_manager(path);
+                    opened_app || revealed_file
                 }
             };
         }
@@ -11501,10 +11551,10 @@ impl TTSScreen {
 
         if changed {
             self.update_tts_param_controls(cx);
-            self.apply_tts_param_to_audio(cx);
-        } else {
-            self.update_tts_param_controls(cx);
+            return;
         }
+
+        self.update_tts_param_controls(cx);
     }
 
     fn slider_ratio_from_rect(abs_x: f64, rect: Rect) -> f64 {
@@ -11558,82 +11608,15 @@ impl TTSScreen {
         }
     }
 
-    fn resample_linear(samples: &[f32], ratio: f64) -> Vec<f32> {
-        if samples.is_empty() {
-            return Vec::new();
-        }
-        if ratio <= 0.0 {
-            return samples.to_vec();
-        }
-
-        let new_len = ((samples.len() as f64) * ratio).round().max(1.0) as usize;
-        if new_len == samples.len() {
-            return samples.to_vec();
-        }
-        if samples.len() == 1 {
-            return vec![samples[0]; new_len];
-        }
-
-        let last_index = (samples.len() - 1) as f64;
-        let denom = (new_len - 1).max(1) as f64;
-        let mut out = Vec::with_capacity(new_len);
-        for i in 0..new_len {
-            let src = (i as f64 / denom) * last_index;
-            let idx = src.floor() as usize;
-            let frac = src - idx as f64;
-            let s1 = samples[idx];
-            let s2 = samples.get(idx + 1).copied().unwrap_or(s1);
-            out.push((s1 as f64 + (s2 - s1) as f64 * frac) as f32);
-        }
-        out
-    }
-
     fn rebuild_processed_audio_samples(&mut self) {
         if self.stored_audio_samples.is_empty() {
             self.processed_audio_samples.clear();
             return;
         }
 
-        let mut processed = self.stored_audio_samples.clone();
-
-        // Speed: larger speed means fewer samples (faster playback).
-        if (self.tts_speed - 1.0).abs() > 0.001 {
-            processed = Self::resample_linear(&processed, 1.0 / self.tts_speed.max(0.01));
-        }
-
-        // Pitch: semitone shift using resampling ratio (duration also changes).
-        if self.tts_pitch.abs() > 0.001 {
-            let pitch_ratio = 2.0_f64.powf(self.tts_pitch / 12.0);
-            processed = Self::resample_linear(&processed, 1.0 / pitch_ratio.max(0.01));
-        }
-
-        let gain = (self.tts_volume / 100.0).clamp(0.0, 2.0) as f32;
-        if (gain - 1.0).abs() > f32::EPSILON {
-            for sample in &mut processed {
-                *sample = (*sample * gain).clamp(-1.0, 1.0);
-            }
-        }
-
-        self.processed_audio_samples = processed;
-    }
-
-    fn apply_tts_param_to_audio(&mut self, cx: &mut Cx) {
-        if self.stored_audio_samples.is_empty() {
-            self.processed_audio_samples.clear();
-            return;
-        }
-
-        if self.tts_status == TTSStatus::Playing {
-            if let Some(player) = &self.audio_player {
-                player.stop();
-            }
-            self.tts_status = TTSStatus::Ready;
-        }
-
-        self.rebuild_processed_audio_samples();
-        self.audio_playing_time = 0.0;
-        self.update_playback_progress(cx);
-        self.update_player_bar(cx);
+        // Generated audio should remain immutable after completion.
+        // Speed/Pitch/Volume changes only apply to the next synthesis request.
+        self.processed_audio_samples = self.stored_audio_samples.clone();
     }
 
     /// Apply dark mode to the entire UI
