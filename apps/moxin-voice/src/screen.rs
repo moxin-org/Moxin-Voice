@@ -10684,7 +10684,7 @@ impl TTSScreen {
             ),
         );
 
-        // Send prompt payload to dora
+        // Send prompt payload to dora.
         let send_result = self
             .dora
             .as_ref()
@@ -11728,9 +11728,8 @@ impl TTSScreen {
         self.view.view(ids!(model_picker_modal.model_picker_dialog))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
 
-        // Apply to voice picker modal
-        self.view.view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        // Voice picker container itself has no draw_bg.dark_mode field.
+        // Per-widget dark mode is applied in update_voice_picker_controls().
 
         // Apply to settings tabs and modal controls that depend on dark_mode
         self.update_tts_param_controls(cx);

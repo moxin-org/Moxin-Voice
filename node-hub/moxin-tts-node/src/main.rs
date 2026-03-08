@@ -10,16 +10,68 @@
 //!   log             – StringArray, JSON log entry
 
 mod protocol;
+mod audio_post;
 mod voice_registry;
 mod voice_state;
 
 use anyhow::Result;
 use arrow::array::{Array, StringArray};
+use audio_post::apply_runtime_audio_params;
 use dora_node_api::{DoraNode, Event, IntoArrow, Parameter};
+use gpt_sovits_mlx::voice_clone::SynthesisOptions;
 use protocol::TtsRequest;
 use std::collections::BTreeMap;
 use voice_registry::VoiceRegistry;
 use voice_state::{ActiveVoice, VoiceState};
+
+#[derive(Debug, Clone, Default)]
+struct TtsParams {
+    speed: Option<f32>,
+    pitch: Option<f32>,
+    volume: Option<f32>,
+}
+
+fn parse_text_and_params(raw: &str) -> (String, TtsParams) {
+    let mut text = raw.to_string();
+    let mut params = TtsParams::default();
+
+    // Unwrap up to two levels of JSON payload:
+    // 1) {"prompt":"VOICE:...","speed":...}
+    // 2) {"prompt":"{\"prompt\":\"VOICE:...\",\"speed\":...}"}
+    for _ in 0..6 {
+        let trimmed = text.trim_start();
+        if !trimmed.starts_with('{') {
+            break;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            break;
+        };
+
+        if params.speed.is_none() {
+            params.speed = v
+                .get("speed")
+                .and_then(|x| x.as_f64().map(|n| n as f32).or_else(|| x.as_str()?.parse::<f32>().ok()));
+        }
+        if params.pitch.is_none() {
+            params.pitch = v
+                .get("pitch")
+                .and_then(|x| x.as_f64().map(|n| n as f32).or_else(|| x.as_str()?.parse::<f32>().ok()));
+        }
+        if params.volume.is_none() {
+            params.volume = v
+                .get("volume")
+                .and_then(|x| x.as_f64().map(|n| n as f32).or_else(|| x.as_str()?.parse::<f32>().ok()));
+        }
+
+        if let Some(prompt) = v.get("prompt").and_then(|p| p.as_str()) {
+            text = prompt.to_string();
+        } else {
+            break;
+        }
+    }
+
+    (text, params)
+}
 
 fn main() -> Result<()> {
     // Initialise tracing
@@ -66,20 +118,11 @@ fn main() -> Result<()> {
                 };
                 let raw = arr.value(0);
 
-                // The Rust prompt-input node sends JSON: {"prompt":"VOICE:..."}
-                // Unwrap it if needed.
-                let text_str: String = if raw.trim_start().starts_with('{') {
-                    match serde_json::from_str::<serde_json::Value>(raw) {
-                        Ok(v) => v
-                            .get("prompt")
-                            .and_then(|p| p.as_str())
-                            .unwrap_or(raw)
-                            .to_string(),
-                        Err(_) => raw.to_string(),
-                    }
-                } else {
-                    raw.to_string()
-                };
+                let (text_str, params) = parse_text_and_params(raw);
+                tracing::info!(
+                    "Received params: speed={:?}, pitch={:?}, volume={:?}",
+                    params.speed, params.pitch, params.volume
+                );
 
                 // Parse protocol
                 let request = match TtsRequest::parse(&text_str) {
@@ -96,8 +139,9 @@ fn main() -> Result<()> {
                 tracing::info!("TTS request: {:?}", request);
                 send_status(&mut node, "synthesizing")?;
 
-                match synthesize(&registry, &mut state, request) {
+                match synthesize(&registry, &mut state, request, &params) {
                     Ok(samples) => {
+                        let samples = apply_runtime_audio_params(samples, &params);
                         send_audio(&mut node, &samples)?;
                         send_segment_complete(&mut node)?;
                         send_status(&mut node, "done")?;
@@ -134,11 +178,17 @@ fn synthesize(
     registry: &VoiceRegistry,
     state: &mut VoiceState,
     request: TtsRequest,
+    params: &TtsParams,
 ) -> Result<Vec<f32>> {
+    let speed_override = params.speed.map(|s| s.clamp(0.5, 2.0));
+    let options = SynthesisOptions {
+        speed_override,
+        ..Default::default()
+    };
+
     match request {
         TtsRequest::Preset { voice, text } => {
-            let (config, ref_wav, prompt_text, semantic_npy) =
-                registry.config_for_preset(&voice)?;
+            let (mut config, ref_wav, prompt_text, semantic_npy) = registry.config_for_preset(&voice)?;
             let key = ActiveVoice::Preset(voice);
             let cloner = state.get_or_load(config, key)?;
             if let Some(ref npy_path) = semantic_npy {
@@ -155,7 +205,7 @@ fn synthesize(
                 );
                 cloner.set_reference_audio(&ref_wav)?;
             }
-            let out = cloner.synthesize(&text)?;
+            let out = cloner.synthesize_with_options(&text, options)?;
             Ok(out.samples)
         }
 
@@ -171,7 +221,7 @@ fn synthesize(
             };
             let cloner = state.get_or_load(config, key)?;
             cloner.set_reference_audio_with_text(&ref_wav, &prompt_text)?;
-            let out = cloner.synthesize(&text)?;
+            let out = cloner.synthesize_with_options(&text, options)?;
             Ok(out.samples)
         }
 
@@ -190,7 +240,7 @@ fn synthesize(
             };
             let cloner = state.get_or_load(config, key)?;
             cloner.set_reference_audio_with_text(&ref_wav, &prompt_text)?;
-            let out = cloner.synthesize(&text)?;
+            let out = cloner.synthesize_with_options(&text, options)?;
             Ok(out.samples)
         }
     }

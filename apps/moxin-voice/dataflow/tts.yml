@@ -33,7 +33,8 @@ nodes:
       - control
 
   - id: primespeech-tts
-    path: ../../../target/release/moxin-tts-node
+    # Dev dataflow: use debug node binary to avoid manual --release rebuilds.
+    path: ../../../target/debug/moxin-tts-node
     inputs:
       text: moxin-prompt-input/control
     outputs:

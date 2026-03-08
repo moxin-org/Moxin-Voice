@@ -876,10 +876,19 @@ impl VoiceCloner {
             // on long sentences with many punctuation chunks.
             let mut all_samples: Vec<f32> = Vec::new();
             let mut pos = 0usize;
+            let speed = self.config.speed.max(0.1);
 
             for (i, result) in chunk_results.iter().enumerate() {
-                let chunk_len = result.semantic_tokens.len() * upsample_factor;
-                let end = (pos + chunk_len).min(raw_samples.len());
+                // ONNX decode applies speed as global audio resampling.
+                // Keep chunk boundaries aligned with that scaling so slow speed
+                // does not truncate the tail.
+                let base_chunk_len = result.semantic_tokens.len() * upsample_factor;
+                let scaled_chunk_len = ((base_chunk_len as f32) / speed).round().max(1.0) as usize;
+                let end = if i + 1 == chunk_results.len() {
+                    raw_samples.len()
+                } else {
+                    (pos + scaled_chunk_len).min(raw_samples.len())
+                };
                 let mut samples = raw_samples[pos..end].to_vec();
                 pos = end;
 
