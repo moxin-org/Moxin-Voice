@@ -100,8 +100,8 @@ moxin-voice-shell/
 
 ```bash
 # Clone the repository
-git clone https://github.com/alan0x/moxin-voice.git
-cd moxin-voice
+git clone https://github.com/moxin-org/Moxin-Voice.git
+cd Moxin-Voice
 
 # Install dependencies
 # (Python dependencies for Dora nodes)
@@ -133,4 +133,4 @@ Apache-2.0
 
 For issues and questions, please visit:
 
-- GitHub Issues: https://github.com/alan0x/moxin-voice/issues
+- GitHub Issues: https://github.com/moxin-org/Moxin-Voice/issues

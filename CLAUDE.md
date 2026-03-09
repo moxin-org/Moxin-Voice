@@ -733,28 +733,9 @@ dora list
 
 ---
 
-## 🎯 快速恢复检查清单
-
-在新对话中开始工作前，请确认：
-
-- [ ] 已阅读本文档（CLAUDE.md）
-- [ ] 理解项目目标和背景
-- [ ] 知道当前进度（Phase 1-4 完成，Phase 5 进行中）
-- [ ] 了解项目结构和关键文件位置
-- [ ] 环境配置检查：
-  - [ ] 工作目录：`/Users/alan0x/Documents/projects/moxin-voice`
-  - [ ] Git 分支：`main`
-  - [ ] Rust 可用：`cargo --version`
-  - [ ] Python 环境：`conda activate moxin-studio`
-- [ ] 代码可编译：`cargo build -p moxin-voice-shell`
-- [ ] 如需详细历史，查阅 `doc/CONTEXT_RESUME.md`
-
 ### 常用命令速查
 
 ```bash
-# 项目位置
-cd /Users/alan0x/Documents/projects/moxin-voice
-
 # 编译
 cargo build -p moxin-voice-shell                    # Debug
 cargo build -p moxin-voice-shell --release          # Release
@@ -832,7 +813,6 @@ git commit -m "docs: update CLAUDE.md with current status"
 - **GitHub 仓库**: https://github.com/moxin-org/Moxin-Voice.git
 - **Issues**: https://github.com/moxin-org/Moxin-Voice.git/issues
 - **上游项目**: https://github.com/moxin-org/moxin-studio
-- **开发者**: alan0x
 
 ---
 

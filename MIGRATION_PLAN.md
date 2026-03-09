@@ -1,7 +1,7 @@
 # 迁移执行计划：dora-primespeech → gpt-sovits-mlx（纯 Rust Dora 节点）
 
 > ⚠️ 本文档已并入统一文档：`MLX_CORE_MIGRATION.md`。  
-> 当前请优先参考：`/Users/alan0x/Documents/projects/moxin-tts/MLX_CORE_MIGRATION.md`。
+> 当前请优先参考：`./MLX_CORE_MIGRATION.md`。
 
 > 制定日期：2026-03-06
 > 目标：替换 Python TTS 节点为纯 Rust 实现，保留全部现有功能
@@ -10,20 +10,20 @@
 
 ## 功能保留清单（必须全部验证通过）
 
-| 功能 | 当前实现 | 迁移后实现 |
-|------|----------|------------|
-| 预置音色 TTS（15 个） | dora-primespeech Python | moxin-tts-node Rust |
-| Express Mode 零样本克隆 | `VOICE:CUSTOM\|` 协议 | 相同协议，Rust 解析 |
-| Pro Mode 训练音色 | `VOICE:TRAINED\|` 协议 | 相同协议，Rust 解析 |
-| ASR 语音识别 | dora-asr Python | **保持不变**（本次不迁移）|
-| 音色实时切换 | Python 模型热切换 | Rust VoiceCloner 重载 |
+| 功能                    | 当前实现                | 迁移后实现                 |
+| ----------------------- | ----------------------- | -------------------------- |
+| 预置音色 TTS（15 个）   | dora-primespeech Python | moxin-tts-node Rust        |
+| Express Mode 零样本克隆 | `VOICE:CUSTOM\|` 协议   | 相同协议，Rust 解析        |
+| Pro Mode 训练音色       | `VOICE:TRAINED\|` 协议  | 相同协议，Rust 解析        |
+| ASR 语音识别            | dora-asr Python         | **保持不变**（本次不迁移） |
+| 音色实时切换            | Python 模型热切换       | Rust VoiceCloner 重载      |
 
 ---
 
 ## 目录结构总览
 
 ```
-moxin-tts/
+Moxin-Voice/
 ├── node-hub/
 │   ├── dora-primespeech/          # 保留（迁移完成后停用）
 │   ├── dora-asr/                  # 保留不动
@@ -210,7 +210,7 @@ cargo run --example voice_clone --release -- \
 ### Step 2.1：创建 Crate 目录
 
 ```bash
-mkdir -p /Users/alan0x/Documents/projects/moxin-tts/node-hub/moxin-tts-node/src
+mkdir -p /Users/alan0x/Documents/projects/Moxin-Voice/node-hub/moxin-tts-node/src
 ```
 
 ### Step 2.2：Cargo.toml
@@ -703,7 +703,7 @@ fn extract_string(data: &dora_node_api::Data) -> anyhow::Result<String> {
 
 ### Step 2.7：将节点加入 Workspace
 
-**修改** `/Users/alan0x/Documents/projects/moxin-tts/Cargo.toml`，在 `members` 中添加：
+**修改** `/Users/alan0x/Documents/projects/Moxin-Voice/Cargo.toml`，在 `members` 中添加：
 
 ```toml
 [workspace]
@@ -720,7 +720,7 @@ members = [
 ### Step 2.8：编译验证
 
 ```bash
-cd /Users/alan0x/Documents/projects/moxin-tts
+cd /Users/alan0x/Documents/projects/Moxin-Voice
 
 # 仅编译 TTS 节点（快速验证）
 cargo build -p moxin-tts-node --release
@@ -774,8 +774,8 @@ nodes:
       - control
 
   # TTS 节点：从 Python dora-primespeech 替换为 Rust moxin-tts-node
-  - id: primespeech-tts                                           # ← id 保持不变！
-    path: ../../../target/release/moxin-tts-node                 # ← Rust 二进制路径
+  - id: primespeech-tts # ← id 保持不变！
+    path: ../../../target/release/moxin-tts-node # ← Rust 二进制路径
     inputs:
       text: moxin-prompt-input/control
     outputs:
@@ -867,6 +867,7 @@ nodes:
 ### Step 5.2：更新 MEMORY.md
 
 迁移完成后更新记忆文件中的关键信息：
+
 - 构建命令（不再需要 `--features moyoyo-ui`）
 - 新的模型路径（`~/.OminiX/models/gpt-sovits-mlx/`）
 - TTS 节点位置（`node-hub/moxin-tts-node/`）
@@ -905,10 +906,10 @@ dora start apps/moxin-voice/dataflow/tts.yml
 
 ## 已知风险与应对
 
-| 风险 | 概率 | 应对 |
-|------|------|------|
-| 转换脚本路径参数与实际文件名不符 | 中 | Step 1.3 执行前先 `ls` 确认所有源文件存在 |
-| dora-node-api Arrow 数据格式与代码假设不符 | 中 | 参考 OminiX-MLX 中已有的 Dora 节点代码修正 `extract_string` |
-| Pro Mode 训练的 PyTorch 模型无法转换 | 低 | 同样用 convert_gpt_weights.py，用户训练后需手动转换 |
-| 部分音色转换后推理质量下降 | 低 | 对比转换前后音频，若有差异检查转换脚本参数 |
-| Express Mode 切换音色后模型状态混乱 | 低 | voice_state.rs 的 ensure_model 做了幂等保证 |
+| 风险                                       | 概率 | 应对                                                        |
+| ------------------------------------------ | ---- | ----------------------------------------------------------- |
+| 转换脚本路径参数与实际文件名不符           | 中   | Step 1.3 执行前先 `ls` 确认所有源文件存在                   |
+| dora-node-api Arrow 数据格式与代码假设不符 | 中   | 参考 OminiX-MLX 中已有的 Dora 节点代码修正 `extract_string` |
+| Pro Mode 训练的 PyTorch 模型无法转换       | 低   | 同样用 convert_gpt_weights.py，用户训练后需手动转换         |
+| 部分音色转换后推理质量下降                 | 低   | 对比转换前后音频，若有差异检查转换脚本参数                  |
+| Express Mode 切换音色后模型状态混乱        | 低   | voice_state.rs 的 ensure_model 做了幂等保证                 |

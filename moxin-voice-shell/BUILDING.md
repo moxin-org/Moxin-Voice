@@ -229,4 +229,4 @@ After building:
 ## Support
 
 For build issues, please file an issue at:
-https://github.com/alan0x/moxin-voice/issues
+https://github.com/moxin-org/Moxin-Voice/issues

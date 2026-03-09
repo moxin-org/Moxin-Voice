@@ -1,7 +1,7 @@
 # TTS 推理引擎迁移方案：从 dora-primespeech 到 OminiX-MLX
 
 > ⚠️ 本文档已并入统一文档：`MLX_CORE_MIGRATION.md`。  
-> 当前请优先参考：`/Users/alan0x/Documents/projects/moxin-tts/MLX_CORE_MIGRATION.md`。
+> 当前请优先参考：`./MLX_CORE_MIGRATION.md`。
 
 > 初稿：2026-03-05 | 更新：2026-03-05（OminiX-MLX 本地代码完整分析）
 
@@ -12,6 +12,7 @@
 当前项目使用 `dora-primespeech`（基于 GPT-SoVITS，Python）作为 TTS 推理后端，`dora-asr`（基于 FunASR，Python）作为 ASR 后端。
 
 **目标**：替换为 OminiX-MLX（纯 Rust + Apple MLX GPU 加速），实现：
+
 - 零 Python 依赖
 - Apple Silicon MLX 加速
 - 保留语音克隆能力（Express/Pro Mode）
@@ -51,12 +52,12 @@ dora-node-api = { version = "0.4" }
 
 ### 接口契约（Rust 节点必须遵守）
 
-| 方向 | 通道名 | 类型 | 必需字段 | 说明 |
-|------|--------|------|----------|------|
-| Input | `text` | Arrow string | — | 待合成文本或克隆协议 |
-| Output | `audio` | float32 array | `sample_rate`（元数据）| 音频波形 |
-| Output | `segment_complete` | string | — | `"completed"` / `"skipped"` / `"error"` |
-| Output | `log` | JSON string | `node`, `level`, `message`, `timestamp` | 结构化日志 |
+| 方向   | 通道名             | 类型          | 必需字段                                | 说明                                    |
+| ------ | ------------------ | ------------- | --------------------------------------- | --------------------------------------- |
+| Input  | `text`             | Arrow string  | —                                       | 待合成文本或克隆协议                    |
+| Output | `audio`            | float32 array | `sample_rate`（元数据）                 | 音频波形                                |
+| Output | `segment_complete` | string        | —                                       | `"completed"` / `"skipped"` / `"error"` |
+| Output | `log`              | JSON string   | `node`, `level`, `message`, `timestamp` | 结构化日志                              |
 
 ---
 
@@ -66,17 +67,17 @@ OminiX-MLX 是 moxin-org 生态的**纯 Rust MLX 推理库**，包含 28 个 cra
 
 ### TTS 模块
 
-| Crate | 引擎 | 输出采样率 | 语音克隆 | 性能（Apple Silicon） |
-|-------|------|-----------|----------|-----------------------|
-| `gpt-sovits-mlx` | GPT-SoVITS v2 | **32000 Hz** | ✅ Zero-shot + Few-shot | ~4x 实时 |
-| `qwen3-tts-mlx` | Qwen3-TTS 1.7B | **24000 Hz** | ✅ x-vector + ICL | ~2.3x 实时 |
+| Crate            | 引擎           | 输出采样率   | 语音克隆                | 性能（Apple Silicon） |
+| ---------------- | -------------- | ------------ | ----------------------- | --------------------- |
+| `gpt-sovits-mlx` | GPT-SoVITS v2  | **32000 Hz** | ✅ Zero-shot + Few-shot | ~4x 实时              |
+| `qwen3-tts-mlx`  | Qwen3-TTS 1.7B | **24000 Hz** | ✅ x-vector + ICL       | ~2.3x 实时            |
 
 ### ASR 模块
 
-| Crate | 引擎 | 语言支持 | 性能 |
-|-------|------|----------|------|
-| `qwen3-asr-mlx` | Qwen3-ASR 1.7B | 30+ 语言 + 22 种中文方言 | ~30x 实时 |
-| `funasr-mlx` | Paraformer-large | 仅中文 | ~18x 实时 |
+| Crate           | 引擎             | 语言支持                 | 性能      |
+| --------------- | ---------------- | ------------------------ | --------- |
+| `qwen3-asr-mlx` | Qwen3-ASR 1.7B   | 30+ 语言 + 22 种中文方言 | ~30x 实时 |
+| `funasr-mlx`    | Paraformer-large | 仅中文                   | ~18x 实时 |
 
 ---
 
@@ -102,6 +103,7 @@ let audio: AudioOutput = cloner.synthesize("你好，世界！")?;
 ```
 
 **AudioOutput 结构：**
+
 ```rust
 pub struct AudioOutput {
     pub samples: Vec<f32>,     // 音频样本，范围 [-1, 1]
@@ -113,13 +115,14 @@ pub struct AudioOutput {
 
 **语音克隆模式：**
 
-| 模式 | API | 质量 | 说明 |
-|------|-----|------|------|
-| Zero-shot | `set_reference_audio(path)` | ⭐⭐ | 仅参考频谱 |
-| Few-shot | `set_reference_audio_with_text(path, text)` | ⭐⭐⭐ | 参考频谱 + 转录 |
-| 预计算 | `set_reference_with_precomputed_codes(path, text, codes)` | ⭐⭐⭐ | 最佳，复用 codes |
+| 模式      | API                                                       | 质量   | 说明             |
+| --------- | --------------------------------------------------------- | ------ | ---------------- |
+| Zero-shot | `set_reference_audio(path)`                               | ⭐⭐   | 仅参考频谱       |
+| Few-shot  | `set_reference_audio_with_text(path, text)`               | ⭐⭐⭐ | 参考频谱 + 转录  |
+| 预计算    | `set_reference_with_precomputed_codes(path, text, codes)` | ⭐⭐⭐ | 最佳，复用 codes |
 
 **所需模型文件：**
+
 ```
 ~/.OminiX/models/gpt-sovits-mlx/
 ├── doubao_mixed_gpt_new.safetensors     # T2S 模型
@@ -131,6 +134,7 @@ pub struct AudioOutput {
 ```
 
 **与 dora-primespeech 兼容性：**
+
 - ✅ 同为 GPT-SoVITS 引擎，模型可复用
 - ✅ 输出 32000 Hz，无需重采样，Rust 播放器零改动
 - ✅ 支持与 dora-primespeech 相同的克隆能力（Zero-shot / Few-shot）
@@ -164,6 +168,7 @@ while let Some(chunk) = session.next_chunk()? {
 **预置语音列表：** vivian, serena, ryan, aiden, eric, dylan, uncle_fu, ono_anna, sohee
 
 **注意：**
+
 - 输出 24000 Hz（与 dora-primespeech 的 32000 Hz 不同，需在 Rust 节点内重采样）
 - 比 GPT-SoVITS 速度更快（2.3x vs 4x 实时）
 - 支持更多语言，支持流式输出
@@ -174,15 +179,16 @@ while let Some(chunk) = session.next_chunk()? {
 
 ### 当前：dora-asr（Python/FunASR）→ 替换为 funasr-mlx 或 qwen3-asr-mlx
 
-| | funasr-mlx | qwen3-asr-mlx |
-|-|------------|----------------|
-| 语言 | 仅中文 | 30+ 语言 + 22 种中文方言 |
-| 性能 | ~18x 实时 | ~30x 实时 |
-| 模型大小 | 较小 | 2.46 GB（8-bit） |
-| API | `Paraformer::transcribe(audio)` | `Qwen3ASR::transcribe_samples(samples, lang)` |
-| 推荐场景 | 纯中文，资源有限 | 多语言，质量优先 |
+|          | funasr-mlx                      | qwen3-asr-mlx                                 |
+| -------- | ------------------------------- | --------------------------------------------- |
+| 语言     | 仅中文                          | 30+ 语言 + 22 种中文方言                      |
+| 性能     | ~18x 实时                       | ~30x 实时                                     |
+| 模型大小 | 较小                            | 2.46 GB（8-bit）                              |
+| API      | `Paraformer::transcribe(audio)` | `Qwen3ASR::transcribe_samples(samples, lang)` |
+| 推荐场景 | 纯中文，资源有限                | 多语言，质量优先                              |
 
 **funasr-mlx API：**
+
 ```rust
 use funasr_mlx::{load_model, parse_cmvn_file, Vocabulary};
 
@@ -196,6 +202,7 @@ let text = vocab.decode(&token_ids);
 ```
 
 **qwen3-asr-mlx API：**
+
 ```rust
 use qwen3_asr_mlx::{Qwen3ASR, default_model_path};
 
@@ -219,6 +226,7 @@ let text = asr.transcribe_samples(&samples_16khz, "Chinese")?;
 3. 可选：同步替换 ASR 节点
 
 **节点结构：**
+
 ```
 node-hub/moxin-tts-node/
 ├── Cargo.toml
@@ -227,6 +235,7 @@ node-hub/moxin-tts-node/
 ```
 
 **Cargo.toml：**
+
 ```toml
 [package]
 name = "moxin-tts-node"
@@ -246,6 +255,7 @@ serde_json = "1"
 ```
 
 **main.rs 核心逻辑：**
+
 ```rust
 use dora_node_api::{DoraNode, Event, IntoArrow};
 use gpt_sovits_mlx::VoiceCloner;
@@ -300,9 +310,10 @@ fn main() -> eyre::Result<()> {
 ```
 
 **tts.yml 修改（仅改这两行）：**
+
 ```yaml
-- id: primespeech-tts                  # 保持 id 不变！
-  path: moxin-tts-node                 # Rust 编译产物
+- id: primespeech-tts # 保持 id 不变！
+  path: moxin-tts-node # Rust 编译产物
   inputs:
     text: moxin-prompt-input/control
   outputs:
@@ -330,8 +341,8 @@ fn main() -> eyre::Result<()> {
 
 ```yaml
 # tts.yml 中 ASR 节点
-- id: dora-asr                          # 保持 id 不变
-  path: moxin-asr-node                  # Rust 编译产物
+- id: dora-asr # 保持 id 不变
+  path: moxin-asr-node # Rust 编译产物
   inputs:
     audio: moxin-audio-input/audio
   outputs:
@@ -347,22 +358,24 @@ fn main() -> eyre::Result<()> {
 
 ### 1. 采样率兼容性
 
-| 方案 | TTS 输出 | 是否需要重采样 |
-|------|---------|---------------|
-| gpt-sovits-mlx | 32000 Hz | ❌ 无需，与现有播放器完全兼容 |
-| qwen3-tts-mlx | 24000 Hz | ✅ 需在节点内重采样至 32000 Hz |
+| 方案           | TTS 输出 | 是否需要重采样                 |
+| -------------- | -------- | ------------------------------ |
+| gpt-sovits-mlx | 32000 Hz | ❌ 无需，与现有播放器完全兼容  |
+| qwen3-tts-mlx  | 24000 Hz | ✅ 需在节点内重采样至 32000 Hz |
 
 `mlx-rs-core` 提供 `audio::resample()` 函数可直接使用。
 
 ### 2. 语音克隆协议适配
 
 现有 `dora-primespeech` 的克隆协议（通过 text 通道传递）：
+
 ```
 VOICE:CUSTOM|<ref_audio>|<prompt_text>|<lang>         # Express Mode
 VOICE:TRAINED|<gpt>|<sovits>|<ref>|<prompt>|<lang>|<text>  # Pro Mode
 ```
 
 Rust 节点需要解析这些协议，调用对应的 `VoiceCloner` API：
+
 - `VOICE:CUSTOM` → `set_reference_audio_with_text(ref_audio, prompt_text)` + `synthesize(text)`
 - `VOICE:TRAINED` → `VoiceClonerConfig` 中指定自定义模型路径 + `synthesize(text)`
 
@@ -393,6 +406,7 @@ OminiX-MLX 默认读取 `~/.OminiX/models/` 目录（通过环境变量可覆盖
 ```
 
 **建议实施顺序：**
+
 1. 先用 `gpt-sovits-mlx` 实现 TTS 节点，验证端到端流程
 2. 确认克隆协议解析正确后，再考虑迁移 ASR 节点
 3. 待稳定后，评估是否升级到 `qwen3-tts-mlx`
@@ -401,14 +415,14 @@ OminiX-MLX 默认读取 `~/.OminiX/models/` 目录（通过环境变量可覆盖
 
 ## 相关文件
 
-| 文件 | 说明 |
-|------|------|
-| `apps/moxin-voice/dataflow/tts.yml` | Dora 数据流配置 |
-| `node-hub/dora-primespeech/` | 当前 Python TTS 节点 |
-| `node-hub/dora-asr/` | 当前 Python ASR 节点 |
-| `node-hub/moxin-tts-node/`（待创建）| Rust TTS 节点（gpt-sovits-mlx） |
-| `node-hub/moxin-asr-node/`（待创建）| Rust ASR 节点（qwen3-asr-mlx） |
-| `/Users/alan0x/Documents/projects/OminiX-MLX/gpt-sovits-mlx/` | GPT-SoVITS Rust 实现 |
-| `/Users/alan0x/Documents/projects/OminiX-MLX/qwen3-tts-mlx/` | Qwen3-TTS Rust 实现 |
-| `/Users/alan0x/Documents/projects/OminiX-MLX/qwen3-asr-mlx/` | Qwen3-ASR Rust 实现 |
-| `/Users/alan0x/Documents/projects/OminiX-MLX/funasr-mlx/` | FunASR Rust 实现 |
+| 文件                                 | 说明                            |
+| ------------------------------------ | ------------------------------- |
+| `apps/moxin-voice/dataflow/tts.yml`  | Dora 数据流配置                 |
+| `node-hub/dora-primespeech/`         | 当前 Python TTS 节点            |
+| `node-hub/dora-asr/`                 | 当前 Python ASR 节点            |
+| `node-hub/moxin-tts-node/`（待创建） | Rust TTS 节点（gpt-sovits-mlx） |
+| `node-hub/moxin-asr-node/`（待创建） | Rust ASR 节点（qwen3-asr-mlx）  |
+| `../OminiX-MLX/gpt-sovits-mlx/`      | GPT-SoVITS Rust 实现            |
+| `../OminiX-MLX/qwen3-tts-mlx/`       | Qwen3-TTS Rust 实现             |
+| `../OminiX-MLX/qwen3-asr-mlx/`       | Qwen3-ASR Rust 实现             |
+| `../OminiX-MLX/funasr-mlx/`          | FunASR Rust 实现                |

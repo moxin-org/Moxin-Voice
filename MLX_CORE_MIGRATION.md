@@ -1,7 +1,7 @@
 # MLX 核心迁移总文档（PrimeSpeech -> moxin-tts-node）
 
 > 文档目的：将 `MIGRATION_PLAN.md`、`MLX_TTS_MIGRATION.md`、`MIGRATION_CHECKLIST.md` 合并为一份可执行文档，覆盖迁移背景、调研结论、实施计划与进度、遗留问题、开发者升级动作。  
-> 适用范围：`moxin-tts` 当前代码基线（2026-03）。
+> 适用范围：`Moxin-Voice` 当前代码基线（2026-03）。
 
 ---
 
@@ -163,7 +163,7 @@ Rust Dora 节点要保持与原链路一致的输入输出契约：
 ### 5.1 同步代码并编译节点（必做）
 
 ```bash
-cd /path/to/moxin-tts
+cd /path/to/Moxin-Voice
 git pull
 cargo build -p moxin-tts-node --release
 ```
@@ -176,7 +176,7 @@ cargo build -p moxin-tts-node --release
 ### 5.2 初始化/升级模型目录（必做）
 
 ```bash
-cd /path/to/moxin-tts
+cd /path/to/Moxin-Voice
 conda run -n mofa-studio python3 scripts/convert_all_voices.py
 ```
 
@@ -191,7 +191,7 @@ conda run -n mofa-studio python3 scripts/convert_all_voices.py
 ### 5.3 补齐音质对齐文件（强烈建议）
 
 ```bash
-cd /path/to/moxin-tts
+cd /path/to/Moxin-Voice
 conda run -n mofa-studio python3 scripts/export_all_vits_onnx.py
 conda run -n mofa-studio python3 scripts/extract_all_prompt_semantic.py
 ```

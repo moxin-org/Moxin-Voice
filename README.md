@@ -232,7 +232,6 @@ Moxin TTS is a **functional standalone application** with the following capabili
 - **Quality**: Exceptional fidelity
 - **Process**: Upload/record → Train model → Clone
 
-
 ## 🔧 Technology Stack
 
 - **[Rust](https://www.rust-lang.org/)** - Systems programming language
@@ -283,7 +282,6 @@ You may obtain a copy of the License at
 
 - **Repository**: https://github.com/moxin-org/Moxin-Voice.git
 - **Issues**: https://github.com/moxin-org/Moxin-Voice.git/issues
-- **Developer**: alan0x
 
 ---
 

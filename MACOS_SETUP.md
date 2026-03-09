@@ -393,7 +393,7 @@ export BACKEND=auto
 
 1. 运行依赖检查：`./check_macos_deps.sh`
 2. 查看 [TROUBLESHOOTING_MACOS.md](TROUBLESHOOTING_MACOS.md) 故障排除指南
-3. 检查 [Issues](https://github.com/alan0x/moxin-voice/issues)
+3. 检查 [Issues](https://github.com/moxin-org/Moxin-Voice/issues)
 4. 运行 `python test_dependencies.py` 检查依赖
 5. 查看 Dora 日志：`dora logs <dataflow-id>`
 6. 提交新 Issue 并附上错误信息

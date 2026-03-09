@@ -1,7 +1,7 @@
 # Developer Migration Checklist (PrimeSpeech -> MLX TTS Core)
 
 > ⚠️ 本文档已并入统一文档：`MLX_CORE_MIGRATION.md`。  
-> 当前请优先参考：`/Users/alan0x/Documents/projects/moxin-tts/MLX_CORE_MIGRATION.md`。
+> 当前请优先参考：`./MLX_CORE_MIGRATION.md`。
 
 > 适用对象：已经在本地做过旧版环境初始化（参考 `models/setup-local-models/README.md`）的开发者。  
 > 目标：拉取最新代码后，更新本地模型布局，恢复可继续开发的状态。
@@ -25,7 +25,7 @@
 - [ ] 编译新 TTS 节点
 
 ```bash
-cd /path/to/moxin-tts
+cd /path/to/Moxin-Voice
 git pull
 cargo build -p moxin-tts-node --release
 ```
@@ -45,7 +45,7 @@ cargo build -p moxin-tts-node --release
 - [ ] 执行权重/配置转换脚本
 
 ```bash
-cd /path/to/moxin-tts
+cd /path/to/Moxin-Voice
 
 # 按你本地已有的 Python/conda 环境执行（示例环境名 mofa-studio）
 conda run -n mofa-studio python3 scripts/convert_all_voices.py
@@ -69,7 +69,7 @@ conda run -n mofa-studio python3 scripts/convert_all_voices.py
 - [ ] 预提取每个音色的 `prompt_semantic.npy`
 
 ```bash
-cd /path/to/moxin-tts
+cd /path/to/Moxin-Voice
 conda run -n mofa-studio python3 scripts/export_all_vits_onnx.py
 conda run -n mofa-studio python3 scripts/extract_all_prompt_semantic.py
 ```
@@ -122,6 +122,7 @@ export GPT_SOVITS_MODEL_DIR=/your/custom/path/gpt-sovits-mlx
 ## 6. 常见问题
 
 ### Q0: 为什么现在还不用 `moxin-fewshot-trainer`？
+
 - 当前 `moxin-fewshot-trainer` 的训练能力还不等价于旧 Python pipeline，关键差异如下：
   - **只训练 SoVITS，不训练 GPT**：当前输出里 `gpt_weights` 仍指向基座 GPT（如 Doubao），并未产生训练后的 GPT 权重。
   - **数据集过于简化**：当前 Rust 训练流程只构建单样本数据（`num_samples: 1`），缺少旧流程中的完整切分/清洗/多片段训练组织。
@@ -134,13 +135,16 @@ export GPT_SOVITS_MODEL_DIR=/your/custom/path/gpt-sovits-mlx
   - few-shot 推理：训练完成后仍可在当前 TTS 节点中使用训练权重。
 
 ### Q1: 内置音色能说话但效果明显变差
+
 - 先检查是否缺 `prompt_semantic.npy`。
 - 再检查是否缺 `vits.onnx`。
 
 ### Q2: 报错 `Cannot read voices.json`
+
 - 检查 `~/.OminiX/models/gpt-sovits-mlx/voices/voices.json` 是否存在且 JSON 合法。
 
 ### Q3: few-shot 训练后可用但音色差
+
 - 先确保第 2 步的基座模型已正确转换。
 - few-shot 是增量训练，质量高度依赖输入音频质量、时长和文本匹配。
 
