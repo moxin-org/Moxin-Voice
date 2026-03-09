@@ -8,7 +8,10 @@ ASR_MODEL_DIR="${ASR_MODEL_DIR:-$HOME/.dora/models/asr/funasr}"
 DATAFLOW_PATH="${MOXIN_DATAFLOW_PATH:-}"
 APP_BIN_PATH=""
 TTS_BIN_PATH=""
-ENV_NAME="${MOXIN_CONDA_ENV:-}"
+CONDA_ROOT="${MOXIN_CONDA_ROOT:-$HOME/.moxinvoice/conda}"
+ENV_NAME="${MOXIN_CONDA_ENV:-moxin-studio}"
+CONDA_ENV_PREFIX="${MOXIN_CONDA_ENV_PREFIX:-$CONDA_ROOT/envs/$ENV_NAME}"
+CONDA_BIN="${MOXIN_CONDA_BIN:-$CONDA_ROOT/bin/conda}"
 
 if [[ -z "$APP_RESOURCES" ]]; then
   # Works when launched from app bundle (script lives in Contents/Resources/scripts)
@@ -58,31 +61,25 @@ check_cmd() {
   fi
 }
 
-check_cmd conda "Conda"
 check_cmd dora "Dora CLI"
 
-if command -v conda >/dev/null 2>&1; then
-  if [[ -z "$ENV_NAME" ]]; then
-    if conda env list | awk '{print $1}' | grep -qx "moxin-studio"; then
-      ENV_NAME="moxin-studio"
-    elif conda env list | awk '{print $1}' | grep -qx "mofa-studio"; then
-      ENV_NAME="mofa-studio"
-    else
-      ENV_NAME="moxin-studio"
+if [[ ! -x "$CONDA_BIN" ]] && command -v conda >/dev/null 2>&1; then
+  CONDA_BIN="$(command -v conda)"
+fi
+
+if [[ ! -x "$CONDA_BIN" ]]; then
+  errors+=("Conda missing (expected: $CONDA_ROOT)")
+elif [[ ! -x "$CONDA_ENV_PREFIX/bin/python" ]]; then
+  errors+=("Conda env missing: $CONDA_ENV_PREFIX")
+else
+  # Quick mode is used on app startup path and should not block launch.
+  # Skip expensive Python import checks here; full mode keeps them.
+  if [[ "$MODE" != "--quick" ]]; then
+    if ! "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -c "import dora_asr" >/dev/null 2>&1; then
+      errors+=("Python package missing in $CONDA_ENV_PREFIX: dora-asr")
     fi
-  fi
-  if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
-    errors+=("Conda env missing: $ENV_NAME")
-  else
-    # Quick mode is used on app startup path and should not block launch.
-    # Skip expensive Python import checks here; full mode keeps them.
-    if [[ "$MODE" != "--quick" ]]; then
-      if ! conda run -n "$ENV_NAME" python -c "import dora_asr" >/dev/null 2>&1; then
-        errors+=("Python package missing in $ENV_NAME: dora-asr")
-      fi
-      if ! conda run -n "$ENV_NAME" python -c "import dora_primespeech" >/dev/null 2>&1; then
-        warnings+=("Python package missing in $ENV_NAME: dora-primespeech (Option A few-shot training unavailable)")
-      fi
+    if ! "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -c "import dora_primespeech" >/dev/null 2>&1; then
+      warnings+=("Python package missing in $CONDA_ENV_PREFIX: dora-primespeech (Option A few-shot training unavailable)")
     fi
   fi
 fi
@@ -103,6 +100,8 @@ if [[ "$MODE" != "--quick" ]]; then
   echo "=== Moxin Voice Preflight ==="
   echo "Resources: $APP_RESOURCES"
   echo "Dataflow: $DATAFLOW_PATH"
+  echo "Conda root: $CONDA_ROOT"
+  echo "Conda env: $CONDA_ENV_PREFIX"
   echo "MLX models: $MODEL_DIR"
   echo "ASR models: $ASR_MODEL_DIR"
   echo

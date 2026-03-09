@@ -13,7 +13,11 @@ use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use crate::task_persistence;
 use hound::WavReader;
 use makepad_widgets::*;
+use std::fs::OpenOptions;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Current page in the application
@@ -46,6 +50,22 @@ enum ShareTarget {
     Premiere,
     WeChat,
     Finder,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum RuntimeInitState {
+    #[default]
+    Idle,
+    Running,
+    Ready,
+    Failed,
+}
+
+#[derive(Debug)]
+enum RuntimeInitEvent {
+    Stage { status: String, detail: String },
+    DoneOk,
+    DoneErr(String),
 }
 
 #[derive(Clone, Debug)]
@@ -6040,6 +6060,15 @@ pub struct TTSScreen {
     #[rust]
     spinner_phase: f64,
 
+    #[rust]
+    runtime_init_state: RuntimeInitState,
+    #[rust]
+    runtime_init_rx: Option<Receiver<RuntimeInitEvent>>,
+    #[rust]
+    runtime_init_status_text: String,
+    #[rust]
+    runtime_init_detail_text: String,
+
     // Right controls panel state: 0 = Voice Management, 1 = Settings, 2 = History
     #[rust]
     controls_panel_tab: u8,
@@ -6214,6 +6243,11 @@ impl Widget for TTSScreen {
             self.update_theme_options(cx);
             self.apply_localization(cx);
             self.apply_dark_mode(cx);
+            self.runtime_init_state = RuntimeInitState::Idle;
+            self.runtime_init_rx = None;
+            self.runtime_init_status_text = self.tr("初始化中...", "Initializing...").to_string();
+            self.runtime_init_detail_text =
+                self.tr("正在检查运行环境", "Checking runtime environment").to_string();
             
             // Add initial log entries
             self.log_entries
@@ -6261,19 +6295,20 @@ impl Widget for TTSScreen {
             self.dora = Some(dora);
         }
 
-        // NOTE: Dataflow auto-start is DISABLED to fix connection issues.
-        // Users must start dataflow MANUALLY before running the app:
-        //   1. dora up (if daemon not running)
-        //   2. dora start apps/moxin-voice/dataflow/tts.yml
-        //   3. Wait for "Running" status with 6 nodes
-        //   4. cargo run -p moxin-voice
-        //
-        // This fixes the "Failed to connect to Dora" error that occurs when
-        // the app tries to manage dataflow internally.
+        if self.runtime_init_state == RuntimeInitState::Idle {
+            self.start_runtime_initialization(cx);
+        }
+
         if !self.dora_started {
-            self.dora_started = true;
-            // Auto-start dataflow on app launch
-            self.auto_start_dataflow(cx);
+            let can_start_dataflow = match self.runtime_init_state {
+                RuntimeInitState::Idle | RuntimeInitState::Ready => true,
+                RuntimeInitState::Running | RuntimeInitState::Failed => false,
+            };
+            if can_start_dataflow {
+                self.dora_started = true;
+                // Auto-start dataflow on app launch
+                self.auto_start_dataflow(cx);
+            }
         }
 
         // Pass SharedDoraState to voice clone modal
@@ -6291,6 +6326,8 @@ impl Widget for TTSScreen {
 
         // Poll for audio and logs
         if self.update_timer.is_event(event).is_some() {
+            self.poll_runtime_initialization(cx);
+
             // Poll Dora Audio - store audio samples instead of auto-playing
             if let Some(dora) = &self.dora {
                 if dora.is_running() {
@@ -6504,23 +6541,38 @@ impl Widget for TTSScreen {
                 self.view.view(ids!(loading_overlay.loading_content.loading_spinner_area.loading_spinner))
                     .apply_over(cx, live! { draw_bg: { phase: (self.spinner_phase) } });
 
-                // Update status text based on dora state
-                let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
-                if is_running {
-                    self.view.label(ids!(loading_overlay.loading_content.loading_status))
-                        .set_text(cx, self.tr("已连接", "Connected"));
-                    self.view.label(ids!(loading_overlay.loading_content.loading_detail))
-                        .set_text(cx, self.tr("TTS 引擎已就绪", "TTS engine ready"));
-                    // Dismiss loading overlay
-                    self.loading_dismissed = true;
-                    self.view.view(ids!(loading_overlay)).set_visible(cx, false);
-                    self.view.redraw(cx);
-                    self.add_log(cx, "[INFO] [tts] Dataflow connected, UI ready");
+                if self.runtime_init_state == RuntimeInitState::Running
+                    || self.runtime_init_state == RuntimeInitState::Failed
+                {
+                    self.view
+                        .label(ids!(loading_overlay.loading_content.loading_status))
+                        .set_text(cx, &self.runtime_init_status_text);
+                    self.view
+                        .label(ids!(loading_overlay.loading_content.loading_detail))
+                        .set_text(cx, &self.runtime_init_detail_text);
                 } else {
-                    self.view.label(ids!(loading_overlay.loading_content.loading_status))
-                        .set_text(cx, self.tr("连接中...", "Connecting..."));
-                    self.view.label(ids!(loading_overlay.loading_content.loading_detail))
-                        .set_text(cx, self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine"));
+                    // Update status text based on dora state
+                    let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
+                    if is_running {
+                        self.view
+                            .label(ids!(loading_overlay.loading_content.loading_status))
+                            .set_text(cx, self.tr("已连接", "Connected"));
+                        self.view
+                            .label(ids!(loading_overlay.loading_content.loading_detail))
+                            .set_text(cx, self.tr("TTS 引擎已就绪", "TTS engine ready"));
+                        // Dismiss loading overlay
+                        self.loading_dismissed = true;
+                        self.view.view(ids!(loading_overlay)).set_visible(cx, false);
+                        self.view.redraw(cx);
+                        self.add_log(cx, "[INFO] [tts] Dataflow connected, UI ready");
+                    } else {
+                        self.view
+                            .label(ids!(loading_overlay.loading_content.loading_status))
+                            .set_text(cx, self.tr("连接中...", "Connecting..."));
+                        self.view
+                            .label(ids!(loading_overlay.loading_content.loading_detail))
+                            .set_text(cx, self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine"));
+                    }
                 }
 
                 self.view.redraw(cx);
@@ -10403,6 +10455,194 @@ impl TTSScreen {
             .apply_over(cx, live! { width: (new_log_width) });
 
         self.view.redraw(cx);
+    }
+
+    fn start_runtime_initialization(&mut self, cx: &mut Cx) {
+        let app_resources = match std::env::var("MOXIN_APP_RESOURCES") {
+            Ok(v) => PathBuf::from(v),
+            Err(_) => {
+                self.runtime_init_state = RuntimeInitState::Ready;
+                self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
+                self.runtime_init_detail_text =
+                    self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+                return;
+            }
+        };
+
+        let pre = app_resources.join("scripts/macos_preflight.sh");
+        let boot = app_resources.join("scripts/macos_bootstrap.sh");
+        if !pre.exists() || !boot.exists() {
+            self.runtime_init_state = RuntimeInitState::Ready;
+            self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
+            self.runtime_init_detail_text =
+                self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+            return;
+        }
+
+        let log_dir = PathBuf::from(
+            std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/Library/Logs/MoxinVoice",
+        );
+        let _ = std::fs::create_dir_all(&log_dir);
+        let bootstrap_log = log_dir.join("bootstrap.log");
+        let bootstrap_state = log_dir.join("bootstrap_state.txt");
+        let _ = std::fs::remove_file(&bootstrap_state);
+
+        self.runtime_init_state = RuntimeInitState::Running;
+        self.runtime_init_status_text =
+            self.tr("初始化中...", "Initializing...").to_string();
+        self.runtime_init_detail_text =
+            self.tr("正在检查运行环境", "Checking runtime environment").to_string();
+
+        self.add_log(cx, "[INFO] [startup] Checking runtime dependencies...");
+
+        let (tx, rx) = mpsc::channel::<RuntimeInitEvent>();
+        self.runtime_init_rx = Some(rx);
+
+        thread::spawn(move || {
+            let _ = tx.send(RuntimeInitEvent::Stage {
+                status: "Initializing runtime".to_string(),
+                detail: "Checking environment".to_string(),
+            });
+
+            let pre_ok = Command::new(&pre)
+                .arg("--quick")
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if pre_ok {
+                let _ = tx.send(RuntimeInitEvent::DoneOk);
+                return;
+            }
+
+            let _ = tx.send(RuntimeInitEvent::Stage {
+                status: "Initializing runtime (0/9)".to_string(),
+                detail: "Installing dependencies and models (first launch may take several minutes)"
+                    .to_string(),
+            });
+
+            let log_file = match OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&bootstrap_log)
+            {
+                Ok(f) => f,
+                Err(err) => {
+                    let _ = tx.send(RuntimeInitEvent::DoneErr(format!(
+                        "Cannot open bootstrap log: {}",
+                        err
+                    )));
+                    return;
+                }
+            };
+            let log_file_err = match log_file.try_clone() {
+                Ok(f) => f,
+                Err(err) => {
+                    let _ = tx.send(RuntimeInitEvent::DoneErr(format!(
+                        "Cannot clone bootstrap log fd: {}",
+                        err
+                    )));
+                    return;
+                }
+            };
+
+            let mut child = match Command::new(&boot)
+                .env("MOXIN_BOOTSTRAP_STATE_PATH", &bootstrap_state)
+                .stdout(Stdio::from(log_file))
+                .stderr(Stdio::from(log_file_err))
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(err) => {
+                    let _ = tx.send(RuntimeInitEvent::DoneErr(format!(
+                        "Failed to launch bootstrap: {}",
+                        err
+                    )));
+                    return;
+                }
+            };
+
+            let mut last_state = String::new();
+            let boot_ok = loop {
+                if let Ok(state_content) = std::fs::read_to_string(&bootstrap_state) {
+                    let state = state_content.trim().to_string();
+                    if !state.is_empty() && state != last_state {
+                        last_state = state.clone();
+                        if let Some((progress, rest)) = state.split_once('|') {
+                            let mut parts = rest.splitn(2, '|');
+                            let title = parts.next().unwrap_or("").trim();
+                            let detail = parts.next().unwrap_or("").trim();
+                            let _ = tx.send(RuntimeInitEvent::Stage {
+                                status: format!("Initializing runtime ({})", progress.trim()),
+                                detail: if title.is_empty() && detail.is_empty() {
+                                    "Working...".to_string()
+                                } else if detail.is_empty() {
+                                    title.to_string()
+                                } else {
+                                    format!("{} - {}", title, detail)
+                                },
+                            });
+                        }
+                    }
+                }
+
+                match child.try_wait() {
+                    Ok(Some(status)) => break status.success(),
+                    Ok(None) => {
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                    }
+                    Err(_) => break false,
+                }
+            };
+
+            if !boot_ok {
+                let _ = tx.send(RuntimeInitEvent::DoneErr(format!(
+                    "Initialization failed. Check: {}",
+                    bootstrap_log.display()
+                )));
+                return;
+            }
+
+            let _ = tx.send(RuntimeInitEvent::Stage {
+                status: "Runtime ready".to_string(),
+                detail: "Preparing TTS engine".to_string(),
+            });
+            let _ = tx.send(RuntimeInitEvent::DoneOk);
+        });
+    }
+
+    fn poll_runtime_initialization(&mut self, cx: &mut Cx) {
+        let mut latest_event: Option<RuntimeInitEvent> = None;
+        if let Some(rx) = &self.runtime_init_rx {
+            while let Ok(ev) = rx.try_recv() {
+                latest_event = Some(ev);
+            }
+        }
+
+        if let Some(ev) = latest_event {
+            match ev {
+                RuntimeInitEvent::Stage { status, detail } => {
+                    self.runtime_init_status_text = status;
+                    self.runtime_init_detail_text = detail;
+                }
+                RuntimeInitEvent::DoneOk => {
+                    self.runtime_init_state = RuntimeInitState::Ready;
+                    self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
+                    self.runtime_init_detail_text =
+                        self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+                    self.runtime_init_rx = None;
+                    self.add_log(cx, "[INFO] [startup] Runtime initialization completed");
+                }
+                RuntimeInitEvent::DoneErr(message) => {
+                    self.runtime_init_state = RuntimeInitState::Failed;
+                    self.runtime_init_status_text =
+                        self.tr("初始化失败", "Initialization failed").to_string();
+                    self.runtime_init_detail_text = message.clone();
+                    self.runtime_init_rx = None;
+                    self.add_log(cx, &format!("[ERROR] [startup] {}", message));
+                }
+            }
+        }
     }
 
     fn auto_start_dataflow(&mut self, cx: &mut Cx) {

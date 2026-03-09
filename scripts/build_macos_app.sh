@@ -82,19 +82,24 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "Building binaries..."
-cargo build -p moxin-voice-shell --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
+MAKEPAD=apple_bundle MAKEPAD_PACKAGE_DIR=makepad cargo build -p moxin-voice-shell --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 cargo build -p moxin-tts-node --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 
 SHELL_BIN_PATH="$ROOT_DIR/target/$PROFILE/$BIN_NAME"
 TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-tts-node"
 TRAINER_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-fewshot-trainer"
 MLX_METALLIB_PATH="$ROOT_DIR/target/$PROFILE/mlx.metallib"
+DORA_BIN_PATH="$(command -v dora || true)"
 if [[ ! -f "$SHELL_BIN_PATH" ]]; then
   echo "Binary not found: $SHELL_BIN_PATH"
   exit 1
 fi
 if [[ ! -f "$TTS_BIN_PATH" ]]; then
   echo "Binary not found: $TTS_BIN_PATH"
+  exit 1
+fi
+if [[ -z "$DORA_BIN_PATH" || ! -x "$DORA_BIN_PATH" ]]; then
+  echo "dora CLI not found in PATH. Install dora-cli before packaging."
   exit 1
 fi
 
@@ -110,6 +115,7 @@ mkdir -p "$MACOS_DIR" "$RES_DIR" "$SCRIPTS_DIR" "$DATAFLOW_DIR"
 
 cp "$SHELL_BIN_PATH" "$MACOS_DIR/${BIN_NAME}-bin"
 cp "$TTS_BIN_PATH" "$MACOS_DIR/moxin-tts-node"
+cp "$DORA_BIN_PATH" "$MACOS_DIR/dora"
 if [[ -f "$MLX_METALLIB_PATH" ]]; then
   cp "$MLX_METALLIB_PATH" "$MACOS_DIR/mlx.metallib"
 fi
@@ -117,6 +123,7 @@ if [[ -f "$TRAINER_BIN_PATH" ]]; then
   cp "$TRAINER_BIN_PATH" "$MACOS_DIR/moxin-fewshot-trainer"
 fi
 chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/moxin-tts-node"
+chmod +x "$MACOS_DIR/dora"
 if [[ -f "$MACOS_DIR/moxin-fewshot-trainer" ]]; then
   chmod +x "$MACOS_DIR/moxin-fewshot-trainer"
 fi
@@ -141,6 +148,47 @@ if [[ "$INCLUDE_PY_SRC" == "true" ]]; then
   cp -R "$ROOT_DIR/node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts/." "$PY_DST/omx-scripts/"
 fi
 
+# Bundle Makepad live resources for distributable app builds.
+# With MAKEPAD_PACKAGE_DIR=makepad, runtime dependency paths resolve under:
+#   Contents/Resources/makepad/<crate_name>/resources
+MAKEPAD_RES_ROOT="$RES_DIR/makepad"
+mkdir -p "$MAKEPAD_RES_ROOT"
+
+mkdir -p "$MAKEPAD_RES_ROOT/moxin_widgets"
+cp -R "$ROOT_DIR/moxin-widgets/resources" "$MAKEPAD_RES_ROOT/moxin_widgets/resources"
+
+if [[ -d "$ROOT_DIR/moxin-ui/resources" ]]; then
+  mkdir -p "$MAKEPAD_RES_ROOT/moxin_ui"
+  cp -R "$ROOT_DIR/moxin-ui/resources" "$MAKEPAD_RES_ROOT/moxin_ui/resources"
+fi
+
+MAKEPAD_SRC_DIR="$(find "$HOME/.cargo/git/checkouts" -maxdepth 4 -type d -path "*/makepad-*/*/widgets" 2>/dev/null | head -n 1 | sed 's#/widgets$##')"
+if [[ -n "$MAKEPAD_SRC_DIR" && -d "$MAKEPAD_SRC_DIR/widgets/resources" ]]; then
+  mkdir -p "$MAKEPAD_RES_ROOT/makepad_widgets"
+  cp -R "$MAKEPAD_SRC_DIR/widgets/resources" "$MAKEPAD_RES_ROOT/makepad_widgets/resources"
+
+  if [[ -d "$MAKEPAD_SRC_DIR/widgets/fonts/emoji/resources" ]]; then
+    mkdir -p "$MAKEPAD_RES_ROOT/makepad_fonts_emoji"
+    cp -R "$MAKEPAD_SRC_DIR/widgets/fonts/emoji/resources" "$MAKEPAD_RES_ROOT/makepad_fonts_emoji/resources"
+  fi
+  if [[ -d "$MAKEPAD_SRC_DIR/widgets/fonts/chinese_regular/resources" ]]; then
+    mkdir -p "$MAKEPAD_RES_ROOT/makepad_fonts_chinese_regular"
+    cp -R "$MAKEPAD_SRC_DIR/widgets/fonts/chinese_regular/resources" "$MAKEPAD_RES_ROOT/makepad_fonts_chinese_regular/resources"
+  fi
+  if [[ -d "$MAKEPAD_SRC_DIR/widgets/fonts/chinese_regular_2/resources" ]]; then
+    mkdir -p "$MAKEPAD_RES_ROOT/makepad_fonts_chinese_regular_2"
+    cp -R "$MAKEPAD_SRC_DIR/widgets/fonts/chinese_regular_2/resources" "$MAKEPAD_RES_ROOT/makepad_fonts_chinese_regular_2/resources"
+  fi
+  if [[ -d "$MAKEPAD_SRC_DIR/widgets/fonts/chinese_bold/resources" ]]; then
+    mkdir -p "$MAKEPAD_RES_ROOT/makepad_fonts_chinese_bold"
+    cp -R "$MAKEPAD_SRC_DIR/widgets/fonts/chinese_bold/resources" "$MAKEPAD_RES_ROOT/makepad_fonts_chinese_bold/resources"
+  fi
+  if [[ -d "$MAKEPAD_SRC_DIR/widgets/fonts/chinese_bold_2/resources" ]]; then
+    mkdir -p "$MAKEPAD_RES_ROOT/makepad_fonts_chinese_bold_2"
+    cp -R "$MAKEPAD_SRC_DIR/widgets/fonts/chinese_bold_2/resources" "$MAKEPAD_RES_ROOT/makepad_fonts_chinese_bold_2/resources"
+  fi
+fi
+
 cat > "$MACOS_DIR/$BIN_NAME" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -148,18 +196,22 @@ set -euo pipefail
 APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RES_DIR="$APP_ROOT/Resources"
 MACOS_DIR="$APP_ROOT/MacOS"
-PRE="$RES_DIR/scripts/macos_preflight.sh"
-BOOT="$RES_DIR/scripts/macos_bootstrap.sh"
 LOG_DIR="$HOME/Library/Logs/MoxinVoice"
 mkdir -p "$LOG_DIR"
+DORA_LOG_PATH="$LOG_DIR/dora_up.log"
+PREFLIGHT_LOG_PATH="$LOG_DIR/preflight.log"
 DORA_RUNTIME_DIR="${MOXIN_DORA_RUNTIME_DIR:-$HOME/.dora/runtime}"
 mkdir -p "$DORA_RUNTIME_DIR"
 cd "$DORA_RUNTIME_DIR"
- : > "$LOG_DIR/dora_up.log"
+: > "$DORA_LOG_PATH"
 
 export MOXIN_APP_RESOURCES="$RES_DIR"
 export MOXIN_FEWSHOT_TRAINER_BIN="$MACOS_DIR/moxin-fewshot-trainer"
 export MOXIN_DORA_RUNTIME_DIR="$DORA_RUNTIME_DIR"
+export MOXIN_CONDA_ROOT="${MOXIN_CONDA_ROOT:-$HOME/.moxinvoice/conda}"
+export MOXIN_CONDA_ENV="${MOXIN_CONDA_ENV:-moxin-studio}"
+export MOXIN_CONDA_ENV_PREFIX="${MOXIN_CONDA_ENV_PREFIX:-$MOXIN_CONDA_ROOT/envs/$MOXIN_CONDA_ENV}"
+export MOXIN_CONDA_BIN="${MOXIN_CONDA_BIN:-$MOXIN_CONDA_ROOT/bin/conda}"
 
 # Generate a writable runtime dataflow with absolute node paths.
 RUNTIME_DATAFLOW_DIR="$DORA_RUNTIME_DIR/dataflow"
@@ -217,14 +269,7 @@ nodes:
       - buffer_status
 YAML
 export MOXIN_DATAFLOW_PATH="$RUNTIME_DATAFLOW_PATH"
-if [[ -d "$HOME/miniconda3/envs/moxin-studio" || -d "$HOME/anaconda3/envs/moxin-studio" ]]; then
-  export MOXIN_CONDA_ENV="moxin-studio"
-elif [[ -d "$HOME/miniconda3/envs/mofa-studio" || -d "$HOME/anaconda3/envs/mofa-studio" ]]; then
-  export MOXIN_CONDA_ENV="mofa-studio"
-else
-  export MOXIN_CONDA_ENV="moxin-studio"
-fi
-export PATH="$HOME/miniconda3/envs/$MOXIN_CONDA_ENV/bin:$HOME/anaconda3/envs/$MOXIN_CONDA_ENV/bin:$HOME/.cargo/bin:$HOME/miniconda3/bin:$HOME/anaconda3/bin:$PATH"
+export PATH="$MACOS_DIR:$MOXIN_CONDA_ENV_PREFIX/bin:$MOXIN_CONDA_ROOT/bin:$HOME/miniconda3/envs/$MOXIN_CONDA_ENV/bin:$HOME/anaconda3/envs/$MOXIN_CONDA_ENV/bin:$HOME/.cargo/bin:$HOME/miniconda3/bin:$HOME/anaconda3/bin:$PATH"
 
 # Ensure Dora is available with bounded wait.
 # 1) If already healthy, do nothing.
@@ -239,7 +284,7 @@ if ! dora system status >/dev/null 2>&1; then
 fi
 
 if ! dora system status >/dev/null 2>&1; then
-  (dora up > "$LOG_DIR/dora_up.log" 2>&1 || true) &
+  (dora up > "$DORA_LOG_PATH" 2>&1 || true) &
   UP_PID=$!
   READY=0
   for _ in {1..20}; do
@@ -251,26 +296,13 @@ if ! dora system status >/dev/null 2>&1; then
   done
   if [[ "$READY" != "1" ]]; then
     kill "$UP_PID" >/dev/null 2>&1 || true
-    osascript -e 'display dialog "Failed to start Dora runtime. Check ~/Library/Logs/MoxinVoice/dora_up.log" buttons {"OK"} default button "OK" with title "Moxin Voice Startup"'
+    osascript -e "display dialog \"Failed to start Dora runtime. Check: $DORA_LOG_PATH\" buttons {\"OK\"} default button \"OK\" with title \"Moxin Voice Startup\""
     exit 1
   fi
 fi
 
-if ! "$PRE" --quick >/dev/null 2>&1; then
-  prompt='display dialog "Moxin Voice needs to initialize runtime dependencies before first launch." buttons {"Quit","Initialize"} default button "Initialize" with title "Moxin Voice Setup"'
-  choice=$(osascript -e "$prompt" || true)
-  if [[ "$choice" == *"Initialize"* ]]; then
-    if ! "$BOOT" > "$LOG_DIR/bootstrap.log" 2>&1; then
-      osascript -e 'display dialog "Initialization failed. Check ~/Library/Logs/MoxinVoice/bootstrap.log" buttons {"OK"} default button "OK" with title "Moxin Voice Setup"'
-      exit 1
-    fi
-  else
-    exit 0
-  fi
-fi
-
 # Run full preflight in background for diagnostics only, do not block startup.
-("$PRE" > "$LOG_DIR/preflight.log" 2>&1 || true) &
+("$RES_DIR/scripts/macos_preflight.sh" > "$PREFLIGHT_LOG_PATH" 2>&1 || true) &
 
 exec "$MACOS_DIR/moxin-voice-shell-bin"
 EOF
