@@ -128,8 +128,13 @@ pub struct TTSPlayer {
 impl TTSPlayer {
     /// Create a new audio player with specified sample rate
     pub fn new() -> Self {
+        Self::new_with_output_device(None)
+    }
+
+    pub fn new_with_output_device(preferred_output_device: Option<&str>) -> Self {
         let sample_rate = 32000; // PrimeSpeech (GPT-SoVITS) outputs 32000 Hz audio
         let (command_tx, command_rx) = unbounded::<AudioCommand>();
+        let preferred_output_device = preferred_output_device.map(|s| s.to_string());
 
         let state = Arc::new(Mutex::new(SharedAudioState {
             buffer_fill: 0.0,
@@ -142,7 +147,13 @@ impl TTSPlayer {
         let playback_finished_clone = Arc::clone(&playback_finished);
 
         std::thread::spawn(move || {
-            if let Err(e) = run_audio_thread(sample_rate, command_rx, state_clone, playback_finished_clone) {
+            if let Err(e) = run_audio_thread(
+                sample_rate,
+                preferred_output_device,
+                command_rx,
+                state_clone,
+                playback_finished_clone,
+            ) {
                 eprintln!("Audio thread error: {}", e);
             }
         });
@@ -191,9 +202,50 @@ impl TTSPlayer {
     }
 }
 
+pub fn list_output_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    let mut devices = Vec::new();
+    if let Ok(iter) = host.output_devices() {
+        for dev in iter {
+            if let Ok(name) = dev.name() {
+                devices.push(name);
+            }
+        }
+    }
+    devices.sort();
+    devices.dedup();
+    devices
+}
+
+pub fn default_output_device_name() -> Option<String> {
+    let host = cpal::default_host();
+    host.default_output_device().and_then(|d| d.name().ok())
+}
+
+pub fn default_input_device_name() -> Option<String> {
+    let host = cpal::default_host();
+    host.default_input_device().and_then(|d| d.name().ok())
+}
+
+pub fn list_input_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    let mut devices = Vec::new();
+    if let Ok(iter) = host.input_devices() {
+        for dev in iter {
+            if let Ok(name) = dev.name() {
+                devices.push(name);
+            }
+        }
+    }
+    devices.sort();
+    devices.dedup();
+    devices
+}
+
 /// Run the audio thread with cpal stream
 fn run_audio_thread(
     sample_rate: u32,
+    preferred_output_device: Option<String>,
     command_rx: Receiver<AudioCommand>,
     state: Arc<Mutex<SharedAudioState>>,
     playback_finished: Arc<AtomicBool>,
@@ -206,9 +258,18 @@ fn run_audio_thread(
     let is_playing = Arc::new(AtomicBool::new(false));
 
     let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| "No audio output device found".to_string())?;
+    let device = if let Some(preferred) = preferred_output_device.as_deref() {
+        host.output_devices()
+            .ok()
+            .and_then(|mut devices| {
+                devices.find(|d| d.name().map(|n| n == preferred).unwrap_or(false))
+            })
+            .or_else(|| host.default_output_device())
+            .ok_or_else(|| "No audio output device found".to_string())?
+    } else {
+        host.default_output_device()
+            .ok_or_else(|| "No audio output device found".to_string())?
+    };
 
     eprintln!(
         "Audio player started - device: {}",

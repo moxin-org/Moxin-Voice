@@ -1,7 +1,11 @@
 //! Screen - Moxin.tts style interface with sidebar layout
 //! This is a variant of the TTS screen with a sidebar navigation similar to Moxin.tts
 
-use crate::audio_player::TTSPlayer;
+use crate::app_preferences::{self, AppPreferences};
+use crate::audio_player::{
+    default_input_device_name, default_output_device_name, list_input_devices, list_output_devices,
+    TTSPlayer,
+};
 use crate::dora_integration::DoraIntegration;
 use crate::i18n;
 use crate::log_bridge;
@@ -14,11 +18,12 @@ use crate::task_persistence;
 use hound::WavReader;
 use makepad_widgets::*;
 use std::fs::OpenOptions;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Current page in the application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -28,6 +33,7 @@ pub enum AppPage {
     VoiceLibrary,
     VoiceClone,
     TaskDetail,
+    UserSettings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -578,6 +584,7 @@ live_design! {
             fn get_color(self) -> vec4 { return vec4(0.0, 0.0, 0.0, 0.0); }
         }
         popup_menu: {
+            width: 520.0
             draw_bg: {
                 instance dark_mode: 0.0
                 border_size: 1.0
@@ -687,6 +694,229 @@ live_design! {
             text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
             fn get_color(self) -> vec4 {
                 return mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
+            }
+        }
+    }
+
+    SettingsBodyLabel = <Label> {
+        width: Fill, height: Fit
+        draw_text: {
+            instance dark_mode: 0.0
+            text_style: { font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                let light = vec4(0.26, 0.29, 0.34, 1.0);
+                let dark = vec4(0.84, 0.87, 0.92, 1.0);
+                return mix(light, dark, self.dark_mode);
+            }
+        }
+        text: "-"
+    }
+
+    SettingsSectionTitle = <Label> {
+        width: Fit, height: Fit
+        draw_text: {
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }
+            fn get_color(self) -> vec4 {
+                let light = vec4(0.10, 0.14, 0.20, 1.0);
+                let dark = vec4(0.92, 0.94, 0.98, 1.0);
+                return mix(light, dark, self.dark_mode);
+            }
+        }
+        text: "Section"
+    }
+
+    SettingsActionBtn = <Button> {
+        width: Fit, height: 34
+        padding: {left: 12, right: 12}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance active: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance border_radius: 8.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                let base = mix(vec4(0.90, 0.93, 0.97, 1.0), vec4(0.28, 0.33, 0.42, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.84, 0.89, 0.96, 1.0), vec4(0.32, 0.38, 0.48, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.78, 0.84, 0.94, 1.0), vec4(0.35, 0.42, 0.53, 1.0), self.dark_mode);
+                let active = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);
+                let border = mix(vec4(0.57, 0.65, 0.77, 1.0), vec4(0.46, 0.55, 0.70, 1.0), self.dark_mode);
+                let idle_color = mix(mix(base, hover, self.hover), pressed, self.pressed);
+                sdf.fill(mix(idle_color, active, self.active));
+                sdf.stroke(border, 1.0);
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            instance dark_mode: 0.0
+            instance active: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                let normal_light = vec4(0.16, 0.19, 0.23, 1.0);
+                let normal_dark = vec4(0.89, 0.92, 0.96, 1.0);
+                let normal = mix(normal_light, normal_dark, self.dark_mode);
+                return mix(normal, (WHITE), self.active);
+            }
+        }
+        text: "Action"
+    }
+
+    SettingsTabBtn = <Button> {
+        width: Fit, height: 34
+        padding: {left: 12, right: 12}
+        draw_bg: {
+            instance active: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance dark_mode: 0.0
+            instance border_radius: 9.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                let base = mix(vec4(0.93, 0.95, 0.98, 1.0), vec4(0.18, 0.22, 0.30, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.89, 0.93, 0.99, 1.0), vec4(0.22, 0.27, 0.36, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.83, 0.89, 0.98, 1.0), vec4(0.26, 0.32, 0.41, 1.0), self.dark_mode);
+                let active = mix(vec4(0.87, 0.93, 1.0, 1.0), vec4(0.22, 0.28, 0.43, 1.0), self.dark_mode);
+                let border = mix(vec4(0.74, 0.80, 0.90, 1.0), vec4(0.36, 0.43, 0.56, 1.0), self.dark_mode);
+                let idle = mix(mix(base, hover, self.hover), pressed, self.pressed);
+                sdf.fill(mix(idle, active, self.active));
+                sdf.stroke(border, 1.0);
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            instance active: 0.0
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+            fn get_color(self) -> vec4 {
+                let normal = mix(vec4(0.34, 0.38, 0.44, 1.0), vec4(0.68, 0.72, 0.78, 1.0), self.dark_mode);
+                let active = mix(vec4(0.16, 0.35, 0.82, 1.0), vec4(0.52, 0.70, 1.0, 1.0), self.dark_mode);
+                return mix(normal, active, self.active);
+            }
+        }
+        text: "Tab"
+    }
+
+    SettingsDevicePopupMenu = <PopupMenu> {
+        width: 640.0
+        draw_bg: {
+            instance dark_mode: 0.0
+            border_size: 1.0
+            border_radius: 8.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                let border = mix((SLATE_300), (SLATE_600), self.dark_mode);
+                sdf.fill(bg);
+                sdf.stroke(border, self.border_size);
+                return sdf.result;
+            }
+        }
+        menu_item: {
+            indent_width: 8.0
+            padding: {left: 12, top: 7, bottom: 7, right: 12}
+            draw_bg: {
+                instance dark_mode: 0.0
+                fn pixel(self) -> vec4 {
+                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                    sdf.rect(0., 0., self.rect_size.x, self.rect_size.y);
+                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                    let hover = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                    sdf.fill(mix(bg, hover, self.hover));
+                    return sdf.result;
+                }
+            }
+            draw_text: {
+                instance dark_mode: 0.0
+                text_style: { font_size: 12.0 }
+                fn get_color(self) -> vec4 {
+                    return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                }
+            }
+        }
+    }
+
+    SettingsDeviceDropDown = <DropDown> {
+        width: Fill, height: 38
+        padding: {left: 12, right: 34, top: 8, bottom: 8}
+        margin: {top: 2, bottom: 2}
+        popup_menu_position: BelowInput
+        popup_menu: <SettingsDevicePopupMenu> {}
+        draw_bg: {
+            instance dark_mode: 0.0
+            border_radius: 8.0
+            border_size: 1.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                let bg = mix(vec4(0.96, 0.97, 0.99, 1.0), vec4(0.22, 0.27, 0.36, 1.0), self.dark_mode);
+                let border = mix(vec4(0.64, 0.71, 0.82, 1.0), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
+                sdf.fill(bg);
+                sdf.stroke(border, self.border_size);
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                return mix(vec4(0.14, 0.18, 0.24, 1.0), vec4(0.90, 0.93, 0.97, 1.0), self.dark_mode);
+            }
+        }
+    }
+
+    SettingsTextInput = <TextInput> {
+        width: Fill, height: 38
+        padding: {left: 12, right: 12, top: 9, bottom: 9}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance border_radius: 8.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                let bg = mix(vec4(0.96, 0.97, 0.99, 1.0), vec4(0.20, 0.24, 0.33, 1.0), self.dark_mode);
+                let border = mix(vec4(0.66, 0.73, 0.84, 1.0), vec4(0.40, 0.47, 0.61, 1.0), self.dark_mode);
+                sdf.fill(bg);
+                sdf.stroke(border, 1.0);
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+            fn get_color(self) -> vec4 {
+                return mix(vec4(0.14, 0.18, 0.24, 1.0), vec4(0.92, 0.94, 0.98, 1.0), self.dark_mode);
+            }
+        }
+        draw_cursor: {
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 0.5);
+                sdf.fill((MOXIN_PRIMARY));
+                return sdf.result;
+            }
+        }
+    }
+
+    SettingsCard = <RoundedView> {
+        width: Fill, height: Fit
+        flow: Down
+        spacing: 12
+        padding: {left: 18, right: 18, top: 16, bottom: 16}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance border_radius: 12.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                sdf.fill(bg);
+                sdf.stroke(border, 1.0);
+                return sdf.result;
             }
         }
     }
@@ -919,7 +1149,7 @@ live_design! {
     NavItem = <Button> {
         width: Fill, height: 44
         padding: {left: 16, right: 16}
-        align: {y: 0.5}
+        align: {x: 0.0, y: 0.5}
         
         draw_bg: {
             instance hover: 0.0
@@ -1061,13 +1291,19 @@ live_design! {
                     padding: {left: 16, right: 16, top: 16, bottom: 16}
                     spacing: 12
                     align: {y: 0.5}
+                    cursor: Hand
                     
                     show_bg: true
                     draw_bg: {
+                        instance active: 0.0
                         fn pixel(self) -> vec4 {
                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                            sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 10.0);
+                            let base = vec4(0.0, 0.0, 0.0, 0.0);
+                            let active = vec4(1.0, 1.0, 1.0, 0.14);
+                            sdf.fill(mix(base, active, self.active));
                             sdf.rect(0.0, 0.0, self.rect_size.x, 1.0);
-                            sdf.fill(vec4(1.0, 1.0, 1.0, 0.1));
+                            sdf.fill(vec4(1.0, 1.0, 1.0, 0.12));
                             return sdf.result;
                         }
                     }
@@ -4154,6 +4390,684 @@ live_design! {
                         }
                     } // End task_detail_page
 
+                    // User & Settings page
+                    user_settings_page = <View> {
+                        width: Fill, height: Fill
+                        flow: Down
+                        spacing: 18
+                        padding: {left: 8, right: 8, top: 4, bottom: 16}
+                        visible: false
+
+                        user_settings_header = <View> {
+                            width: Fill, height: Fit
+                            flow: Right
+                            align: {y: 0.5}
+
+                            user_settings_title = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "用户设置"
+                            }
+                        }
+
+                        settings_tab_bar = <View> {
+                            width: Fill, height: Fit
+                            flow: Right
+                            spacing: 10
+
+                            tab_profile_btn = <SettingsTabBtn> { text: "资料" }
+                            tab_app_btn = <SettingsTabBtn> { text: "应用" }
+                            tab_runtime_btn = <SettingsTabBtn> { text: "运行" }
+                            tab_data_btn = <SettingsTabBtn> { text: "数据" }
+                        }
+
+                        settings_scroll = <ScrollYView> {
+                            width: Fill, height: Fill
+                            flow: Down
+                            scroll_bars: <ScrollBars> {
+                                show_scroll_x: false
+                                show_scroll_y: true
+                            }
+
+                            settings_scroll_content = <View> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 14
+                                padding: {left: 6, right: 6, bottom: 24}
+
+                        profile_panel = <View> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 14
+                            visible: true
+
+                        profile_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 14
+                            padding: {left: 18, right: 18, top: 16, bottom: 16}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            profile_title = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "个人资料"
+                            }
+
+                            profile_body = <View> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 10
+                                align: {x: 0.0, y: 0.0}
+
+                                profile_form = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Down
+                                    spacing: 10
+
+                                    name_row = <View> {
+                                        width: Fill, height: Fit
+                                        flow: Down
+                                        spacing: 6
+
+                                        name_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: { font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "用户名"
+                                        }
+
+                                        name_input = <SettingsTextInput> {
+                                            width: Fill, height: 36
+                                            empty_text: "输入用户名"
+                                        }
+                                    }
+                                }
+                            }
+
+                            profile_actions = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                align: {x: 1.0}
+
+                                save_profile_btn = <Button> {
+                                    width: Fit, height: 36
+                                    padding: {left: 16, right: 16}
+                                    text: "保存"
+                                    draw_bg: {
+                                        instance dark_mode: 0.0
+                                        instance hover: 0.0
+                                        instance border_radius: 8.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            let base = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);
+                                            let hover_color = mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
+                                            sdf.fill(mix(base, hover_color, self.hover));
+                                            return sdf.result;
+                                        }
+                                    }
+                                    draw_text: {
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                        fn get_color(self) -> vec4 { return (WHITE); }
+                                    }
+                                }
+                            }
+                        }
+
+                        } // End profile_panel
+
+                        app_panel = <View> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 14
+                            visible: false
+
+                        app_settings_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 16
+                            padding: {left: 18, right: 18, top: 16, bottom: 16}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            app_settings_title = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "应用设置"
+                            }
+
+                            language_section = <View> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 10
+
+                                language_title = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "语言"
+                                }
+
+                                language_options = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Right
+                                    spacing: 12
+
+                                    lang_en_option = <Button> {
+                                        width: Fit, height: 36
+                                        padding: {left: 16, right: 16}
+                                        text: "English"
+                                        draw_bg: {
+                                            instance active: 1.0
+                                            instance dark_mode: 0.0
+                                            instance border_radius: 8.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let normal = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                sdf.fill(mix(normal, (MOXIN_PRIMARY), self.active));
+                                                return sdf.result;
+                                            }
+                                        }
+                                        draw_text: {
+                                            instance active: 1.0
+                                            instance dark_mode: 0.0
+                                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                            fn get_color(self) -> vec4 {
+                                                let normal = mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                return mix(normal, (WHITE), self.active);
+                                            }
+                                        }
+                                    }
+
+                                    lang_zh_option = <Button> {
+                                        width: Fit, height: 36
+                                        padding: {left: 16, right: 16}
+                                        text: "中文"
+                                        draw_bg: {
+                                            instance active: 0.0
+                                            instance dark_mode: 0.0
+                                            instance border_radius: 8.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let normal = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                sdf.fill(mix(normal, (MOXIN_PRIMARY), self.active));
+                                                return sdf.result;
+                                            }
+                                        }
+                                        draw_text: {
+                                            instance active: 0.0
+                                            instance dark_mode: 0.0
+                                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                            fn get_color(self) -> vec4 {
+                                                let normal = mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                return mix(normal, (WHITE), self.active);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            theme_section = <View> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 10
+
+                                theme_title = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "主题"
+                                }
+
+                                theme_options = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Right
+                                    spacing: 12
+
+                                    theme_light_option = <Button> {
+                                        width: Fit, height: 36
+                                        padding: {left: 16, right: 16}
+                                        text: "☀️ 浅色"
+                                        draw_bg: {
+                                            instance active: 1.0
+                                            instance dark_mode: 0.0
+                                            instance border_radius: 8.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let normal = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                sdf.fill(mix(normal, (MOXIN_PRIMARY), self.active));
+                                                return sdf.result;
+                                            }
+                                        }
+                                        draw_text: {
+                                            instance active: 1.0
+                                            instance dark_mode: 0.0
+                                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                            fn get_color(self) -> vec4 {
+                                                let normal = mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                return mix(normal, (WHITE), self.active);
+                                            }
+                                        }
+                                    }
+
+                                    theme_dark_option = <Button> {
+                                        width: Fit, height: 36
+                                        padding: {left: 16, right: 16}
+                                        text: "🌙 深色"
+                                        draw_bg: {
+                                            instance active: 0.0
+                                            instance dark_mode: 0.0
+                                            instance border_radius: 8.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                let normal = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                sdf.fill(mix(normal, (MOXIN_PRIMARY), self.active));
+                                                return sdf.result;
+                                            }
+                                        }
+                                        draw_text: {
+                                            instance active: 0.0
+                                            instance dark_mode: 0.0
+                                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                            fn get_color(self) -> vec4 {
+                                                let normal = mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                return mix(normal, (WHITE), self.active);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        defaults_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 10
+                            padding: {left: 18, right: 18, top: 14, bottom: 14}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            defaults_title = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "推理默认参数"
+                            }
+
+                            defaults_voice_label = <Label> {
+                                width: Fill, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: { font_size: 12.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "默认音色: Doubao"
+                            }
+
+                            defaults_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 10
+
+                                speed_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "1.0" }
+                                pitch_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "0.0" }
+                                volume_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "100" }
+                            }
+
+                            defaults_actions = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 10
+
+                                save_defaults_btn = <SettingsActionBtn> {
+                                    width: Fit, height: 34
+                                    padding: {left: 12, right: 12}
+                                    text: "保存默认"
+                                }
+                                apply_defaults_now_btn = <SettingsActionBtn> {
+                                    width: Fit, height: 34
+                                    padding: {left: 12, right: 12}
+                                    text: "应用到当前"
+                                }
+                            }
+                        }
+
+                        } // End app_panel
+
+                        runtime_panel = <View> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 14
+                            visible: false
+
+                        runtime_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 8
+                            padding: {left: 18, right: 18, top: 14, bottom: 14}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            runtime_title = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "运行状态"
+                            }
+
+                            dora_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "Dora: -" }
+                            asr_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "ASR: -" }
+                            tts_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "TTS: -" }
+                            model_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "Model: -" }
+                            backend_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "Backend: -" }
+
+                            runtime_refresh_btn = <SettingsActionBtn> {
+                                width: Fit, height: 34
+                                padding: {left: 12, right: 12}
+                                text: "刷新状态"
+                            }
+                        }
+
+                        paths_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 8
+                            padding: {left: 18, right: 18, top: 14, bottom: 14}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            paths_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "本地路径与资源" }
+                            model_path_label = <SettingsBodyLabel> { width: Fill, height: Fit text: "Models: -" }
+                            log_path_label = <SettingsBodyLabel> { width: Fill, height: Fit text: "Logs: -" }
+                            workspace_path_label = <SettingsBodyLabel> { width: Fill, height: Fit text: "Workspace: -" }
+
+                            path_actions = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 8
+                                open_model_dir_btn = <SettingsActionBtn> { width: Fit, height: 34 padding: {left: 10, right: 10} text: "打开模型目录" }
+                                open_log_dir_btn = <SettingsActionBtn> { width: Fit, height: 34 padding: {left: 10, right: 10} text: "打开日志目录" }
+                                open_workspace_dir_btn = <SettingsActionBtn> { width: Fit, height: 34 padding: {left: 10, right: 10} text: "打开工作目录" }
+                            }
+
+                            clear_cache_btn = <SettingsActionBtn> {
+                                width: Fit, height: 34
+                                padding: {left: 12, right: 12}
+                                text: "清理缓存"
+                            }
+                        }
+
+                        } // End runtime_panel
+
+                        data_panel = <View> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 14
+                            visible: false
+
+                        privacy_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 8
+                            padding: {left: 18, right: 18, top: 14, bottom: 14}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            privacy_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "隐私与数据" }
+                            retention_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                retention_pick_label = <SettingsBodyLabel> {
+                                    width: 110, height: Fit
+                                    text: "历史保留"
+                                }
+                                retention_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+
+                            privacy_actions = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 8
+                                clear_tts_history_btn = <SettingsActionBtn> { width: Fit, height: 34 padding: {left: 10, right: 10} text: "清空 TTS 历史" }
+                                clear_training_artifacts_btn = <SettingsActionBtn> { width: Fit, height: 34 padding: {left: 10, right: 10} text: "清理训练中间产物" }
+                            }
+                        }
+
+                        devices_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 12
+                            padding: {left: 18, right: 18, top: 14, bottom: 14}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            devices_header = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                align: {y: 0.5}
+                                spacing: 8
+                                devices_title = <SettingsSectionTitle> { width: Fill, height: Fit text: "音频设备" }
+                                refresh_devices_btn = <SettingsActionBtn> {
+                                    width: Fit, height: 34
+                                    padding: {left: 12, right: 12}
+                                    text: "刷新设备"
+                                }
+                            }
+
+                            input_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                input_pick_label = <SettingsBodyLabel> {
+                                    width: 76, height: Fit
+                                    text: "输入"
+                                }
+                                input_device_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+
+                            output_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                output_pick_label = <SettingsBodyLabel> {
+                                    width: 76, height: Fit
+                                    text: "输出"
+                                }
+                                output_device_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+                        }
+
+                        experiments_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 8
+                            padding: {left: 18, right: 18, top: 14, bottom: 14}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            experiments_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "实验功能" }
+                            backend_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                backend_pick_label = <SettingsBodyLabel> {
+                                    width: 110, height: Fit
+                                    text: "训练后端"
+                                }
+                                training_backend_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+
+                            debug_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                debug_pick_label = <SettingsBodyLabel> {
+                                    width: 110, height: Fit
+                                    text: "Debug 日志"
+                                }
+                                debug_logs_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+                        }
+                        } // End data_panel
+                            } // End settings_scroll_content
+                        } // End settings_scroll
+                    } // End user_settings_page
+
                 } // End content_area
             } // End left_column
 
@@ -5748,7 +6662,7 @@ live_design! {
                                 return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                             }
                         }
-                        text: "⚙️ Settings"
+                        text: "Settings"
                     }
 
                     settings_close_btn = <Button> {
@@ -5799,7 +6713,7 @@ live_design! {
                                     return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                 }
                             }
-                            text: "🌐 Language"
+                            text: "Language"
                         }
 
                         language_options = <View> {
@@ -5880,7 +6794,7 @@ live_design! {
                                     return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                 }
                             }
-                            text: "🎨 Theme"
+                            text: "Theme"
                         }
 
                         theme_options = <View> {
@@ -5961,7 +6875,7 @@ live_design! {
                                     return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                 }
                             }
-                            text: "ℹ️ About"
+                            text: "About"
                         }
 
                         about_version = <Label> {
@@ -6291,6 +7205,38 @@ pub struct TTSScreen {
     global_settings_visible: bool,
     #[rust]
     app_language: String, // "en" or "zh"
+    #[rust]
+    user_display_name: String,
+    #[rust]
+    user_avatar_letter: String,
+    #[rust]
+    user_profile_customized: bool,
+    #[rust]
+    user_settings_tab: u8,
+    #[rust]
+    app_preferences: AppPreferences,
+    #[rust]
+    runtime_status_dora: String,
+    #[rust]
+    runtime_status_asr: String,
+    #[rust]
+    runtime_status_tts: String,
+    #[rust]
+    runtime_status_model: String,
+    #[rust]
+    runtime_status_training_backend: String,
+    #[rust]
+    default_input_device_name: String,
+    #[rust]
+    default_output_device_name: String,
+    #[rust]
+    available_output_devices: Vec<String>,
+    #[rust]
+    available_input_devices: Vec<String>,
+    #[rust]
+    selected_output_device_idx: usize,
+    #[rust]
+    selected_input_device_idx: usize,
 
     // Model picker modal
     #[rust]
@@ -6350,7 +7296,9 @@ impl Widget for TTSScreen {
 
         // Initialize audio player
         if self.audio_player.is_none() {
-            self.audio_player = Some(TTSPlayer::new());
+            self.audio_player = Some(TTSPlayer::new_with_output_device(
+                self.app_preferences.preferred_output_device.as_deref(),
+            ));
         }
 
         // Initialize log bridge and timer
@@ -6430,7 +7378,47 @@ impl Widget for TTSScreen {
                 self.app_language = "zh".to_string();
                 let _ = i18n::set_locale("zh");
             }
-            
+            self.app_preferences = app_preferences::load_preferences();
+            self.user_profile_customized = true;
+            self.user_settings_tab = 0;
+            self.user_display_name = self.app_preferences.display_name.clone();
+            self.user_avatar_letter = self.app_preferences.avatar_letter.clone();
+            self.runtime_status_dora = "-".to_string();
+            self.runtime_status_asr = "-".to_string();
+            self.runtime_status_tts = "-".to_string();
+            self.runtime_status_model = "-".to_string();
+            self.runtime_status_training_backend = self.app_preferences.training_backend.clone();
+            self.default_input_device_name =
+                default_input_device_name().unwrap_or_else(|| "Unknown".to_string());
+            self.default_output_device_name =
+                default_output_device_name().unwrap_or_else(|| "Unknown".to_string());
+            self.available_output_devices = list_output_devices();
+            self.available_input_devices = list_input_devices();
+            self.selected_output_device_idx = 0;
+            self.selected_input_device_idx = 0;
+            if let Some(preferred) = self.app_preferences.preferred_output_device.as_ref() {
+                if let Some(idx) = self
+                    .available_output_devices
+                    .iter()
+                    .position(|name| name == preferred)
+                {
+                    self.selected_output_device_idx = idx;
+                }
+            }
+            if let Some(preferred) = self.app_preferences.preferred_input_device.as_ref() {
+                if let Some(idx) = self
+                    .available_input_devices
+                    .iter()
+                    .position(|name| name == preferred)
+                {
+                    self.selected_input_device_idx = idx;
+                }
+            }
+            std::env::set_var(
+                "MOXIN_TRAINING_BACKEND",
+                self.app_preferences.training_backend.clone(),
+            );
+
             // Initialize clone tasks state
             self.clone_tasks = Vec::new();
             self.clone_loading = false;
@@ -6452,6 +7440,13 @@ impl Widget for TTSScreen {
             self.update_language_options(cx);
             self.update_theme_options(cx);
             self.apply_localization(cx);
+            self.sync_user_profile_ui(cx);
+            self.apply_preferences_defaults(cx);
+            self.apply_history_retention_policy(cx);
+            self.update_runtime_status_ui(cx);
+            self.update_system_paths_ui(cx);
+            self.update_audio_devices_ui(cx);
+            self.update_user_settings_tabs(cx);
             self.apply_dark_mode(cx);
             self.runtime_init_state = RuntimeInitState::Idle;
             self.runtime_init_rx = None;
@@ -6741,6 +7736,10 @@ impl Widget for TTSScreen {
                 self.update_log_display(cx);
             }
 
+            if self.current_page == AppPage::UserSettings {
+                self.update_user_settings_page(cx);
+            }
+
             // Update loading overlay
             if !self.loading_dismissed {
                 // Animate spinner
@@ -6847,18 +7846,56 @@ impl Widget for TTSScreen {
             self.update_sidebar_nav_states(cx);
         }
 
-        // Handle global settings button click
+        // Handle sidebar footer click (navigate to User & Settings page)
         if self
             .view
-            .button(ids!(app_layout.sidebar.sidebar_footer.global_settings_btn))
-            .clicked(&actions)
+            .view(ids!(app_layout.sidebar.sidebar_footer))
+            .finger_up(&actions)
+            .is_some()
+            || self
+                .view
+                .button(ids!(app_layout.sidebar.sidebar_footer.global_settings_btn))
+                .clicked(&actions)
         {
-            self.global_settings_visible = true;
-            self.view.view(ids!(global_settings_modal)).set_visible(cx, true);
+            self.switch_page(cx, AppPage::UserSettings);
             self.update_language_options(cx);
             self.update_theme_options(cx);
             self.apply_localization(cx);
+            self.update_user_settings_page(cx);
             self.view.redraw(cx);
+        }
+
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_profile_btn))
+            .clicked(&actions)
+        {
+            self.user_settings_tab = 0;
+            self.update_user_settings_tabs(cx);
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_app_btn))
+            .clicked(&actions)
+        {
+            self.user_settings_tab = 1;
+            self.update_user_settings_tabs(cx);
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_btn))
+            .clicked(&actions)
+        {
+            self.user_settings_tab = 2;
+            self.update_user_settings_tabs(cx);
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_data_btn))
+            .clicked(&actions)
+        {
+            self.user_settings_tab = 3;
+            self.update_user_settings_tabs(cx);
         }
 
         // Handle Settings/History tab clicks
@@ -7122,6 +8159,241 @@ impl Widget for TTSScreen {
             self.update_voice_picker_controls(cx);
         }
 
+        if self
+            .view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn
+            ))
+            .clicked(&actions)
+        {
+            let name_input = self
+                .view
+                .text_input(ids!(
+                    content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input
+                ))
+                .text();
+            let name = Self::normalized_profile_name(&name_input);
+            let avatar = Self::normalized_avatar_letter("", &name);
+            self.user_display_name = name;
+            self.user_avatar_letter = avatar;
+            self.user_profile_customized = true;
+            self.sync_user_profile_ui(cx);
+            self.persist_app_preferences(cx);
+            self.show_toast(cx, self.tr("个人资料已更新", "Profile updated"));
+            self.view.redraw(cx);
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.save_defaults_btn
+            ))
+            .clicked(&actions)
+        {
+            let speed = self
+                .view
+                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_input))
+                .text()
+                .parse::<f64>()
+                .unwrap_or(self.tts_speed)
+                .clamp(0.5, 2.0);
+            let pitch = self
+                .view
+                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_input))
+                .text()
+                .parse::<f64>()
+                .unwrap_or(self.tts_pitch)
+                .clamp(-12.0, 12.0);
+            let volume = self
+                .view
+                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_input))
+                .text()
+                .parse::<f64>()
+                .unwrap_or(self.tts_volume)
+                .clamp(0.0, 100.0);
+            self.app_preferences.default_speed = speed;
+            self.app_preferences.default_pitch = pitch;
+            self.app_preferences.default_volume = volume;
+            self.app_preferences.default_voice_id = self.selected_voice_id.clone();
+            self.persist_app_preferences(cx);
+            self.update_user_settings_page(cx);
+            self.show_toast(cx, self.tr("默认参数已保存", "Default synthesis settings saved"));
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.apply_defaults_now_btn
+            ))
+            .clicked(&actions)
+        {
+            self.tts_speed = self.app_preferences.default_speed.clamp(0.5, 2.0);
+            self.tts_pitch = self.app_preferences.default_pitch.clamp(-12.0, 12.0);
+            self.tts_volume = self.app_preferences.default_volume.clamp(0.0, 100.0);
+            self.update_tts_param_controls(cx);
+            self.show_toast(cx, self.tr("已应用默认参数", "Applied defaults to current controls"));
+        }
+
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_refresh_btn))
+            .clicked(&actions)
+        {
+            self.update_user_settings_page(cx);
+        }
+
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_model_dir_btn))
+            .clicked(&actions)
+        {
+            match Self::open_path_in_finder(Self::models_dir().as_path()) {
+                Ok(_) => {}
+                Err(e) => self.add_log(cx, &format!("[WARN] [settings] {}", e)),
+            }
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_log_dir_btn))
+            .clicked(&actions)
+        {
+            match Self::open_path_in_finder(Self::app_logs_dir().as_path()) {
+                Ok(_) => {}
+                Err(e) => self.add_log(cx, &format!("[WARN] [settings] {}", e)),
+            }
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_workspace_dir_btn))
+            .clicked(&actions)
+        {
+            match Self::open_path_in_finder(Self::workspace_dir().as_path()) {
+                Ok(_) => {}
+                Err(e) => self.add_log(cx, &format!("[WARN] [settings] {}", e)),
+            }
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.clear_cache_btn))
+            .clicked(&actions)
+        {
+            self.clear_app_cache(cx);
+            self.show_toast(cx, self.tr("缓存已清理", "Cache cleared"));
+        }
+
+        if let Some(idx) = self
+            .view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .changed(&actions)
+        {
+            self.app_preferences.history_retention_days = match idx {
+                1 => 30,
+                2 => 7,
+                _ => -1,
+            };
+            self.apply_history_retention_policy(cx);
+            self.persist_app_preferences(cx);
+            self.update_user_settings_page(cx);
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_actions.clear_tts_history_btn))
+            .clicked(&actions)
+        {
+            self.clear_tts_history(cx);
+            self.show_toast(cx, self.tr("TTS 历史已清空", "TTS history cleared"));
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_actions.clear_training_artifacts_btn))
+            .clicked(&actions)
+        {
+            self.clear_training_artifacts(cx);
+            self.show_toast(cx, self.tr("训练中间产物已清理", "Training artifacts cleared"));
+        }
+
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.devices_header.refresh_devices_btn))
+            .clicked(&actions)
+        {
+            self.available_output_devices = list_output_devices();
+            self.available_input_devices = list_input_devices();
+            if self.selected_output_device_idx >= self.available_output_devices.len() {
+                self.selected_output_device_idx = 0;
+            }
+            if self.selected_input_device_idx >= self.available_input_devices.len() {
+                self.selected_input_device_idx = 0;
+            }
+            self.update_audio_devices_ui(cx);
+        }
+        if let Some(idx) = self
+            .view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
+            .changed(&actions)
+        {
+            if idx == 0 {
+                self.app_preferences.preferred_input_device = None;
+            } else if idx - 1 < self.available_input_devices.len() {
+                self.selected_input_device_idx = idx - 1;
+                self.app_preferences.preferred_input_device =
+                    Some(self.available_input_devices[self.selected_input_device_idx].clone());
+            }
+            self.persist_app_preferences(cx);
+            self.update_audio_devices_ui(cx);
+            self.show_toast(cx, self.tr("输入设备已更新", "Input device updated"));
+        }
+        if let Some(idx) = self
+            .view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_device_dropdown))
+            .changed(&actions)
+        {
+            if idx == 0 {
+                self.app_preferences.preferred_output_device = None;
+            } else if idx - 1 < self.available_output_devices.len() {
+                self.selected_output_device_idx = idx - 1;
+                self.app_preferences.preferred_output_device =
+                    Some(self.available_output_devices[self.selected_output_device_idx].clone());
+            }
+            self.persist_app_preferences(cx);
+            self.recreate_players_with_selected_output();
+            self.update_audio_devices_ui(cx);
+            self.show_toast(cx, self.tr("输出设备已更新", "Output device updated"));
+        }
+
+        if let Some(idx) = self
+            .view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
+            .changed(&actions)
+        {
+            self.app_preferences.training_backend = if idx == 1 {
+                "option_b".to_string()
+            } else {
+                "option_a".to_string()
+            };
+            self.runtime_status_training_backend = self.app_preferences.training_backend.clone();
+            std::env::set_var("MOXIN_TRAINING_BACKEND", self.app_preferences.training_backend.clone());
+            self.persist_app_preferences(cx);
+            self.update_user_settings_page(cx);
+        }
+        if let Some(idx) = self
+            .view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .changed(&actions)
+        {
+            self.app_preferences.debug_logs_enabled = idx == 1;
+            std::env::set_var(
+                "RUST_LOG",
+                if self.app_preferences.debug_logs_enabled {
+                    "debug"
+                } else {
+                    "info"
+                },
+            );
+            self.persist_app_preferences(cx);
+            self.update_user_settings_page(cx);
+        }
+
         // Handle global settings modal close button
         if self
             .view
@@ -7150,6 +8422,10 @@ impl Widget for TTSScreen {
             .view
             .button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_en_option))
             .clicked(&actions)
+            || self
+                .view
+                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_en_option))
+                .clicked(&actions)
         {
             self.app_language = "en".to_string();
             let _ = i18n::set_locale("en");
@@ -7161,6 +8437,10 @@ impl Widget for TTSScreen {
             .view
             .button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_zh_option))
             .clicked(&actions)
+            || self
+                .view
+                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_zh_option))
+                .clicked(&actions)
         {
             self.app_language = "zh".to_string();
             let _ = i18n::set_locale("zh");
@@ -7173,6 +8453,10 @@ impl Widget for TTSScreen {
             .view
             .button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_light_option))
             .clicked(&actions)
+            || self
+                .view
+                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_light_option))
+                .clicked(&actions)
         {
             self.dark_mode = 0.0;
             self.update_theme_options(cx);
@@ -7183,6 +8467,10 @@ impl Widget for TTSScreen {
             .view
             .button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_dark_option))
             .clicked(&actions)
+            || self
+                .view
+                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
+                .clicked(&actions)
         {
             self.dark_mode = 1.0;
             self.update_theme_options(cx);
@@ -8761,6 +10049,366 @@ impl TTSScreen {
         desc
     }
 
+    fn normalized_profile_name(input: &str) -> String {
+        let name = input.trim();
+        if name.is_empty() {
+            "User".to_string()
+        } else {
+            name.chars().take(24).collect::<String>()
+        }
+    }
+
+    fn normalized_avatar_letter(input: &str, fallback_name: &str) -> String {
+        if let Some(first) = input.trim().chars().next() {
+            return first.to_uppercase().collect::<String>();
+        }
+        if let Some(first) = fallback_name.chars().next() {
+            return first.to_uppercase().collect::<String>();
+        }
+        "U".to_string()
+    }
+
+    fn sync_user_profile_ui(&mut self, cx: &mut Cx) {
+        self.view
+            .label(ids!(app_layout.sidebar.sidebar_footer.user_details.user_name))
+            .set_text(cx, &self.user_display_name);
+        self.view
+            .label(ids!(app_layout.sidebar.sidebar_footer.user_avatar.avatar_letter))
+            .set_text(cx, &self.user_avatar_letter);
+        self.view
+            .text_input(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input
+            ))
+            .set_text(cx, &self.user_display_name);
+    }
+
+    fn persist_app_preferences(&mut self, cx: &mut Cx) {
+        self.app_preferences.display_name = self.user_display_name.clone();
+        self.app_preferences.avatar_letter = self.user_avatar_letter.clone();
+        self.app_preferences.default_speed = self.tts_speed;
+        self.app_preferences.default_pitch = self.tts_pitch;
+        self.app_preferences.default_volume = self.tts_volume;
+        self.app_preferences.default_voice_id = self.selected_voice_id.clone();
+        self.app_preferences.training_backend = self.runtime_status_training_backend.clone();
+        if let Err(e) = app_preferences::save_preferences(&self.app_preferences) {
+            self.add_log(cx, &format!("[WARN] [prefs] Failed to save preferences: {}", e));
+        }
+    }
+
+    fn app_logs_dir() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Library")
+            .join("Logs")
+            .join("MoxinVoice")
+    }
+
+    fn models_dir() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".OminiX")
+            .join("models")
+            .join("gpt-sovits-mlx")
+    }
+
+    fn workspace_dir() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".dora")
+            .join("primespeech")
+    }
+
+    fn open_path_in_finder(path: &Path) -> Result<(), String> {
+        if !path.exists() {
+            fs::create_dir_all(path)
+                .map_err(|e| format!("Failed to create path {:?}: {}", path, e))?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Command::new("open")
+                .arg(path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to open {:?}: {}", path, e))?;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Command::new("xdg-open")
+                .arg(path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to open {:?}: {}", path, e))?;
+        }
+        Ok(())
+    }
+
+    fn apply_preferences_defaults(&mut self, cx: &mut Cx) {
+        if let Some(voice_id) = self.app_preferences.default_voice_id.clone() {
+            if self.library_voices.iter().any(|v| v.id == voice_id) {
+                self.selected_voice_id = Some(voice_id);
+            }
+        }
+        self.tts_speed = self.app_preferences.default_speed.clamp(0.5, 2.0);
+        self.tts_pitch = self.app_preferences.default_pitch.clamp(-12.0, 12.0);
+        self.tts_volume = self.app_preferences.default_volume.clamp(0.0, 100.0);
+        self.sync_selected_voice_ui(cx);
+        self.update_tts_param_controls(cx);
+        self.update_user_settings_page(cx);
+    }
+
+    fn apply_history_retention_policy(&mut self, cx: &mut Cx) {
+        let retention = self.app_preferences.history_retention_days;
+        if retention < 0 {
+            return;
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs();
+        let threshold = now.saturating_sub((retention as u64) * 24 * 60 * 60);
+        let mut removed_audio_files = Vec::new();
+        self.tts_history.retain(|entry| {
+            if entry.created_at >= threshold {
+                true
+            } else {
+                removed_audio_files.push(entry.audio_file.clone());
+                false
+            }
+        });
+        for file in removed_audio_files {
+            let _ = tts_history::delete_audio_file(&file);
+        }
+        self.persist_tts_history(cx);
+        self.update_history_display(cx);
+    }
+
+    fn refresh_runtime_status(&mut self) {
+        let dora_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
+        self.runtime_status_dora = if dora_running {
+            "Running".to_string()
+        } else {
+            "Stopped".to_string()
+        };
+        let mut asr_connected = false;
+        let mut tts_connected = false;
+        if let Some(dora) = &self.dora {
+            let status = dora.shared_dora_state().status.read();
+            for bridge in &status.active_bridges {
+                if bridge.contains("asr") || bridge.contains("audio-input") {
+                    asr_connected = true;
+                }
+                if bridge.contains("tts") || bridge.contains("prompt-input") {
+                    tts_connected = true;
+                }
+            }
+        }
+        self.runtime_status_asr = if asr_connected {
+            "Connected".to_string()
+        } else {
+            "Disconnected".to_string()
+        };
+        self.runtime_status_tts = if tts_connected {
+            "Connected".to_string()
+        } else {
+            "Disconnected".to_string()
+        };
+        self.runtime_status_model = self
+            .selected_tts_model_id
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        self.runtime_status_training_backend = self.app_preferences.training_backend.clone();
+    }
+
+    fn update_runtime_status_ui(&mut self, cx: &mut Cx) {
+        self.refresh_runtime_status();
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.dora_status))
+            .set_text(cx, &format!("Dora: {}", self.runtime_status_dora));
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.asr_status))
+            .set_text(cx, &format!("ASR: {}", self.runtime_status_asr));
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.tts_status))
+            .set_text(cx, &format!("TTS: {}", self.runtime_status_tts));
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.model_status))
+            .set_text(cx, &format!("Model: {}", self.runtime_status_model));
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.backend_status))
+            .set_text(cx, &format!("Backend: {}", self.runtime_status_training_backend));
+    }
+
+    fn update_system_paths_ui(&mut self, cx: &mut Cx) {
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.model_path_label))
+            .set_text(cx, &format!("Models: {}", Self::models_dir().display()));
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.log_path_label))
+            .set_text(cx, &format!("Logs: {}", Self::app_logs_dir().display()));
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.workspace_path_label))
+            .set_text(cx, &format!("Workspace: {}", Self::workspace_dir().display()));
+    }
+
+    fn update_audio_devices_ui(&mut self, cx: &mut Cx) {
+        self.default_input_device_name =
+            default_input_device_name().unwrap_or_else(|| "Unknown".to_string());
+        self.default_output_device_name =
+            default_output_device_name().unwrap_or_else(|| "Unknown".to_string());
+        let mut input_labels = vec!["系统默认".to_string()];
+        input_labels.extend(self.available_input_devices.clone());
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
+            .set_labels(cx, input_labels);
+        let input_selected_idx = self
+            .app_preferences
+            .preferred_input_device
+            .as_ref()
+            .and_then(|name| self.available_input_devices.iter().position(|n| n == name))
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+        self.selected_input_device_idx = input_selected_idx.saturating_sub(1);
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
+            .set_selected_item(cx, input_selected_idx);
+
+        let mut output_labels = vec!["系统默认".to_string()];
+        output_labels.extend(self.available_output_devices.clone());
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_device_dropdown))
+            .set_labels(cx, output_labels);
+        let output_selected_idx = self
+            .app_preferences
+            .preferred_output_device
+            .as_ref()
+            .and_then(|name| self.available_output_devices.iter().position(|n| n == name))
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+        self.selected_output_device_idx = output_selected_idx.saturating_sub(1);
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_device_dropdown))
+            .set_selected_item(cx, output_selected_idx);
+    }
+
+    fn update_user_settings_page(&mut self, cx: &mut Cx) {
+        self.update_runtime_status_ui(cx);
+        self.update_system_paths_ui(cx);
+        self.update_audio_devices_ui(cx);
+        let en = self.is_english();
+        let voice = self
+            .selected_voice_id
+            .clone()
+            .unwrap_or_else(|| "Doubao".to_string());
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_voice_label))
+            .set_text(cx, &format!("默认音色: {}", voice));
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_input))
+            .set_text(cx, &format!("{:.2}", self.app_preferences.default_speed));
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_input))
+            .set_text(cx, &format!("{:.1}", self.app_preferences.default_pitch));
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_input))
+            .set_text(cx, &format!("{:.0}", self.app_preferences.default_volume));
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .set_labels(
+                cx,
+                if en {
+                    vec!["Forever".to_string(), "30 days".to_string(), "7 days".to_string()]
+                } else {
+                    vec!["永久".to_string(), "30天".to_string(), "7天".to_string()]
+                },
+            );
+        let retention_idx = match self.app_preferences.history_retention_days {
+            30 => 1,
+            7 => 2,
+            _ => 0,
+        };
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .set_selected_item(cx, retention_idx);
+
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
+            .set_labels(
+                cx,
+                if en {
+                    vec![
+                        "Compatibility (Python)".to_string(),
+                        "MLX Experimental (Rust)".to_string(),
+                    ]
+                } else {
+                    vec![
+                        "兼容模式（Python）".to_string(),
+                        "MLX 实验模式（Rust）".to_string(),
+                    ]
+                },
+            );
+        let backend_idx = if self.app_preferences.training_backend == "option_b" {
+            1
+        } else {
+            0
+        };
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
+            .set_selected_item(cx, backend_idx);
+
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .set_labels(
+                cx,
+                if en {
+                    vec!["Off".to_string(), "On".to_string()]
+                } else {
+                    vec!["关闭".to_string(), "开启".to_string()]
+                },
+            );
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .set_selected_item(cx, if self.app_preferences.debug_logs_enabled { 1 } else { 0 });
+
+        self.update_user_settings_tabs(cx);
+    }
+
+    fn clear_app_cache(&mut self, cx: &mut Cx) {
+        let runtime_out = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".dora")
+            .join("runtime")
+            .join("out");
+        let share_tmp = Self::workspace_dir().join("share");
+        let temp_dir = Self::workspace_dir().join("tmp");
+        for dir in [&runtime_out, &share_tmp, &temp_dir] {
+            if dir.exists() {
+                let _ = fs::remove_dir_all(dir);
+            }
+            let _ = fs::create_dir_all(dir);
+        }
+        self.add_log(cx, "[INFO] [settings] Cleared runtime cache directories");
+    }
+
+    fn clear_training_artifacts(&mut self, cx: &mut Cx) {
+        let trained_dir = Self::workspace_dir().join("trained_models");
+        if trained_dir.exists() {
+            let _ = fs::remove_dir_all(&trained_dir);
+        }
+        let _ = fs::create_dir_all(&trained_dir);
+        self.add_log(cx, "[INFO] [settings] Cleared trained model artifacts");
+    }
+
+    fn recreate_players_with_selected_output(&mut self) {
+        self.audio_player = Some(TTSPlayer::new_with_output_device(
+            self.app_preferences.preferred_output_device.as_deref(),
+        ));
+        self.preview_player = Some(TTSPlayer::new_with_output_device(
+            self.app_preferences.preferred_output_device.as_deref(),
+        ));
+    }
+
     fn apply_localization(&mut self, cx: &mut Cx) {
         let en = self.is_english();
 
@@ -8777,8 +10425,8 @@ impl TTSScreen {
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_history))
             .set_text(cx, self.tr("🕘 历史", "🕘 History"));
         self.view
-            .label(ids!(app_layout.sidebar.sidebar_footer.user_details.user_name))
-            .set_text(cx, self.tr("用户", "User"));
+            .button(ids!(app_layout.sidebar.sidebar_footer.global_settings_btn))
+            .set_text(cx, self.tr("⚙", "⚙"));
 
         self.view
             .label(ids!(
@@ -9248,6 +10896,219 @@ impl TTSScreen {
 
         self.view
             .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.user_settings_header.user_settings_title
+            ))
+            .set_text(cx, self.tr("用户设置", "User Settings"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_profile_btn
+            ))
+            .set_text(cx, self.tr("资料", "Profile"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_app_btn
+            ))
+            .set_text(cx, self.tr("应用", "App"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_btn
+            ))
+            .set_text(cx, self.tr("运行", "Runtime"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_data_btn
+            ))
+            .set_text(cx, self.tr("数据", "Data"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_title
+            ))
+            .set_text(cx, self.tr("个人资料", "Profile"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_label
+            ))
+            .set_text(cx, self.tr("用户名", "Display name"));
+        self.view
+            .text_input(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    empty_text: (if en { "Enter display name" } else { "输入用户名" })
+                },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn
+            ))
+            .set_text(cx, self.tr("保存", "Save"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.app_settings_title
+            ))
+            .set_text(cx, self.tr("应用设置", "App Settings"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_title
+            ))
+            .set_text(cx, self.tr("语言", "Language"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_title
+            ))
+            .set_text(cx, self.tr("主题", "Theme"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_title
+            ))
+            .set_text(cx, self.tr("推理默认参数", "Default Inference Params"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.save_defaults_btn
+            ))
+            .set_text(cx, self.tr("保存默认", "Save Defaults"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.apply_defaults_now_btn
+            ))
+            .set_text(cx, self.tr("应用到当前", "Apply to Current"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_title
+            ))
+            .set_text(cx, self.tr("运行状态", "Runtime Status"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_refresh_btn
+            ))
+            .set_text(cx, self.tr("刷新状态", "Refresh Status"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.paths_title
+            ))
+            .set_text(cx, self.tr("本地路径与资源", "Local Paths & Resources"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_model_dir_btn
+            ))
+            .set_text(cx, self.tr("打开模型目录", "Open Models"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_log_dir_btn
+            ))
+            .set_text(cx, self.tr("打开日志目录", "Open Logs"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_workspace_dir_btn
+            ))
+            .set_text(cx, self.tr("打开工作目录", "Open Workspace"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.clear_cache_btn
+            ))
+            .set_text(cx, self.tr("清理缓存", "Clear Cache"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_title
+            ))
+            .set_text(cx, self.tr("隐私与数据", "Privacy & Data"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_pick_label
+            ))
+            .set_text(cx, self.tr("历史保留", "History retention"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_actions.clear_tts_history_btn
+            ))
+            .set_text(cx, self.tr("清空 TTS 历史", "Clear TTS History"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_actions.clear_training_artifacts_btn
+            ))
+            .set_text(cx, self.tr("清理训练中间产物", "Clear Training Artifacts"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.devices_title
+            ))
+            .set_text(cx, self.tr("音频设备", "Audio Devices"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_pick_label
+            ))
+            .set_text(cx, self.tr("输入", "Input"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_pick_label
+            ))
+            .set_text(cx, self.tr("输出", "Output"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.devices_header.refresh_devices_btn
+            ))
+            .set_text(cx, self.tr("刷新设备", "Refresh Devices"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.experiments_title
+            ))
+            .set_text(cx, self.tr("实验功能", "Experimental"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.backend_pick_label
+            ))
+            .set_text(cx, self.tr("训练后端", "Training backend"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_pick_label
+            ))
+            .set_text(cx, self.tr("Debug 日志", "Debug logs"));
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown
+            ))
+            .set_labels(
+                cx,
+                if en {
+                    vec!["Forever".to_string(), "30 days".to_string(), "7 days".to_string()]
+                } else {
+                    vec!["永久".to_string(), "30天".to_string(), "7天".to_string()]
+                },
+            );
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown
+            ))
+            .set_labels(
+                cx,
+                if en {
+                    vec![
+                        "Compatibility (Python)".to_string(),
+                        "MLX Experimental (Rust)".to_string(),
+                    ]
+                } else {
+                    vec![
+                        "兼容模式（Python）".to_string(),
+                        "MLX 实验模式（Rust）".to_string(),
+                    ]
+                },
+            );
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown
+            ))
+            .set_labels(
+                cx,
+                if en {
+                    vec!["Off".to_string(), "On".to_string()]
+                } else {
+                    vec!["关闭".to_string(), "开启".to_string()]
+                },
+            );
+
+        self.view
+            .label(ids!(
                 content_wrapper.main_content.log_section.log_content_column.log_title_row.log_title_label
             ))
             .set_text(cx, self.tr("系统日志", "System Log"));
@@ -9356,16 +11217,16 @@ impl TTSScreen {
 
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_header.settings_title))
-            .set_text(cx, self.tr("⚙️ 设置", "⚙️ Settings"));
+            .set_text(cx, self.tr("设置", "Settings"));
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_title))
-            .set_text(cx, self.tr("🌐 语言", "🌐 Language"));
+            .set_text(cx, self.tr("语言", "Language"));
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_title))
-            .set_text(cx, self.tr("🎨 主题", "🎨 Theme"));
+            .set_text(cx, self.tr("主题", "Theme"));
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_title))
-            .set_text(cx, self.tr("ℹ️ 关于", "ℹ️ About"));
+            .set_text(cx, self.tr("关于", "About"));
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_engine))
             .set_text(cx, self.tr("基于 GPT-SoVITS v2", "Powered by GPT-SoVITS v2"));
@@ -9381,6 +11242,25 @@ impl TTSScreen {
         self.view
             .button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_dark_option))
             .set_text(cx, self.tr("🌙 深色", "🌙 Dark"));
+
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_en_option))
+            .set_text(cx, "English");
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_zh_option))
+            .set_text(cx, if en { "Chinese" } else { "中文" });
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_light_option))
+            .set_text(cx, self.tr("☀️ 浅色", "☀️ Light"));
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
+            .set_text(cx, self.tr("🌙 深色", "🌙 Dark"));
+
+        if !self.user_profile_customized {
+            self.user_display_name = self.tr("用户", "User").to_string();
+        }
+        self.sync_user_profile_ui(cx);
+        self.update_user_settings_page(cx);
 
         self.view
             .label(ids!(loading_overlay.loading_content.loading_subtitle))
@@ -9486,6 +11366,11 @@ impl TTSScreen {
         } else {
             0.0
         };
+        let user_settings_active = if self.current_page == AppPage::UserSettings {
+            1.0
+        } else {
+            0.0
+        };
 
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_tts))
@@ -9523,6 +11408,9 @@ impl TTSScreen {
                     draw_text: { active: (clone_active) }
                 },
             );
+        self.view
+            .view(ids!(app_layout.sidebar.sidebar_footer))
+            .apply_over(cx, live! { draw_bg: { active: (user_settings_active) } });
     }
 
     /// Switch to a different page and update UI accordingly
@@ -9541,6 +11429,7 @@ impl TTSScreen {
         let show_library = page == AppPage::VoiceLibrary;
         let show_clone = page == AppPage::VoiceClone;
         let show_detail = page == AppPage::TaskDetail;
+        let show_user_settings = page == AppPage::UserSettings;
 
         self.view
             .view(ids!(
@@ -9581,6 +11470,15 @@ impl TTSScreen {
                     .task_detail_page
             ))
             .set_visible(cx, show_detail);
+        self.view
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+            ))
+            .set_visible(cx, show_user_settings);
 
         // Show audio player bar only after first successful generation on TTS page
         self.view
@@ -9589,6 +11487,10 @@ impl TTSScreen {
 
         if show_library {
             self.update_library_display(cx);
+        }
+        if show_user_settings {
+            self.update_user_settings_page(cx);
+            self.update_user_settings_tabs(cx);
         }
 
         self.apply_tts_history_mode_layout(cx);
@@ -10573,7 +12475,9 @@ impl TTSScreen {
             Ok(samples) => {
                 // Initialize preview player if needed
                 if self.preview_player.is_none() {
-                    self.preview_player = Some(TTSPlayer::new());
+                    self.preview_player = Some(TTSPlayer::new_with_output_device(
+                        self.app_preferences.preferred_output_device.as_deref(),
+                    ));
                 }
 
                 // Play the audio
@@ -12148,6 +14052,57 @@ impl TTSScreen {
             });
     }
 
+    fn update_user_settings_tabs(&mut self, cx: &mut Cx) {
+        let profile_active = if self.user_settings_tab == 0 { 1.0 } else { 0.0 };
+        let app_active = if self.user_settings_tab == 1 { 1.0 } else { 0.0 };
+        let runtime_active = if self.user_settings_tab == 2 { 1.0 } else { 0.0 };
+        let data_active = if self.user_settings_tab == 3 { 1.0 } else { 0.0 };
+        let dark_mode = self.dark_mode;
+
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_profile_btn))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (profile_active), dark_mode: (dark_mode) } draw_text: { active: (profile_active), dark_mode: (dark_mode) } },
+            );
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_app_btn))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (app_active), dark_mode: (dark_mode) } draw_text: { active: (app_active), dark_mode: (dark_mode) } },
+            );
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_btn))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (runtime_active), dark_mode: (dark_mode) } draw_text: { active: (runtime_active), dark_mode: (dark_mode) } },
+            );
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_data_btn))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (data_active), dark_mode: (dark_mode) } draw_text: { active: (data_active), dark_mode: (dark_mode) } },
+            );
+
+        let show_profile = self.user_settings_tab == 0;
+        let show_app = self.user_settings_tab == 1;
+        let show_runtime = self.user_settings_tab == 2;
+        let show_data = self.user_settings_tab == 3;
+
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel))
+            .set_visible(cx, show_profile);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel))
+            .set_visible(cx, show_app);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel))
+            .set_visible(cx, show_runtime);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel))
+            .set_visible(cx, show_data);
+    }
+
     /// Update language options in global settings
     fn update_language_options(&mut self, cx: &mut Cx) {
         let en_active = if self.app_language == "en" { 1.0 } else { 0.0 };
@@ -12160,6 +14115,16 @@ impl TTSScreen {
                 draw_text: { active: (en_active), dark_mode: (dark_mode) }
             });
         self.view.button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_zh_option))
+            .apply_over(cx, live! {
+                draw_bg: { active: (zh_active), dark_mode: (dark_mode) }
+                draw_text: { active: (zh_active), dark_mode: (dark_mode) }
+            });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_en_option))
+            .apply_over(cx, live! {
+                draw_bg: { active: (en_active), dark_mode: (dark_mode) }
+                draw_text: { active: (en_active), dark_mode: (dark_mode) }
+            });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_zh_option))
             .apply_over(cx, live! {
                 draw_bg: { active: (zh_active), dark_mode: (dark_mode) }
                 draw_text: { active: (zh_active), dark_mode: (dark_mode) }
@@ -12179,6 +14144,16 @@ impl TTSScreen {
                 draw_text: { active: (light_active), dark_mode: (dark_mode) }
             });
         self.view.button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_dark_option))
+            .apply_over(cx, live! {
+                draw_bg: { active: (dark_active), dark_mode: (dark_mode) }
+                draw_text: { active: (dark_active), dark_mode: (dark_mode) }
+            });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_light_option))
+            .apply_over(cx, live! {
+                draw_bg: { active: (light_active), dark_mode: (dark_mode) }
+                draw_text: { active: (light_active), dark_mode: (dark_mode) }
+            });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
             .apply_over(cx, live! {
                 draw_bg: { active: (dark_active), dark_mode: (dark_mode) }
                 draw_text: { active: (dark_active), dark_mode: (dark_mode) }
@@ -12564,6 +14539,7 @@ impl TTSScreen {
         self.update_settings_tabs(cx);
         self.update_language_options(cx);
         self.update_theme_options(cx);
+        self.update_user_settings_tabs(cx);
         self.update_voice_picker_controls(cx);
         self.update_model_picker_controls(cx);
         self.update_delete_modal_dark_mode(cx);
@@ -12717,7 +14693,133 @@ impl TTSScreen {
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_engine))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-        
+
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.user_settings_header.user_settings_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.app_settings_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_input))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_input))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_input))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.dora_status))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.asr_status))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.tts_status))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.model_status))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.backend_status))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.paths_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.model_path_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.log_path_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.workspace_path_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_pick_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.devices_header.devices_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_pick_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_pick_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.experiments_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.backend_pick_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_pick_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_device_dropdown))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view.redraw(cx);
     }
 
@@ -13517,7 +15619,9 @@ impl TTSScreen {
         match self.load_wav_file(&audio_path) {
             Ok(samples) => {
                 if self.preview_player.is_none() {
-                    self.preview_player = Some(TTSPlayer::new());
+                    self.preview_player = Some(TTSPlayer::new_with_output_device(
+                        self.app_preferences.preferred_output_device.as_deref(),
+                    ));
                 }
                 if let Some(player) = &self.preview_player {
                     player.write_audio(&samples);

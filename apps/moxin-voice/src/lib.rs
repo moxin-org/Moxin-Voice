@@ -2,6 +2,7 @@
 
 // Local modules
 pub mod audio_player; // Keep local: simplified TTS-specific version
+pub mod app_preferences;
 pub mod dora_integration;
 pub mod i18n;
 
