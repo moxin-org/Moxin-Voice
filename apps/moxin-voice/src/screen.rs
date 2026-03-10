@@ -2305,17 +2305,22 @@ live_design! {
                                     }
                                 }
 
-                                voice_picker_empty = <Label> {
+                                voice_picker_empty_container = <View> {
                                     width: Fill, height: Fit
-                                    margin: {left: 4, right: 4, top: 16}
-                                    draw_text: {
-                                        instance dark_mode: 0.0
-                                        text_style: { font_size: 12.0 }
-                                        fn get_color(self) -> vec4 {
-                                            return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                    visible: false
+
+                                    voice_picker_empty = <Label> {
+                                        width: Fill, height: Fit
+                                        margin: {left: 4, right: 4, top: 16}
+                                        draw_text: {
+                                            instance dark_mode: 0.0
+                                            text_style: { font_size: 12.0 }
+                                            fn get_color(self) -> vec4 {
+                                                return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                            }
                                         }
+                                        text: "No voices found with current filters."
                                     }
-                                    text: "No voices found with current filters."
                                 }
                             }
 
@@ -5247,17 +5252,22 @@ live_design! {
                     }
                 }
 
-                voice_picker_empty = <Label> {
+                voice_picker_empty_container = <View> {
                     width: Fill, height: Fit
-                    margin: {left: 20, right: 20, top: 24}
-                    draw_text: {
-                        instance dark_mode: 0.0
-                        text_style: { font_size: 12.0 }
-                        fn get_color(self) -> vec4 {
-                            return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                    visible: false
+
+                    voice_picker_empty = <Label> {
+                        width: Fill, height: Fit
+                        margin: {left: 20, right: 20, top: 24}
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: { font_size: 12.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                            }
                         }
+                        text: "No voices found with current filters."
                     }
-                    text: "No voices found with current filters."
                 }
             }
         }
@@ -12376,10 +12386,13 @@ impl TTSScreen {
         };
 
         self.view
+            .portal_list(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_list))
+            .set_visible(cx, !is_empty);
+        self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_empty))
             .set_text(cx, empty_text);
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_empty))
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_empty_container))
             .set_visible(cx, is_empty);
 
         self.view.redraw(cx);
