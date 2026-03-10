@@ -74,7 +74,8 @@ live_design! {
             // Initial letter
             initial = <Label> {
                 width: Fill, height: Fill
-                align: {x: 0.3, y: 0.6}
+                padding: {left: 0.0, right: 0.0, top: 4.0, bottom: 0.0}
+                align: {x: 0.5, y: 0.5}
                 draw_text: {
                     text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
                     fn get_color(self) -> vec4 {

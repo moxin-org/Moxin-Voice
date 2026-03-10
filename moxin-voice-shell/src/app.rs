@@ -48,7 +48,7 @@ live_design! {
     App = {{App}} {
         ui: <Window> {
             window: {
-                title: "Moxin Voice - Voice Cloning & Text-to-Speech"
+                title: "Moxin Voice"
                 inner_size: vec2(1200, 800)
             }
             pass: { clear_color: (DARK_BG) }

@@ -1234,18 +1234,8 @@ live_design! {
 
                     logo_section = <View> {
                         width: Fill, height: Fit
-                        flow: Right
-                        spacing: 10
-                        align: {y: 0.5}
-
-                        logo_icon = <Label> {
-                            width: Fit, height: Fit
-                            draw_text: {
-                                text_style: { font_size: 22.0 }
-                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
-                            }
-                            text: "🎙"
-                        }
+                        flow: Down
+                        align: {x: 0.5, y: 0.5}
 
                         logo_text = <Label> {
                             width: Fit, height: Fit
@@ -1253,7 +1243,7 @@ live_design! {
                                 text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
                                 fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
                             }
-                            text: "TTS Voice"
+                            text: "Moxin Voice"
                         }
                     }
                 }
@@ -1322,6 +1312,7 @@ live_design! {
 
                         avatar_letter = <Label> {
                             width: Fill, height: Fill
+                            padding: {left: 0.0, right: 0.0, top: 4.0, bottom: 0.0}
                             align: {x: 0.5, y: 0.5}
                             draw_text: {
                                 text_style: <FONT_BOLD>{ font_size: 14.0 }
@@ -2478,7 +2469,8 @@ live_design! {
                                             }
                                             picker_initial = <Label> {
                                                 width: Fill, height: Fill
-                                                align: {x: 0.3, y: 0.6}
+                                                padding: {left: 0.0, right: 0.0, top: 4.0, bottom: 0.0}
+                                                align: {x: 0.5, y: 0.5}
                                                 draw_text: {
                                                     text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
                                                     fn get_color(self) -> vec4 { return (WHITE); }
@@ -3314,7 +3306,9 @@ live_design! {
                                             align: {x: 0.5, y: 0.5}
 
                                             avatar_initial = <Label> {
-                                                width: Fit, height: Fit
+                                                width: Fill, height: Fill
+                                                padding: {left: 0.0, right: 0.0, top: 4.0, bottom: 0.0}
+                                                align: {x: 0.5, y: 0.5}
                                                 draw_text: {
                                                     text_style: <FONT_BOLD>{ font_size: 18.0 }
                                                     fn get_color(self) -> vec4 {
@@ -4788,9 +4782,41 @@ live_design! {
                                 flow: Right
                                 spacing: 10
 
-                                speed_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "1.0" }
-                                pitch_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "0.0" }
-                                volume_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "100" }
+                                speed_col = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Down
+                                    spacing: 6
+
+                                    speed_label = <SettingsBodyLabel> {
+                                        width: Fit, height: Fit
+                                        text: "语速"
+                                    }
+                                    speed_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "1.0" }
+                                }
+
+                                pitch_col = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Down
+                                    spacing: 6
+
+                                    pitch_label = <SettingsBodyLabel> {
+                                        width: Fit, height: Fit
+                                        text: "音高"
+                                    }
+                                    pitch_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "0.0" }
+                                }
+
+                                volume_col = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Down
+                                    spacing: 6
+
+                                    volume_label = <SettingsBodyLabel> {
+                                        width: Fit, height: Fit
+                                        text: "音量"
+                                    }
+                                    volume_input = <SettingsTextInput> { width: Fill, height: 38 empty_text: "100" }
+                                }
                             }
 
                             defaults_actions = <View> {
@@ -5299,7 +5325,8 @@ live_design! {
 
                     avatar_initial = <Label> {
                         width: Fill, height: Fill
-                        align: {x: 0.4, y: 0.7}
+                        padding: {left: 0.0, right: 0.0, top: 4.0, bottom: 0.0}
+                        align: {x: 0.5, y: 0.5}
                         draw_text: {
                             text_style: <FONT_BOLD>{ font_size: 18.0 }
                             fn get_color(self) -> vec4 {
@@ -6282,7 +6309,8 @@ live_design! {
                             }
                             picker_initial = <Label> {
                                 width: Fill, height: Fill
-                                align: {x: 0.3, y: 0.6}
+                                padding: {left: 0.0, right: 0.0, top: 4.0, bottom: 0.0}
+                                align: {x: 0.5, y: 0.5}
                                 draw_text: {
                                     text_style: <FONT_SEMIBOLD>{ font_size: 19.0 }
                                     fn get_color(self) -> vec4 { return (WHITE); }
@@ -6887,7 +6915,7 @@ live_design! {
                                     return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
                                 }
                             }
-                            text: "Moxin TTS v0.1.0"
+                            text: "Moxin Voice v0.1.0"
                         }
 
                         about_engine = <Label> {
@@ -6955,7 +6983,7 @@ live_design! {
                                 return (WHITE);
                             }
                         }
-                        text: "Moxin TTS"
+                        text: "Moxin Voice"
                     }
 
                     loading_subtitle = <Label> {
@@ -8192,21 +8220,21 @@ impl Widget for TTSScreen {
         {
             let speed = self
                 .view
-                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_input))
+                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_input))
                 .text()
                 .parse::<f64>()
                 .unwrap_or(self.tts_speed)
                 .clamp(0.5, 2.0);
             let pitch = self
                 .view
-                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_input))
+                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_input))
                 .text()
                 .parse::<f64>()
                 .unwrap_or(self.tts_pitch)
                 .clamp(-12.0, 12.0);
             let volume = self
                 .view
-                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_input))
+                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_input))
                 .text()
                 .parse::<f64>()
                 .unwrap_or(self.tts_volume)
@@ -10305,13 +10333,13 @@ impl TTSScreen {
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_voice_label))
             .set_text(cx, &format!("默认音色: {}", voice));
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_input))
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_input))
             .set_text(cx, &format!("{:.2}", self.app_preferences.default_speed));
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_input))
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_input))
             .set_text(cx, &format!("{:.1}", self.app_preferences.default_pitch));
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_input))
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_input))
             .set_text(cx, &format!("{:.0}", self.app_preferences.default_volume));
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
@@ -10964,6 +10992,21 @@ impl TTSScreen {
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_title
             ))
             .set_text(cx, self.tr("推理默认参数", "Default Inference Params"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_label
+            ))
+            .set_text(cx, self.tr("语速", "Speed"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_label
+            ))
+            .set_text(cx, self.tr("音高", "Pitch"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_label
+            ))
+            .set_text(cx, self.tr("音量", "Volume"));
         self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.save_defaults_btn
@@ -14728,13 +14771,22 @@ impl TTSScreen {
             .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_input))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_input))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_input))
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_input))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_input))
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_input))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
         self.view
             .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card))
