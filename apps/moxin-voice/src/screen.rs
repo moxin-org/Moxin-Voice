@@ -43,6 +43,18 @@ enum ShareSource {
     History(String),
 }
 
+#[derive(Clone, Debug)]
+enum DownloadSource {
+    CurrentAudio,
+    History(String),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum DownloadFormat {
+    Mp3,
+    Wav,
+}
+
 #[derive(Clone, Copy, Debug)]
 enum ShareTarget {
     System,
@@ -4844,6 +4856,162 @@ live_design! {
             }
         }
 
+        download_modal = <View> {
+            width: Fill, height: Fill
+            flow: Overlay
+            align: {x: 0.5, y: 0.5}
+            visible: false
+
+            download_backdrop = <View> {
+                width: Fill, height: Fill
+                show_bg: true
+                draw_bg: {
+                    fn pixel(self) -> vec4 {
+                        return vec4(0.0, 0.0, 0.0, 0.45);
+                    }
+                }
+            }
+
+            download_dialog = <RoundedView> {
+                width: 400, height: Fit
+                flow: Down
+                spacing: 0
+
+                draw_bg: {
+                    instance dark_mode: 0.0
+                    instance border_radius: 12.0
+                    fn pixel(self) -> vec4 {
+                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                        let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                        sdf.fill(bg);
+                        return sdf.result;
+                    }
+                }
+
+                download_header = <View> {
+                    width: Fill, height: Fit
+                    padding: {left: 20, right: 20, top: 18, bottom: 12}
+                    flow: Down
+                    spacing: 6
+
+                    download_title = <Label> {
+                        width: Fill, height: Fit
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: <FONT_BOLD>{ font_size: 17.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                            }
+                        }
+                        text: "下载音频"
+                    }
+
+                    download_subtitle = <Label> {
+                        width: Fill, height: Fit
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: { font_size: 12.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                            }
+                        }
+                        text: "选择要导出的音频格式"
+                    }
+                }
+
+                download_actions = <View> {
+                    width: Fill, height: Fit
+                    flow: Down
+                    spacing: 8
+                    padding: {left: 20, right: 20, top: 0, bottom: 14}
+
+                    download_mp3_btn = <Button> {
+                        width: Fill, height: 38
+                        text: "MP3 文件"
+                        draw_bg: {
+                            instance dark_mode: 0.0
+                            instance hover: 0.0
+                            instance border_radius: 8.0
+                            fn pixel(self) -> vec4 {
+                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                let bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                let hover_bg = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                sdf.fill(mix(bg, hover_bg, self.hover));
+                                return sdf.result;
+                            }
+                        }
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                            }
+                        }
+                    }
+
+                    download_wav_btn = <Button> {
+                        width: Fill, height: 38
+                        text: "WAV 文件"
+                        draw_bg: {
+                            instance dark_mode: 0.0
+                            instance hover: 0.0
+                            instance border_radius: 8.0
+                            fn pixel(self) -> vec4 {
+                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                let bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                let hover_bg = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                sdf.fill(mix(bg, hover_bg, self.hover));
+                                return sdf.result;
+                            }
+                        }
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                            }
+                        }
+                    }
+                }
+
+                download_footer = <View> {
+                    width: Fill, height: Fit
+                    padding: {left: 20, right: 20, top: 0, bottom: 16}
+                    flow: Right
+                    align: {x: 1.0, y: 0.5}
+
+                    download_cancel_btn = <Button> {
+                        width: Fit, height: 34
+                        padding: {left: 16, right: 16}
+                        text: "取消"
+                        draw_bg: {
+                            instance dark_mode: 0.0
+                            instance hover: 0.0
+                            instance border_radius: 8.0
+                            fn pixel(self) -> vec4 {
+                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                let bg = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                let hover_bg = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                sdf.fill(mix(bg, hover_bg, self.hover));
+                                return sdf.result;
+                            }
+                        }
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Voice picker modal (overlay) - ElevenLabs style
         voice_picker_modal = <View> {
             width: Fill, height: Fill
@@ -6138,6 +6306,10 @@ pub struct TTSScreen {
     share_modal_visible: bool,
     #[rust]
     pending_share_source: Option<ShareSource>,
+    #[rust]
+    download_modal_visible: bool,
+    #[rust]
+    pending_download_source: Option<DownloadSource>,
 }
 
 // Import CloneTask and CloneTaskStatus from task_persistence
@@ -6212,6 +6384,8 @@ impl Widget for TTSScreen {
             self.history_item_areas = Vec::new();
             self.share_modal_visible = false;
             self.pending_share_source = None;
+            self.download_modal_visible = false;
+            self.pending_download_source = None;
 
             // Initialize TTS parameters
             self.tts_speed = 1.0;
@@ -7041,6 +7215,38 @@ impl Widget for TTSScreen {
             }
         }
 
+        if self.download_modal_visible {
+            if self
+                .view
+                .button(ids!(download_modal.download_dialog.download_footer.download_cancel_btn))
+                .clicked(&actions)
+            {
+                self.close_download_modal(cx);
+            }
+            if self
+                .view
+                .view(ids!(download_modal.download_backdrop))
+                .finger_up(&actions)
+                .is_some()
+            {
+                self.close_download_modal(cx);
+            }
+            if self
+                .view
+                .button(ids!(download_modal.download_dialog.download_actions.download_mp3_btn))
+                .clicked(&actions)
+            {
+                self.download_audio_to_format(cx, DownloadFormat::Mp3);
+            }
+            if self
+                .view
+                .button(ids!(download_modal.download_dialog.download_actions.download_wav_btn))
+                .clicked(&actions)
+            {
+                self.download_audio_to_format(cx, DownloadFormat::Wav);
+            }
+        }
+
         // Handle Voice Library page buttons
         if self
             .view
@@ -7391,7 +7597,7 @@ impl Widget for TTSScreen {
 
                 match event.hits(cx, download_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
-                        self.download_history_entry(cx, &entry_id);
+                        self.open_download_modal(cx, DownloadSource::History(entry_id.clone()));
                         handled = true;
                     }
                     _ => {}
@@ -7881,7 +8087,7 @@ impl Widget for TTSScreen {
             ))
             .clicked(&actions)
         {
-            self.download_audio(cx);
+            self.open_download_modal(cx, DownloadSource::CurrentAudio);
         }
 
         // Handle share button in audio player bar
@@ -9031,6 +9237,28 @@ impl TTSScreen {
             .set_text(cx, self.tr("分享", "Share"));
 
         self.view
+            .label(ids!(download_modal.download_dialog.download_header.download_title))
+            .set_text(cx, self.tr("下载音频", "Download audio"));
+        self.view
+            .label(ids!(download_modal.download_dialog.download_header.download_subtitle))
+            .set_text(
+                cx,
+                self.tr(
+                    "选择要导出的音频格式",
+                    "Choose the audio format to export",
+                ),
+            );
+        self.view
+            .button(ids!(download_modal.download_dialog.download_actions.download_mp3_btn))
+            .set_text(cx, self.tr("MP3 文件", "MP3 file"));
+        self.view
+            .button(ids!(download_modal.download_dialog.download_actions.download_wav_btn))
+            .set_text(cx, self.tr("WAV 文件", "WAV file"));
+        self.view
+            .button(ids!(download_modal.download_dialog.download_footer.download_cancel_btn))
+            .set_text(cx, self.tr("取消", "Cancel"));
+
+        self.view
             .label(ids!(share_modal.share_dialog.share_header.share_title))
             .set_text(cx, self.tr("分享音频", "Share audio"));
         self.view
@@ -10044,65 +10272,6 @@ impl TTSScreen {
         );
     }
 
-    fn download_history_entry(&mut self, cx: &mut Cx, entry_id: &str) {
-        let entry = match self.tts_history.iter().find(|h| h.id == entry_id).cloned() {
-            Some(v) => v,
-            None => return,
-        };
-
-        let src = tts_history::history_audio_path(&entry.audio_file);
-        if !src.exists() {
-            self.show_toast(
-                cx,
-                self.tr("历史音频文件不存在", "History audio file not found"),
-            );
-            return;
-        }
-
-        let safe_voice: String = entry
-            .voice_id
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-            .collect();
-        let filename = format!("tts_history_{}_{}.wav", entry.created_at, safe_voice);
-        let target = if let Some(home) = dirs::home_dir() {
-            let downloads = home.join("Downloads");
-            if downloads.exists() {
-                downloads.join(&filename)
-            } else {
-                PathBuf::from(&filename)
-            }
-        } else {
-            PathBuf::from(&filename)
-        };
-
-        match std::fs::copy(&src, &target) {
-            Ok(_) => {
-                self.add_log(
-                    cx,
-                    &format!(
-                        "[INFO] [history] Exported history audio to {}",
-                        target.display()
-                    ),
-                );
-                self.show_toast(
-                    cx,
-                    self.tr("下载成功！", "Downloaded successfully!"),
-                );
-            }
-            Err(e) => {
-                self.add_log(
-                    cx,
-                    &format!("[ERROR] [history] Failed to export history audio: {}", e),
-                );
-                self.show_toast(
-                    cx,
-                    self.tr("下载失败", "Download failed"),
-                );
-            }
-        }
-    }
-
     fn delete_history_entry(&mut self, cx: &mut Cx, entry_id: &str) {
         if let Some(index) = self.tts_history.iter().position(|h| h.id == entry_id) {
             let removed = self.tts_history.remove(index);
@@ -11064,6 +11233,55 @@ impl TTSScreen {
         self.view.redraw(cx);
     }
 
+    fn open_download_modal(&mut self, cx: &mut Cx, source: DownloadSource) {
+        match &source {
+            DownloadSource::CurrentAudio => {
+                if self.tts_status == TTSStatus::Generating {
+                    self.add_log(cx, "[INFO] [download] Download is disabled while generating new audio");
+                    self.show_toast(
+                        cx,
+                        self.tr("生成中，暂不可下载", "Download is disabled while generating"),
+                    );
+                    return;
+                }
+                if self.effective_audio_samples().is_empty() {
+                    self.add_log(cx, "[WARN] [download] No audio available to download");
+                    self.show_toast(cx, self.tr("暂无可下载音频", "No audio available to download"));
+                    return;
+                }
+            }
+            DownloadSource::History(entry_id) => {
+                let Some(entry) = self.tts_history.iter().find(|h| h.id == *entry_id) else {
+                    self.add_log(
+                        cx,
+                        &format!("[WARN] [download] History entry not found: {}", entry_id),
+                    );
+                    return;
+                };
+                let src = tts_history::history_audio_path(&entry.audio_file);
+                if !src.exists() {
+                    self.show_toast(
+                        cx,
+                        self.tr("历史音频文件不存在", "History audio file not found"),
+                    );
+                    return;
+                }
+            }
+        }
+
+        self.pending_download_source = Some(source);
+        self.download_modal_visible = true;
+        self.view.view(ids!(download_modal)).set_visible(cx, true);
+        self.view.redraw(cx);
+    }
+
+    fn close_download_modal(&mut self, cx: &mut Cx) {
+        self.download_modal_visible = false;
+        self.pending_download_source = None;
+        self.view.view(ids!(download_modal)).set_visible(cx, false);
+        self.view.redraw(cx);
+    }
+
     fn close_share_modal(&mut self, cx: &mut Cx) {
         self.share_modal_visible = false;
         self.pending_share_source = None;
@@ -11205,6 +11423,46 @@ impl TTSScreen {
         }
     }
 
+    fn download_audio_to_format(&mut self, cx: &mut Cx, format: DownloadFormat) {
+        let source = match self.pending_download_source.clone() {
+            Some(source) => source,
+            None => {
+                self.add_log(cx, "[WARN] [download] No pending download source");
+                return;
+            }
+        };
+
+        let saved_path = match source {
+            DownloadSource::CurrentAudio => self.export_current_audio(cx, format),
+            DownloadSource::History(entry_id) => self.export_history_audio(cx, &entry_id, format),
+        };
+
+        let Some(saved_path) = saved_path else {
+            return;
+        };
+
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [download] Saved {} audio to {}",
+                Self::download_format_key(format),
+                saved_path.display()
+            ),
+        );
+        self.show_toast(
+            cx,
+            &format!(
+                "{} {}",
+                self.tr("下载成功：", "Downloaded:"),
+                saved_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_else(|| Self::download_format_file_label(format))
+            ),
+        );
+        self.close_download_modal(cx);
+    }
+
     fn sanitize_file_component(value: &str) -> String {
         let sanitized: String = value
             .chars()
@@ -11226,6 +11484,134 @@ impl TTSScreen {
             }
         }
         PathBuf::from(filename)
+    }
+
+    fn download_format_extension(format: DownloadFormat) -> &'static str {
+        match format {
+            DownloadFormat::Mp3 => "mp3",
+            DownloadFormat::Wav => "wav",
+        }
+    }
+
+    fn download_format_key(format: DownloadFormat) -> &'static str {
+        match format {
+            DownloadFormat::Mp3 => "mp3",
+            DownloadFormat::Wav => "wav",
+        }
+    }
+
+    fn download_format_file_label(format: DownloadFormat) -> &'static str {
+        match format {
+            DownloadFormat::Mp3 => "MP3",
+            DownloadFormat::Wav => "WAV",
+        }
+    }
+
+    fn export_current_audio(&mut self, cx: &mut Cx, format: DownloadFormat) -> Option<PathBuf> {
+        let samples = self.effective_audio_samples().to_vec();
+        if samples.is_empty() {
+            self.add_log(cx, "[WARN] [download] No current audio available");
+            self.show_toast(cx, self.tr("暂无可下载音频", "No audio available to download"));
+            return None;
+        }
+        if self.stored_audio_sample_rate == 0 {
+            self.add_log(cx, "[ERROR] [download] Current audio sample rate is invalid");
+            self.show_toast(
+                cx,
+                self.tr("音频采样率无效，无法下载", "Invalid sample rate, download failed"),
+            );
+            return None;
+        }
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let safe_voice = Self::sanitize_file_component(&self.current_voice_name);
+        let filename = format!(
+            "tts_output_{}_{}.{}",
+            safe_voice,
+            timestamp,
+            Self::download_format_extension(format)
+        );
+        let target = Self::export_path_for_filename(&filename);
+
+        let export_result = match format {
+            DownloadFormat::Wav => self
+                .write_wav_file(&target, &samples)
+                .map_err(|e| e.to_string()),
+            DownloadFormat::Mp3 => {
+                Self::write_mp3_file_from_samples(&target, &samples, self.stored_audio_sample_rate)
+            }
+        };
+
+        match export_result {
+            Ok(()) => Some(target),
+            Err(error) => {
+                self.add_log(
+                    cx,
+                    &format!("[ERROR] [download] Failed to export current audio: {}", error),
+                );
+                self.show_toast(cx, self.tr("下载失败", "Download failed"));
+                None
+            }
+        }
+    }
+
+    fn export_history_audio(
+        &mut self,
+        cx: &mut Cx,
+        entry_id: &str,
+        format: DownloadFormat,
+    ) -> Option<PathBuf> {
+        let entry = match self.tts_history.iter().find(|h| h.id == entry_id).cloned() {
+            Some(v) => v,
+            None => {
+                self.add_log(
+                    cx,
+                    &format!("[WARN] [download] History entry not found: {}", entry_id),
+                );
+                return None;
+            }
+        };
+
+        let src = tts_history::history_audio_path(&entry.audio_file);
+        if !src.exists() {
+            self.show_toast(
+                cx,
+                self.tr("历史音频文件不存在", "History audio file not found"),
+            );
+            return None;
+        }
+
+        let safe_voice = Self::sanitize_file_component(&entry.voice_name);
+        let filename = format!(
+            "tts_history_{}_{}.{}",
+            entry.created_at,
+            safe_voice,
+            Self::download_format_extension(format)
+        );
+        let target = Self::export_path_for_filename(&filename);
+
+        let export_result = match format {
+            DownloadFormat::Wav => std::fs::copy(&src, &target).map(|_| ()).map_err(|e| e.to_string()),
+            DownloadFormat::Mp3 => Self::convert_wav_file_to_mp3(&src, &target),
+        };
+
+        match export_result {
+            Ok(()) => Some(target),
+            Err(error) => {
+                self.add_log(
+                    cx,
+                    &format!(
+                        "[ERROR] [download] Failed to export history audio {}: {}",
+                        entry.id, error
+                    ),
+                );
+                self.show_toast(cx, self.tr("下载失败", "Download failed"));
+                None
+            }
+        }
     }
 
     fn share_target_key(target: ShareTarget) -> &'static str {
@@ -11372,54 +11758,6 @@ impl TTSScreen {
         }
     }
 
-    fn download_audio(&mut self, cx: &mut Cx) {
-        if self.tts_status == TTSStatus::Generating {
-            self.add_log(cx, "[INFO] [tts] Download is disabled while generating new audio");
-            self.update_player_bar(cx);
-            return;
-        }
-
-        let export_samples = self.effective_audio_samples().to_vec();
-        if export_samples.is_empty() {
-            self.add_log(cx, "[WARN] [tts] No audio to download");
-            return;
-        }
-
-        // Generate filename with timestamp
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let filename = format!("tts_output_{}.wav", timestamp);
-
-        // Get downloads folder or current directory
-        let download_path = if let Some(home) = dirs::home_dir() {
-            let downloads = home.join("Downloads");
-            if downloads.exists() {
-                downloads.join(&filename)
-            } else {
-                PathBuf::from(&filename)
-            }
-        } else {
-            PathBuf::from(&filename)
-        };
-
-        // Write WAV file
-        match self.write_wav_file(&download_path, &export_samples) {
-            Ok(_) => {
-                self.add_log(
-                    cx,
-                    &format!("[INFO] [tts] Audio saved to: {}", download_path.display()),
-                );
-                // Show success toast
-                self.show_toast(cx, self.tr("下载成功！", "Downloaded successfully!"));
-            }
-            Err(e) => {
-                self.add_log(cx, &format!("[ERROR] [tts] Failed to save audio: {}", e));
-            }
-        }
-    }
-
     fn write_wav_file(&self, path: &PathBuf, samples: &[f32]) -> std::io::Result<()> {
         Self::write_wav_file_with_sample_rate(path, samples, self.stored_audio_sample_rate)
     }
@@ -11467,6 +11805,105 @@ impl TTSScreen {
         }
 
         Ok(())
+    }
+
+    fn write_mp3_file_from_samples(
+        target: &PathBuf,
+        samples: &[f32],
+        sample_rate: u32,
+    ) -> Result<(), String> {
+        if sample_rate == 0 {
+            return Err("invalid sample rate".to_string());
+        }
+
+        let temp_wav = std::env::temp_dir().join(format!(
+            "moxin_tts_export_{}_{}.wav",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+
+        Self::write_wav_file_with_sample_rate(&temp_wav, samples, sample_rate)
+            .map_err(|e| format!("failed to create temp wav: {}", e))?;
+
+        let conversion = Self::convert_wav_file_to_mp3(&temp_wav, target);
+        let _ = std::fs::remove_file(&temp_wav);
+        conversion
+    }
+
+    fn convert_wav_file_to_mp3(source: &PathBuf, target: &PathBuf) -> Result<(), String> {
+        let ffmpeg = Self::resolve_ffmpeg_binary()
+            .ok_or_else(|| "ffmpeg not found in PATH or common install locations".to_string())?;
+
+        if target.exists() {
+            std::fs::remove_file(target)
+                .map_err(|e| format!("failed to replace existing target: {}", e))?;
+        }
+
+        let output = Command::new(&ffmpeg)
+            .arg("-hide_banner")
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-y")
+            .arg("-i")
+            .arg(source)
+            .arg("-vn")
+            .arg("-codec:a")
+            .arg("libmp3lame")
+            .arg("-q:a")
+            .arg("2")
+            .arg(target)
+            .output()
+            .map_err(|e| format!("failed to launch ffmpeg ({}): {}", ffmpeg.display(), e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let detail = if !stderr.is_empty() {
+                stderr
+            } else if !stdout.is_empty() {
+                stdout
+            } else {
+                format!("exit status {}", output.status)
+            };
+            Err(format!("ffmpeg failed: {}", detail))
+        }
+    }
+
+    fn resolve_ffmpeg_binary() -> Option<PathBuf> {
+        for name in ["ffmpeg", "ffmpeg.exe"] {
+            if let Some(path) = Self::find_binary_in_path(name) {
+                return Some(path);
+            }
+        }
+
+        for candidate in [
+            "/opt/homebrew/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+            "/opt/local/bin/ffmpeg",
+        ] {
+            let path = PathBuf::from(candidate);
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+
+        None
+    }
+
+    fn find_binary_in_path(name: &str) -> Option<PathBuf> {
+        let path_var = std::env::var_os("PATH")?;
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
     }
 
     // ============ Voice Library Methods ============
@@ -12016,6 +12453,42 @@ impl TTSScreen {
         self.view
             .view(ids!(share_modal.share_dialog))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(download_modal.download_dialog))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(download_modal.download_dialog.download_header.download_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(download_modal.download_dialog.download_header.download_subtitle))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(download_modal.download_dialog.download_actions.download_mp3_btn))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode) }
+                    draw_text: { dark_mode: (dark_mode) }
+                },
+            );
+        self.view
+            .button(ids!(download_modal.download_dialog.download_actions.download_wav_btn))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode) }
+                    draw_text: { dark_mode: (dark_mode) }
+                },
+            );
+        self.view
+            .button(ids!(download_modal.download_dialog.download_footer.download_cancel_btn))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { dark_mode: (dark_mode) }
+                    draw_text: { dark_mode: (dark_mode) }
+                },
+            );
         self.view
             .label(ids!(share_modal.share_dialog.share_header.share_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
