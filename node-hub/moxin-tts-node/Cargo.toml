@@ -8,6 +8,7 @@ description = "Pure-Rust Dora TTS node powered by gpt-sovits-mlx"
 # GPT-SoVITS MLX engine (from upstream OminiX-MLX)
 gpt-sovits-mlx = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "gpt-sovits-mlx" }
 mlx-rs = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-rs" }
+qwen3-tts-mlx = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "qwen3-tts-mlx" }
 
 # Dora dataflow
 dora-node-api = "0.4.0"
@@ -24,6 +25,7 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5.0"
+hound = "3.5"
 
 [[bin]]
 name = "moxin-tts-node"
@@ -32,3 +34,7 @@ path = "src/main.rs"
 [[bin]]
 name = "moxin-fewshot-trainer"
 path = "src/fewshot_trainer.rs"
+
+[[bin]]
+name = "qwen-tts-node"
+path = "src/qwen_node.rs"

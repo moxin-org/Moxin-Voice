@@ -33,8 +33,8 @@ nodes:
       - control
 
   - id: primespeech-tts
-    # Dev dataflow: use debug node binary to avoid manual --release rebuilds.
-    path: ../../../target/debug/moxin-tts-node
+    # Dev launcher script: resolves backend node by MOXIN_INFERENCE_BACKEND.
+    path: ../../../scripts/run_tts_backend.sh
     inputs:
       text: moxin-prompt-input/control
     outputs:
@@ -44,6 +44,8 @@ nodes:
       - log
     env:
       VOICE_NAME: "Doubao"
+      MOXIN_INFERENCE_BACKEND: "__MOXIN_INFERENCE_BACKEND__"
+      MOXIN_ZERO_SHOT_BACKEND: "__MOXIN_ZERO_SHOT_BACKEND__"
       # Model directory (defaults to ~/.OminiX/models/gpt-sovits-mlx)
       # GPT_SOVITS_MODEL_DIR: $HOME/.OminiX/models/gpt-sovits-mlx
       LOG_LEVEL: INFO

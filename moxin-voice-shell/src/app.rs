@@ -9,6 +9,7 @@ use moxin_ui::MoxinAppData;
 use moxin_voice::MoxinTTSApp;
 use moxin_widgets::MoxinApp;
 use parking_lot::RwLock;
+use std::process::Command;
 use std::sync::{Arc, OnceLock};
 
 use crate::Args;
@@ -135,8 +136,35 @@ impl MatchEvent for App {
 
         // Cleanup Dora state if needed
         if self.app_data.is_some() {
-            // TODO: Stop dataflow gracefully
             ::log::info!("Cleaning up Dora dataflow");
+        }
+
+        // Best-effort runtime cleanup for both dev and bundled app:
+        // actively destroy running Dora dataflows on app exit.
+        match Command::new("dora").arg("destroy").output() {
+            Ok(output) => {
+                if output.status.success() {
+                    ::log::info!("`dora destroy` executed successfully");
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let stderr_trimmed = stderr.trim();
+                    if stderr_trimmed.is_empty() {
+                        ::log::warn!(
+                            "`dora destroy` exited with status: {}",
+                            output.status
+                        );
+                    } else {
+                        ::log::warn!(
+                            "`dora destroy` exited with status {}: {}",
+                            output.status,
+                            stderr_trimmed
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                ::log::warn!("failed to execute `dora destroy`: {}", err);
+            }
         }
     }
 }

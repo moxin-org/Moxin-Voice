@@ -7,6 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppPreferences {
     pub display_name: String,
     pub avatar_letter: String,
@@ -15,6 +16,8 @@ pub struct AppPreferences {
     pub default_pitch: f64,
     pub default_volume: f64,
     pub history_retention_days: i64, // -1 = forever
+    pub inference_backend: String,   // primespeech_mlx | qwen3_tts_mlx
+    pub zero_shot_backend: String,   // primespeech_mlx | qwen3_tts_mlx
     pub training_backend: String,    // option_a | option_b
     pub preferred_output_device: Option<String>,
     pub preferred_input_device: Option<String>,
@@ -31,6 +34,8 @@ impl Default for AppPreferences {
             default_pitch: 0.0,
             default_volume: 100.0,
             history_retention_days: -1,
+            inference_backend: "primespeech_mlx".to_string(),
+            zero_shot_backend: "primespeech_mlx".to_string(),
             training_backend: "option_a".to_string(),
             preferred_output_device: None,
             preferred_input_device: None,

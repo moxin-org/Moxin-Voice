@@ -87,6 +87,7 @@ cargo build -p moxin-tts-node --profile "$PROFILE" --manifest-path "$ROOT_DIR/Ca
 
 SHELL_BIN_PATH="$ROOT_DIR/target/$PROFILE/$BIN_NAME"
 TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-tts-node"
+QWEN_TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/qwen-tts-node"
 TRAINER_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-fewshot-trainer"
 MLX_METALLIB_PATH="$ROOT_DIR/target/$PROFILE/mlx.metallib"
 DORA_BIN_PATH="$(command -v dora || true)"
@@ -96,6 +97,10 @@ if [[ ! -f "$SHELL_BIN_PATH" ]]; then
 fi
 if [[ ! -f "$TTS_BIN_PATH" ]]; then
   echo "Binary not found: $TTS_BIN_PATH"
+  exit 1
+fi
+if [[ ! -f "$QWEN_TTS_BIN_PATH" ]]; then
+  echo "Binary not found: $QWEN_TTS_BIN_PATH"
   exit 1
 fi
 if [[ -z "$DORA_BIN_PATH" || ! -x "$DORA_BIN_PATH" ]]; then
@@ -115,6 +120,7 @@ mkdir -p "$MACOS_DIR" "$RES_DIR" "$SCRIPTS_DIR" "$DATAFLOW_DIR"
 
 cp "$SHELL_BIN_PATH" "$MACOS_DIR/${BIN_NAME}-bin"
 cp "$TTS_BIN_PATH" "$MACOS_DIR/moxin-tts-node"
+cp "$QWEN_TTS_BIN_PATH" "$MACOS_DIR/qwen-tts-node"
 cp "$DORA_BIN_PATH" "$MACOS_DIR/dora"
 if [[ -f "$MLX_METALLIB_PATH" ]]; then
   cp "$MLX_METALLIB_PATH" "$MACOS_DIR/mlx.metallib"
@@ -122,7 +128,7 @@ fi
 if [[ -f "$TRAINER_BIN_PATH" ]]; then
   cp "$TRAINER_BIN_PATH" "$MACOS_DIR/moxin-fewshot-trainer"
 fi
-chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/moxin-tts-node"
+chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/moxin-tts-node" "$MACOS_DIR/qwen-tts-node"
 chmod +x "$MACOS_DIR/dora"
 if [[ -f "$MACOS_DIR/moxin-fewshot-trainer" ]]; then
   chmod +x "$MACOS_DIR/moxin-fewshot-trainer"
@@ -131,7 +137,8 @@ fi
 cp "$ROOT_DIR/scripts/macos_preflight.sh" "$SCRIPTS_DIR/macos_preflight.sh"
 cp "$ROOT_DIR/scripts/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_bootstrap.sh"
 cp "$ROOT_DIR/scripts/macos_run_dora_asr.sh" "$SCRIPTS_DIR/macos_run_dora_asr.sh"
-chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_run_dora_asr.sh"
+cp "$ROOT_DIR/scripts/macos_run_tts_backend.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
+chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_run_dora_asr.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
 
 cp "$ROOT_DIR/scripts/dataflow/tts.bundle.yml" "$DATAFLOW_DIR/tts.yml"
 
@@ -145,6 +152,7 @@ if [[ "$INCLUDE_PY_SRC" == "true" ]]; then
   cp "$ROOT_DIR/scripts/convert_all_voices.py" "$PY_DST/scripts/convert_all_voices.py"
   cp "$ROOT_DIR/scripts/export_all_vits_onnx.py" "$PY_DST/scripts/export_all_vits_onnx.py"
   cp "$ROOT_DIR/scripts/extract_all_prompt_semantic.py" "$PY_DST/scripts/extract_all_prompt_semantic.py"
+  cp "$ROOT_DIR/scripts/download_qwen3_tts_models.py" "$PY_DST/scripts/download_qwen3_tts_models.py"
   cp -R "$ROOT_DIR/node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts/." "$PY_DST/omx-scripts/"
 fi
 
@@ -212,6 +220,9 @@ export MOXIN_CONDA_ROOT="${MOXIN_CONDA_ROOT:-$HOME/.moxinvoice/conda}"
 export MOXIN_CONDA_ENV="${MOXIN_CONDA_ENV:-moxin-studio}"
 export MOXIN_CONDA_ENV_PREFIX="${MOXIN_CONDA_ENV_PREFIX:-$MOXIN_CONDA_ROOT/envs/$MOXIN_CONDA_ENV}"
 export MOXIN_CONDA_BIN="${MOXIN_CONDA_BIN:-$MOXIN_CONDA_ROOT/bin/conda}"
+export QWEN3_TTS_MODEL_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
+export QWEN3_TTS_CUSTOMVOICE_MODEL_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN3_TTS_MODEL_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
+export QWEN3_TTS_BASE_MODEL_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN3_TTS_MODEL_ROOT/Qwen3-TTS-12Hz-1.7B-Base}"
 
 # Generate a writable runtime dataflow with absolute node paths.
 RUNTIME_DATAFLOW_DIR="$DORA_RUNTIME_DIR/dataflow"
@@ -249,7 +260,7 @@ nodes:
       - control
 
   - id: primespeech-tts
-    path: "$MACOS_DIR/moxin-tts-node"
+    path: "$RES_DIR/scripts/macos_run_tts_backend.sh"
     inputs:
       text: moxin-prompt-input/control
     outputs:
@@ -259,6 +270,8 @@ nodes:
       - log
     env:
       VOICE_NAME: "Doubao"
+      MOXIN_INFERENCE_BACKEND: "__MOXIN_INFERENCE_BACKEND__"
+      MOXIN_ZERO_SHOT_BACKEND: "__MOXIN_ZERO_SHOT_BACKEND__"
       LOG_LEVEL: INFO
 
   - id: moxin-audio-player

@@ -6,16 +6,71 @@ if [[ -z "$APP_RESOURCES" ]]; then
   APP_RESOURCES="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 
+# Bundle layout path (Contents/Resources/python-src)
 PY_SRC="$APP_RESOURCES/python-src"
+
+# Dev fallback (repository root)
+REPO_ROOT="$APP_RESOURCES"
+if [[ ! -d "$REPO_ROOT/models/model-manager" ]] && [[ -d "$APP_RESOURCES/../models/model-manager" ]]; then
+  REPO_ROOT="$(cd "$APP_RESOURCES/.." && pwd)"
+fi
+
 ENV_NAME="${MOXIN_CONDA_ENV:-moxin-studio}"
 CONDA_ROOT="${MOXIN_CONDA_ROOT:-$HOME/.moxinvoice/conda}"
 CONDA_BIN="${MOXIN_CONDA_BIN:-$CONDA_ROOT/bin/conda}"
 CONDA_ENV_PREFIX="${MOXIN_CONDA_ENV_PREFIX:-$CONDA_ROOT/envs/$ENV_NAME}"
+
 MODEL_DIR="${GPT_SOVITS_MODEL_DIR:-$HOME/.OminiX/models/gpt-sovits-mlx}"
 PRIMESPEECH_DIR="${PRIMESPEECH_MODEL_DIR:-$HOME/.dora/models/primespeech}"
 ASR_MODEL_DIR="${ASR_MODEL_DIR:-$HOME/.dora/models/asr/funasr}"
+
+QWEN_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
+QWEN_CUSTOM_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
+QWEN_BASE_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-Base}"
+QWEN_CUSTOM_REPO="${QWEN3_TTS_CUSTOMVOICE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
+QWEN_BASE_REPO="${QWEN3_TTS_BASE_REPO:-Qwen/Qwen3-TTS-12Hz-1.7B-Base}"
+
+INFERENCE_BACKEND="${MOXIN_INFERENCE_BACKEND:-primespeech_mlx}"
+ZERO_SHOT_BACKEND="${MOXIN_ZERO_SHOT_BACKEND:-primespeech_mlx}"
+
 STATE_PATH="${MOXIN_BOOTSTRAP_STATE_PATH:-$HOME/Library/Logs/MoxinVoice/bootstrap_state.txt}"
-TOTAL_STEPS=9
+TOTAL_STEPS=10
+
+# Resolve source paths for bundle/dev
+DORA_COMMON_SRC=""
+DORA_ASR_SRC=""
+DORA_PRIMESPEECH_SRC=""
+MODEL_MANAGER_SCRIPT=""
+CONVERT_SCRIPT=""
+EXPORT_VITS_SCRIPT=""
+EXTRACT_SEM_SCRIPT=""
+QWEN_DOWNLOAD_SCRIPT=""
+OMINIX_SCRIPTS_DIR=""
+OMINIX_EXPORT_VITS_SCRIPT=""
+
+if [[ -d "$PY_SRC" ]]; then
+  DORA_COMMON_SRC="$PY_SRC/libs/dora-common"
+  DORA_ASR_SRC="$PY_SRC/node-hub/dora-asr"
+  DORA_PRIMESPEECH_SRC="$PY_SRC/node-hub/dora-primespeech"
+  MODEL_MANAGER_SCRIPT="$PY_SRC/models/model-manager/download_models.py"
+  CONVERT_SCRIPT="$PY_SRC/scripts/convert_all_voices.py"
+  EXPORT_VITS_SCRIPT="$PY_SRC/scripts/export_all_vits_onnx.py"
+  EXTRACT_SEM_SCRIPT="$PY_SRC/scripts/extract_all_prompt_semantic.py"
+  QWEN_DOWNLOAD_SCRIPT="$PY_SRC/scripts/download_qwen3_tts_models.py"
+  OMINIX_SCRIPTS_DIR="$PY_SRC/omx-scripts"
+  OMINIX_EXPORT_VITS_SCRIPT="$PY_SRC/omx-scripts/export_vits_onnx.py"
+else
+  DORA_COMMON_SRC="$REPO_ROOT/libs/dora-common"
+  DORA_ASR_SRC="$REPO_ROOT/node-hub/dora-asr"
+  DORA_PRIMESPEECH_SRC="$REPO_ROOT/node-hub/dora-primespeech"
+  MODEL_MANAGER_SCRIPT="$REPO_ROOT/models/model-manager/download_models.py"
+  CONVERT_SCRIPT="$REPO_ROOT/scripts/convert_all_voices.py"
+  EXPORT_VITS_SCRIPT="$REPO_ROOT/scripts/export_all_vits_onnx.py"
+  EXTRACT_SEM_SCRIPT="$REPO_ROOT/scripts/extract_all_prompt_semantic.py"
+  QWEN_DOWNLOAD_SCRIPT="$REPO_ROOT/scripts/download_qwen3_tts_models.py"
+  OMINIX_SCRIPTS_DIR="$REPO_ROOT/node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts"
+  OMINIX_EXPORT_VITS_SCRIPT="$OMINIX_SCRIPTS_DIR/export_vits_onnx.py"
+fi
 
 write_step() {
   local current="$1"
@@ -45,15 +100,40 @@ install_private_conda() {
   rm -f "$tmp_installer"
 }
 
+qwen_model_ready() {
+  local model_dir="$1"
+  [[ -f "$model_dir/config.json" ]] &&
+  [[ -f "$model_dir/generation_config.json" ]] &&
+  [[ -f "$model_dir/vocab.json" ]] &&
+  [[ -f "$model_dir/merges.txt" ]] &&
+  ([[ -f "$model_dir/model.safetensors" ]] || [[ -f "$model_dir/model.safetensors.index.json" ]]) &&
+  [[ -f "$model_dir/speech_tokenizer/config.json" ]] &&
+  [[ -f "$model_dir/speech_tokenizer/model.safetensors" ]]
+}
+
+NEED_QWEN_CUSTOM=0
+NEED_QWEN_BASE=0
+if [[ "$INFERENCE_BACKEND" == "qwen3_tts_mlx" ]]; then
+  NEED_QWEN_CUSTOM=1
+fi
+if [[ "$ZERO_SHOT_BACKEND" == "qwen3_tts_mlx" ]]; then
+  NEED_QWEN_BASE=1
+fi
+
 echo "=== Moxin Voice Bootstrap ==="
 echo "Resources: $APP_RESOURCES"
 echo "Python source bundle: $PY_SRC"
+echo "Repo root fallback: $REPO_ROOT"
 echo "Conda root: $CONDA_ROOT"
 echo "Conda env: $CONDA_ENV_PREFIX"
 echo "MLX model dir: $MODEL_DIR"
 echo "PrimeSpeech model dir: $PRIMESPEECH_DIR"
 echo "ASR model dir: $ASR_MODEL_DIR"
+echo "Inference backend: $INFERENCE_BACKEND"
+echo "Zero-shot backend: $ZERO_SHOT_BACKEND"
+echo "Qwen model root: $QWEN_ROOT"
 echo
+
 write_step 1 "Prepare Runtime" "Checking or creating private conda runtime"
 
 if [[ ! -x "$CONDA_BIN" ]] && command -v conda >/dev/null 2>&1; then
@@ -79,61 +159,77 @@ echo "Installing Git + Git LFS into app-private conda ..."
 "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" git lfs install --skip-repo
 
 write_step 3 "Install Base Python" "Upgrading pip/setuptools/wheel"
-echo "Installing Python dependencies into $CONDA_ENV_PREFIX ..."
 "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install --upgrade pip setuptools wheel
 
 write_step 4 "Install Dora Common" "Installing dora-common"
-if [[ -d "$PY_SRC/libs/dora-common" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$PY_SRC/libs/dora-common"
+if [[ -d "$DORA_COMMON_SRC" ]]; then
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$DORA_COMMON_SRC"
 fi
 
 write_step 5 "Install ASR Node" "Installing dora-asr and ASR dependencies"
-if [[ -d "$PY_SRC/node-hub/dora-asr" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$PY_SRC/node-hub/dora-asr"
+if [[ -d "$DORA_ASR_SRC" ]]; then
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$DORA_ASR_SRC"
 fi
 
 write_step 6 "Install PrimeSpeech Node" "Installing dora-primespeech and training dependencies"
-if [[ -d "$PY_SRC/node-hub/dora-primespeech" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$PY_SRC/node-hub/dora-primespeech"
+if [[ -d "$DORA_PRIMESPEECH_SRC" ]]; then
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$DORA_PRIMESPEECH_SRC"
 fi
-
 "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install "datasets<3.0.0" simplejson sortedcontainers tensorboard matplotlib
 
-write_step 7 "Download Models" "Downloading ASR and PrimeSpeech model files"
-if [[ -f "$PY_SRC/models/model-manager/download_models.py" ]]; then
-  echo "Downloading required models (ASR + PrimeSpeech)..."
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env PRIMESPEECH_MODEL_DIR="$PRIMESPEECH_DIR" python "$PY_SRC/models/model-manager/download_models.py" --download funasr
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env PRIMESPEECH_MODEL_DIR="$PRIMESPEECH_DIR" python "$PY_SRC/models/model-manager/download_models.py" --download primespeech
+write_step 7 "Download Base Models" "Downloading ASR and PrimeSpeech model files"
+if [[ -f "$MODEL_MANAGER_SCRIPT" ]]; then
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env PRIMESPEECH_MODEL_DIR="$PRIMESPEECH_DIR" python "$MODEL_MANAGER_SCRIPT" --download funasr
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env PRIMESPEECH_MODEL_DIR="$PRIMESPEECH_DIR" python "$MODEL_MANAGER_SCRIPT" --download primespeech
 fi
 
-write_step 8 "Convert Models" "Converting PrimeSpeech models into MLX layout"
-if [[ -f "$PY_SRC/scripts/convert_all_voices.py" ]]; then
-  echo "Converting PrimeSpeech models to MLX layout..."
+write_step 8 "Convert Base Models" "Converting PrimeSpeech models into MLX layout"
+if [[ -f "$CONVERT_SCRIPT" ]]; then
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
-    OMINIX_SCRIPTS="$PY_SRC/omx-scripts" \
+    OMINIX_SCRIPTS="$OMINIX_SCRIPTS_DIR" \
     PRIMESPEECH_MOYOYO_SRC="$PRIMESPEECH_DIR/moyoyo" \
     GPT_SOVITS_MODEL_DIR="$MODEL_DIR" \
-    python "$PY_SRC/scripts/convert_all_voices.py"
+    python "$CONVERT_SCRIPT"
 fi
-
-if [[ -f "$PY_SRC/scripts/export_all_vits_onnx.py" ]]; then
-  echo "Exporting optional VITS ONNX files..."
+if [[ -f "$EXPORT_VITS_SCRIPT" ]]; then
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
-    OMINIX_EXPORT_VITS_SCRIPT="$PY_SRC/omx-scripts/export_vits_onnx.py" \
+    OMINIX_EXPORT_VITS_SCRIPT="$OMINIX_EXPORT_VITS_SCRIPT" \
     PRIMESPEECH_SOVITS_SRC="$PRIMESPEECH_DIR/moyoyo/SoVITS_weights" \
     GPT_SOVITS_VOICES_DIR="$MODEL_DIR/voices" \
-    python "$PY_SRC/scripts/export_all_vits_onnx.py" || true
+    python "$EXPORT_VITS_SCRIPT" || true
 fi
-
-if [[ -f "$PY_SRC/scripts/extract_all_prompt_semantic.py" ]]; then
-  echo "Extracting optional prompt semantic caches..."
+if [[ -f "$EXTRACT_SEM_SCRIPT" ]]; then
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
     PRIMESPEECH_MOYOYO_SRC="$PRIMESPEECH_DIR/moyoyo" \
     GPT_SOVITS_VOICES_DIR="$MODEL_DIR/voices" \
-    python "$PY_SRC/scripts/extract_all_prompt_semantic.py" || true
+    python "$EXTRACT_SEM_SCRIPT" || true
 fi
 
-write_step 9 "Finalize" "Runtime initialization complete"
+write_step 9 "Download Qwen3 Models" "Preparing qwen3-tts-mlx model files if required"
+if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" ]]; then
+  if [[ ! -f "$QWEN_DOWNLOAD_SCRIPT" ]]; then
+    echo "ERROR: missing qwen download script: $QWEN_DOWNLOAD_SCRIPT"
+    exit 1
+  fi
+
+  if [[ "$NEED_QWEN_CUSTOM" == "1" ]] && ! qwen_model_ready "$QWEN_CUSTOM_DIR"; then
+    echo "Qwen CustomVoice model missing; downloading..."
+  fi
+  if [[ "$NEED_QWEN_BASE" == "1" ]] && ! qwen_model_ready "$QWEN_BASE_DIR"; then
+    echo "Qwen Base model missing; downloading..."
+  fi
+
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
+    HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
+    python "$QWEN_DOWNLOAD_SCRIPT" \
+      --root "$QWEN_ROOT" \
+      --custom-repo "$QWEN_CUSTOM_REPO" \
+      --base-repo "$QWEN_BASE_REPO" \
+      $([[ "$NEED_QWEN_CUSTOM" == "1" ]] && echo "--need-custom") \
+      $([[ "$NEED_QWEN_BASE" == "1" ]] && echo "--need-base")
+fi
+
+write_step 10 "Finalize" "Runtime initialization complete"
 
 cat <<'MSG'
 
@@ -141,7 +237,8 @@ Bootstrap completed.
 
 Important:
 1) Runtime Python/ASR dependencies were installed into app-private conda.
-2) Models were downloaded/converted to local runtime model directories.
-3) You can now relaunch the app and start TTS/ASR without manual conda setup.
+2) PrimeSpeech and ASR models were downloaded/converted.
+3) If qwen backend is selected, required qwen model snapshots were downloaded.
+4) You can relaunch the app and start TTS/ASR without manual setup.
 
 MSG

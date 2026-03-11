@@ -86,6 +86,13 @@ enum RuntimeInitEvent {
     DoneErr(String),
 }
 
+#[derive(Debug)]
+enum QwenModelDownloadEvent {
+    Stage(String),
+    DoneOk,
+    DoneErr(String),
+}
+
 #[derive(Clone, Debug)]
 struct TtsModelOption {
     id: String,
@@ -5061,6 +5068,34 @@ live_design! {
                             }
 
                             experiments_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "实验功能" }
+                            inference_backend_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                inference_backend_pick_label = <SettingsBodyLabel> {
+                                    width: 110, height: Fit
+                                    text: "推理后端"
+                                }
+                                inference_backend_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+
+                            zero_shot_backend_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                zero_shot_backend_pick_label = <SettingsBodyLabel> {
+                                    width: 110, height: Fit
+                                    text: "Zero-shot 后端"
+                                }
+                                zero_shot_backend_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+
                             backend_pick_row = <View> {
                                 width: Fill, height: Fit
                                 flow: Right
@@ -5086,6 +5121,21 @@ live_design! {
                                 }
                                 debug_logs_dropdown = <SettingsDeviceDropDown> {
                                     width: Fill, height: 38
+                                }
+                            }
+
+                            qwen_status_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                qwen_status_label = <SettingsBodyLabel> {
+                                    width: 110, height: Fit
+                                    text: "Qwen 模型"
+                                }
+                                qwen_status_value = <SettingsBodyLabel> {
+                                    width: Fill, height: Fit
+                                    text: "未就绪"
                                 }
                             }
                         }
@@ -7213,6 +7263,12 @@ pub struct TTSScreen {
     runtime_init_status_text: String,
     #[rust]
     runtime_init_detail_text: String,
+    #[rust]
+    qwen_download_in_progress: bool,
+    #[rust]
+    qwen_download_rx: Option<Receiver<QwenModelDownloadEvent>>,
+    #[rust]
+    qwen_model_status_text: String,
 
     // Right controls panel state: 0 = Voice Management, 1 = Settings, 2 = History
     #[rust]
@@ -7407,6 +7463,16 @@ impl Widget for TTSScreen {
                 let _ = i18n::set_locale("zh");
             }
             self.app_preferences = app_preferences::load_preferences();
+            if self.app_preferences.inference_backend == "qwen3_tts_mlx"
+                && !Self::qwen_custom_ready()
+            {
+                self.app_preferences.inference_backend = "primespeech_mlx".to_string();
+            }
+            if self.app_preferences.zero_shot_backend == "qwen3_tts_mlx"
+                && !Self::qwen_base_ready()
+            {
+                self.app_preferences.zero_shot_backend = "primespeech_mlx".to_string();
+            }
             self.user_profile_customized = true;
             self.user_settings_tab = 0;
             self.user_display_name = self.app_preferences.display_name.clone();
@@ -7446,6 +7512,14 @@ impl Widget for TTSScreen {
                 "MOXIN_TRAINING_BACKEND",
                 self.app_preferences.training_backend.clone(),
             );
+            std::env::set_var(
+                "MOXIN_INFERENCE_BACKEND",
+                self.app_preferences.inference_backend.clone(),
+            );
+            std::env::set_var(
+                "MOXIN_ZERO_SHOT_BACKEND",
+                self.app_preferences.zero_shot_backend.clone(),
+            );
 
             // Initialize clone tasks state
             self.clone_tasks = Vec::new();
@@ -7481,6 +7555,9 @@ impl Widget for TTSScreen {
             self.runtime_init_status_text = self.tr("初始化中...", "Initializing...").to_string();
             self.runtime_init_detail_text =
                 self.tr("正在检查运行环境", "Checking runtime environment").to_string();
+            self.qwen_download_in_progress = false;
+            self.qwen_download_rx = None;
+            self.qwen_model_status_text = self.tr("未就绪", "Not ready").to_string();
             
             // Add initial log entries
             self.log_entries
@@ -7560,6 +7637,7 @@ impl Widget for TTSScreen {
         // Poll for audio and logs
         if self.update_timer.is_event(event).is_some() {
             self.poll_runtime_initialization(cx);
+            self.poll_qwen_model_download(cx);
 
             // Poll Dora Audio - store audio samples instead of auto-playing
             if let Some(dora) = &self.dora {
@@ -8389,6 +8467,88 @@ impl Widget for TTSScreen {
             self.show_toast(cx, self.tr("输出设备已更新", "Output device updated"));
         }
 
+        if let Some(idx) = self
+            .view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
+            .changed(&actions)
+        {
+            let target_backend = if idx == 1 {
+                "qwen3_tts_mlx"
+            } else {
+                "primespeech_mlx"
+            };
+
+            if target_backend == "qwen3_tts_mlx" && !Self::qwen_custom_ready() {
+                self.view
+                    .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
+                    .set_selected_item(cx, 0);
+                self.start_qwen_model_download(
+                    cx,
+                    true,
+                    self.app_preferences.zero_shot_backend == "qwen3_tts_mlx",
+                );
+                self.show_toast(
+                    cx,
+                    self.tr(
+                        "Qwen 推理模型未就绪，已开始后台下载",
+                        "Qwen inference model not ready. Background download started",
+                    ),
+                );
+                return;
+            }
+
+            self.app_preferences.inference_backend = target_backend.to_string();
+            std::env::set_var(
+                "MOXIN_INFERENCE_BACKEND",
+                self.app_preferences.inference_backend.clone(),
+            );
+            self.persist_app_preferences(cx);
+            self.update_user_settings_page(cx);
+            self.set_generate_button_loading(cx, self.tts_status == TTSStatus::Generating);
+            self.stop_dora(cx);
+            self.auto_start_dataflow(cx);
+            self.show_toast(cx, self.tr("推理后端已切换", "Inference backend switched"));
+        }
+        if let Some(idx) = self
+            .view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
+            .changed(&actions)
+        {
+            let target_backend = if idx == 1 {
+                "qwen3_tts_mlx"
+            } else {
+                "primespeech_mlx"
+            };
+
+            if target_backend == "qwen3_tts_mlx" && !Self::qwen_base_ready() {
+                self.view
+                    .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
+                    .set_selected_item(cx, 0);
+                self.start_qwen_model_download(cx, false, true);
+                self.show_toast(
+                    cx,
+                    self.tr(
+                        "Qwen zero-shot 模型未就绪，已开始后台下载",
+                        "Qwen zero-shot model not ready. Background download started",
+                    ),
+                );
+                return;
+            }
+
+            self.app_preferences.zero_shot_backend = target_backend.to_string();
+            std::env::set_var(
+                "MOXIN_ZERO_SHOT_BACKEND",
+                self.app_preferences.zero_shot_backend.clone(),
+            );
+            self.persist_app_preferences(cx);
+            self.update_user_settings_page(cx);
+            self.set_generate_button_loading(cx, self.tts_status == TTSStatus::Generating);
+            if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
+                self.stop_dora(cx);
+                self.auto_start_dataflow(cx);
+            }
+            self.show_toast(cx, self.tr("Zero-shot 后端已切换", "Zero-shot backend switched"));
+        }
         if let Some(idx) = self
             .view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
@@ -9349,6 +9509,28 @@ impl Widget for TTSScreen {
             ))
             .clicked(&actions)
         {
+            let selected_voice_is_trained = self
+                .selected_voice_id
+                .as_ref()
+                .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
+                .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
+                .unwrap_or(false);
+            if self.app_preferences.inference_backend == "qwen3_tts_mlx" && selected_voice_is_trained {
+                self.show_toast(
+                    cx,
+                    self.tr(
+                        "Qwen 推理后端暂不支持训练音色，请切换推理后端或选择其他音色",
+                        "Qwen inference backend does not support trained voices. Switch backend or voice",
+                    ),
+                );
+                self.add_log(
+                    cx,
+                    "[WARN] [tts] Generate blocked: trained voice selected while inference backend is qwen3_tts_mlx",
+                );
+                self.set_generate_button_loading(cx, false);
+                return;
+            }
+
             // Check if dora is running and bridges are ready
             if let Some(ref dora) = self.dora {
                 if !dora.is_running() {
@@ -10146,6 +10328,68 @@ impl TTSScreen {
             .join("primespeech")
     }
 
+    fn qwen_root_dir() -> PathBuf {
+        std::env::var("QWEN3_TTS_MODEL_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".OminiX")
+                    .join("models")
+                    .join("qwen3-tts-mlx")
+            })
+    }
+
+    fn qwen_custom_model_dir() -> PathBuf {
+        std::env::var("QWEN3_TTS_CUSTOMVOICE_MODEL_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit")
+            })
+    }
+
+    fn qwen_base_model_dir() -> PathBuf {
+        std::env::var("QWEN3_TTS_BASE_MODEL_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-Base"))
+    }
+
+    fn qwen_model_dir_ready(model_dir: &Path) -> bool {
+        model_dir.join("config.json").exists()
+            && model_dir.join("generation_config.json").exists()
+            && model_dir.join("vocab.json").exists()
+            && model_dir.join("merges.txt").exists()
+            && (model_dir.join("model.safetensors").exists()
+                || model_dir.join("model.safetensors.index.json").exists())
+            && model_dir.join("speech_tokenizer").join("config.json").exists()
+            && model_dir.join("speech_tokenizer").join("model.safetensors").exists()
+    }
+
+    fn qwen_custom_ready() -> bool {
+        Self::qwen_model_dir_ready(&Self::qwen_custom_model_dir())
+    }
+
+    fn qwen_base_ready() -> bool {
+        Self::qwen_model_dir_ready(&Self::qwen_base_model_dir())
+    }
+
+    fn resolve_qwen_download_script_path() -> Option<PathBuf> {
+        if let Ok(resources) = std::env::var("MOXIN_APP_RESOURCES") {
+            let bundled = PathBuf::from(resources)
+                .join("scripts")
+                .join("download_qwen3_tts_models.py");
+            if bundled.exists() {
+                return Some(bundled);
+            }
+        }
+        let cwd = std::env::current_dir().ok()?;
+        let local = cwd.join("scripts").join("download_qwen3_tts_models.py");
+        if local.exists() {
+            return Some(local);
+        }
+        None
+    }
+
     fn open_path_in_finder(path: &Path) -> Result<(), String> {
         if !path.exists() {
             fs::create_dir_all(path)
@@ -10361,6 +10605,56 @@ impl TTSScreen {
             .set_selected_item(cx, retention_idx);
 
         self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
+            .set_labels(
+                cx,
+                if en {
+                    vec![
+                        "PrimeSpeech MLX (current)".to_string(),
+                        "Qwen3 TTS MLX".to_string(),
+                    ]
+                } else {
+                    vec![
+                        "PrimeSpeech MLX（当前）".to_string(),
+                        "Qwen3 TTS MLX".to_string(),
+                    ]
+                },
+            );
+        let inference_backend_idx = if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
+            1
+        } else {
+            0
+        };
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
+            .set_selected_item(cx, inference_backend_idx);
+
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
+            .set_labels(
+                cx,
+                if en {
+                    vec![
+                        "PrimeSpeech MLX".to_string(),
+                        "Qwen3 TTS MLX".to_string(),
+                    ]
+                } else {
+                    vec![
+                        "PrimeSpeech MLX".to_string(),
+                        "Qwen3 TTS MLX".to_string(),
+                    ]
+                },
+            );
+        let zero_shot_backend_idx = if self.app_preferences.zero_shot_backend == "qwen3_tts_mlx" {
+            1
+        } else {
+            0
+        };
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
+            .set_selected_item(cx, zero_shot_backend_idx);
+
+        self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
             .set_labels(
                 cx,
@@ -10398,6 +10692,21 @@ impl TTSScreen {
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
             .set_selected_item(cx, if self.app_preferences.debug_logs_enabled { 1 } else { 0 });
+
+        let custom_ready = Self::qwen_custom_ready();
+        let base_ready = Self::qwen_base_ready();
+        if !self.qwen_download_in_progress {
+            self.qwen_model_status_text = if custom_ready && base_ready {
+                self.tr("已就绪（推理+克隆）", "Ready (inference + clone)").to_string()
+            } else if custom_ready {
+                self.tr("部分就绪（仅推理）", "Partially ready (inference only)").to_string()
+            } else {
+                self.tr("未就绪", "Not ready").to_string()
+            };
+        }
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.qwen_status_row.qwen_status_value))
+            .set_text(cx, &self.qwen_model_status_text);
 
         self.update_user_settings_tabs(cx);
     }
@@ -11099,6 +11408,16 @@ impl TTSScreen {
             .set_text(cx, self.tr("实验功能", "Experimental"));
         self.view
             .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_pick_label
+            ))
+            .set_text(cx, self.tr("推理后端", "Inference backend"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label
+            ))
+            .set_text(cx, self.tr("Zero-shot 后端", "Zero-shot backend"));
+        self.view
+            .label(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.backend_pick_label
             ))
             .set_text(cx, self.tr("训练后端", "Training backend"));
@@ -11107,6 +11426,11 @@ impl TTSScreen {
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_pick_label
             ))
             .set_text(cx, self.tr("Debug 日志", "Debug logs"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.qwen_status_row.qwen_status_label
+            ))
+            .set_text(cx, self.tr("Qwen 模型", "Qwen models"));
         self.view
             .drop_down(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown
@@ -11117,6 +11441,42 @@ impl TTSScreen {
                     vec!["Forever".to_string(), "30 days".to_string(), "7 days".to_string()]
                 } else {
                     vec!["永久".to_string(), "30天".to_string(), "7天".to_string()]
+                },
+            );
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown
+            ))
+            .set_labels(
+                cx,
+                if en {
+                    vec![
+                        "PrimeSpeech MLX (current)".to_string(),
+                        "Qwen3 TTS MLX".to_string(),
+                    ]
+                } else {
+                    vec![
+                        "PrimeSpeech MLX（当前）".to_string(),
+                        "Qwen3 TTS MLX".to_string(),
+                    ]
+                },
+            );
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown
+            ))
+            .set_labels(
+                cx,
+                if en {
+                    vec![
+                        "PrimeSpeech MLX".to_string(),
+                        "Qwen3 TTS MLX".to_string(),
+                    ]
+                } else {
+                    vec![
+                        "PrimeSpeech MLX".to_string(),
+                        "Qwen3 TTS MLX".to_string(),
+                    ]
                 },
             );
         self.view
@@ -11630,9 +11990,21 @@ impl TTSScreen {
     }
 
     fn set_generate_button_loading(&mut self, cx: &mut Cx, loading: bool) {
+        let selected_voice_is_trained = self
+            .selected_voice_id
+            .as_ref()
+            .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
+            .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
+            .unwrap_or(false);
+        let trained_voice_supported = !(
+            self.app_preferences.inference_backend == "qwen3_tts_mlx" && selected_voice_is_trained
+        );
+
         // Update button text
         let button_text = if loading {
             self.tr("生成中...", "Generating...")
+        } else if !trained_voice_supported {
+            self.tr("Qwen 暂不支持训练音色", "Qwen does not support trained voices")
         } else {
             self.tr("生成语音", "Generate Speech")
         };
@@ -11650,6 +12022,20 @@ impl TTSScreen {
                     .generate_btn
             ))
             .set_text(cx, button_text);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .bottom_bar
+                    .generate_section
+                    .generate_btn
+            ))
+            .set_enabled(cx, !loading && trained_voice_supported);
 
         // Show/hide spinner
         self.view
@@ -12724,15 +13110,218 @@ impl TTSScreen {
         self.view.redraw(cx);
     }
 
+    fn start_qwen_model_download(
+        &mut self,
+        cx: &mut Cx,
+        need_custom: bool,
+        need_base: bool,
+    ) {
+        if self.qwen_download_in_progress {
+            self.show_toast(
+                cx,
+                self.tr("Qwen 模型下载中，请稍候", "Qwen model download already running"),
+            );
+            return;
+        }
+        if !need_custom && !need_base {
+            return;
+        }
+
+        let Some(script_path) = Self::resolve_qwen_download_script_path() else {
+            self.show_toast(
+                cx,
+                self.tr(
+                    "未找到 Qwen 下载脚本，无法启动下载",
+                    "Qwen download script not found",
+                ),
+            );
+            return;
+        };
+
+        let qwen_root = Self::qwen_root_dir();
+        let log_dir = PathBuf::from(
+            std::env::var("HOME").unwrap_or_else(|_| ".".to_string()) + "/Library/Logs/MoxinVoice",
+        );
+        let _ = std::fs::create_dir_all(&log_dir);
+        let qwen_log = log_dir.join("qwen_model_download.log");
+
+        self.qwen_download_in_progress = true;
+        self.qwen_model_status_text = self.tr("下载中...", "Downloading...").to_string();
+        self.update_user_settings_page(cx);
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [qwen] Starting background model download (custom={}, base={})",
+                need_custom, need_base
+            ),
+        );
+
+        let (tx, rx) = mpsc::channel::<QwenModelDownloadEvent>();
+        self.qwen_download_rx = Some(rx);
+
+        thread::spawn(move || {
+            let _ = tx.send(QwenModelDownloadEvent::Stage(
+                "Preparing Qwen model download".to_string(),
+            ));
+
+            let conda_bin = std::env::var("MOXIN_CONDA_BIN")
+                .ok()
+                .filter(|p| Path::new(p).exists())
+                .unwrap_or_else(|| {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                    format!("{}/.moxinvoice/conda/bin/conda", home)
+                });
+            let conda_env_prefix = std::env::var("MOXIN_CONDA_ENV_PREFIX")
+                .ok()
+                .unwrap_or_else(|| {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                    let env = std::env::var("MOXIN_CONDA_ENV").unwrap_or_else(|_| "moxin-studio".to_string());
+                    format!("{}/.moxinvoice/conda/envs/{}", home, env)
+                });
+
+            let log_file = match OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&qwen_log)
+            {
+                Ok(f) => f,
+                Err(err) => {
+                    let _ = tx.send(QwenModelDownloadEvent::DoneErr(format!(
+                        "open qwen download log failed: {}",
+                        err
+                    )));
+                    return;
+                }
+            };
+            let log_file_err = match log_file.try_clone() {
+                Ok(f) => f,
+                Err(err) => {
+                    let _ = tx.send(QwenModelDownloadEvent::DoneErr(format!(
+                        "clone qwen download log fd failed: {}",
+                        err
+                    )));
+                    return;
+                }
+            };
+
+            let mut cmd = if Path::new(&conda_bin).exists() && Path::new(&conda_env_prefix).exists() {
+                let mut c = Command::new(&conda_bin);
+                c.arg("run")
+                    .arg("-p")
+                    .arg(&conda_env_prefix)
+                    .arg("python")
+                    .arg(&script_path);
+                c
+            } else {
+                let mut c = Command::new("python3");
+                c.arg(&script_path);
+                c
+            };
+
+            cmd.arg("--root").arg(&qwen_root);
+            if need_custom {
+                cmd.arg("--need-custom");
+            }
+            if need_base {
+                cmd.arg("--need-base");
+            }
+            cmd.stdout(Stdio::from(log_file));
+            cmd.stderr(Stdio::from(log_file_err));
+
+            let status = cmd.status();
+            match status {
+                Ok(s) if s.success() => {
+                    let _ = tx.send(QwenModelDownloadEvent::DoneOk);
+                }
+                Ok(s) => {
+                    let _ = tx.send(QwenModelDownloadEvent::DoneErr(format!(
+                        "qwen model download exited with status {} (log: {})",
+                        s,
+                        qwen_log.display()
+                    )));
+                }
+                Err(err) => {
+                    let _ = tx.send(QwenModelDownloadEvent::DoneErr(format!(
+                        "failed to launch qwen model download: {}",
+                        err
+                    )));
+                }
+            }
+        });
+    }
+
+    fn poll_qwen_model_download(&mut self, cx: &mut Cx) {
+        let mut latest_event: Option<QwenModelDownloadEvent> = None;
+        if let Some(rx) = &self.qwen_download_rx {
+            while let Ok(ev) = rx.try_recv() {
+                latest_event = Some(ev);
+            }
+        }
+        let Some(event) = latest_event else {
+            return;
+        };
+
+        match event {
+            QwenModelDownloadEvent::Stage(detail) => {
+                self.qwen_model_status_text = self.tr("下载中...", "Downloading...").to_string();
+                self.add_log(cx, &format!("[INFO] [qwen] {}", detail));
+                self.update_user_settings_page(cx);
+            }
+            QwenModelDownloadEvent::DoneOk => {
+                self.qwen_download_in_progress = false;
+                self.qwen_download_rx = None;
+                let custom_ready = Self::qwen_custom_ready();
+                let base_ready = Self::qwen_base_ready();
+                self.qwen_model_status_text = if custom_ready && base_ready {
+                    self.tr("已就绪（推理+克隆）", "Ready (inference + clone)").to_string()
+                } else if custom_ready {
+                    self.tr("部分就绪（仅推理）", "Partially ready (inference only)").to_string()
+                } else {
+                    self.tr("未就绪", "Not ready").to_string()
+                };
+                self.update_user_settings_page(cx);
+                self.show_toast(
+                    cx,
+                    self.tr(
+                        "Qwen 模型下载完成，请在设置中重新切换后端",
+                        "Qwen models downloaded. Please switch backend again in Settings",
+                    ),
+                );
+                self.add_log(cx, "[INFO] [qwen] Qwen model download completed");
+            }
+            QwenModelDownloadEvent::DoneErr(err) => {
+                self.qwen_download_in_progress = false;
+                self.qwen_download_rx = None;
+                self.qwen_model_status_text = self.tr("下载失败", "Download failed").to_string();
+                self.update_user_settings_page(cx);
+                self.show_toast(
+                    cx,
+                    self.tr(
+                        "Qwen 模型下载失败，请查看日志",
+                        "Qwen model download failed. Check logs",
+                    ),
+                );
+                self.add_log(cx, &format!("[ERROR] [qwen] {}", err));
+            }
+        }
+    }
+
     fn start_runtime_initialization(&mut self, cx: &mut Cx) {
         let app_resources = match std::env::var("MOXIN_APP_RESOURCES") {
             Ok(v) => PathBuf::from(v),
             Err(_) => {
-                self.runtime_init_state = RuntimeInitState::Ready;
-                self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
-                self.runtime_init_detail_text =
-                    self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
-                return;
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let direct = cwd.join("scripts").join("macos_preflight.sh");
+                if direct.exists() {
+                    cwd
+                } else {
+                    self.runtime_init_state = RuntimeInitState::Ready;
+                    self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
+                    self.runtime_init_detail_text =
+                        self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+                    return;
+                }
             }
         };
 
@@ -12764,6 +13353,9 @@ impl TTSScreen {
 
         let (tx, rx) = mpsc::channel::<RuntimeInitEvent>();
         self.runtime_init_rx = Some(rx);
+        let inference_backend = self.app_preferences.inference_backend.clone();
+        let zero_shot_backend = self.app_preferences.zero_shot_backend.clone();
+        let app_resources_env = app_resources.clone();
 
         thread::spawn(move || {
             let _ = tx.send(RuntimeInitEvent::Stage {
@@ -12772,6 +13364,9 @@ impl TTSScreen {
             });
 
             let pre_ok = Command::new(&pre)
+                .env("MOXIN_APP_RESOURCES", &app_resources_env)
+                .env("MOXIN_INFERENCE_BACKEND", &inference_backend)
+                .env("MOXIN_ZERO_SHOT_BACKEND", &zero_shot_backend)
                 .arg("--quick")
                 .status()
                 .map(|s| s.success())
@@ -12782,7 +13377,7 @@ impl TTSScreen {
             }
 
             let _ = tx.send(RuntimeInitEvent::Stage {
-                status: "Initializing runtime (0/9)".to_string(),
+                status: "Initializing runtime (0/10)".to_string(),
                 detail: "Installing dependencies and models (first launch may take several minutes)"
                     .to_string(),
             });
@@ -12814,6 +13409,9 @@ impl TTSScreen {
             };
 
             let mut child = match Command::new(&boot)
+                .env("MOXIN_APP_RESOURCES", &app_resources_env)
+                .env("MOXIN_INFERENCE_BACKEND", &inference_backend)
+                .env("MOXIN_ZERO_SHOT_BACKEND", &zero_shot_backend)
                 .env("MOXIN_BOOTSTRAP_STATE_PATH", &bootstrap_state)
                 .stdout(Stdio::from(log_file))
                 .stderr(Stdio::from(log_file_err))
@@ -12918,9 +13516,55 @@ impl TTSScreen {
             return;
         }
 
-        let dataflow_path = std::env::var("MOXIN_DATAFLOW_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("apps/moxin-voice/dataflow/tts.yml"));
+        // Ensure Dora coordinator/daemon are up so users don't need manual `dora up`.
+        self.add_log(cx, "[INFO] [tts] Ensuring Dora runtime is up...");
+        match std::process::Command::new("dora").args(["up"]).output() {
+            Ok(output) => {
+                if output.status.success() {
+                    self.add_log(cx, "[INFO] [tts] Dora runtime is ready");
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let err = stderr.trim();
+                    if err.is_empty() {
+                        self.add_log(
+                            cx,
+                            &format!(
+                                "[WARN] [tts] `dora up` exited with status {}. Continuing to start dataflow.",
+                                output.status
+                            ),
+                        );
+                    } else {
+                        self.add_log(
+                            cx,
+                            &format!(
+                                "[WARN] [tts] `dora up` failed (status {}): {}",
+                                output.status, err
+                            ),
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                self.add_log(
+                    cx,
+                    &format!(
+                        "[WARN] [tts] Failed to run `dora up`: {}. Continuing to start dataflow.",
+                        err
+                    ),
+                );
+            }
+        }
+
+        let dataflow_path = match self.materialize_runtime_dataflow(cx) {
+            Ok(path) => path,
+            Err(err) => {
+                self.add_log(
+                    cx,
+                    &format!("[ERROR] [tts] Failed to prepare runtime dataflow: {}", err),
+                );
+                return;
+            }
+        };
         if !dataflow_path.exists() {
             self.add_log(
                 cx,
@@ -12964,6 +13608,141 @@ impl TTSScreen {
         self.add_log(cx, "[INFO] [tts] Dataflow started, connecting...");
     }
 
+    fn normalize_inference_backend(raw: &str) -> &'static str {
+        if raw == "qwen3_tts_mlx" {
+            "qwen3_tts_mlx"
+        } else {
+            "primespeech_mlx"
+        }
+    }
+
+    fn normalize_zero_shot_backend(raw: &str) -> &'static str {
+        if raw == "qwen3_tts_mlx" {
+            "qwen3_tts_mlx"
+        } else {
+            "primespeech_mlx"
+        }
+    }
+
+    fn absolutize_dataflow_paths(template_path: &Path, content: &str) -> String {
+        let base_dir = template_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."));
+        let mut output = String::with_capacity(content.len() + 256);
+        let has_trailing_newline = content.ends_with('\n');
+
+        for line in content.lines() {
+            let trimmed = line.trim_start();
+            let indent = &line[..line.len().saturating_sub(trimmed.len())];
+
+            if let Some(raw_value) = trimmed.strip_prefix("path:") {
+                let raw_value = raw_value.trim();
+
+                let (path_value, quoted) = if raw_value.len() >= 2
+                    && ((raw_value.starts_with('"') && raw_value.ends_with('"'))
+                        || (raw_value.starts_with('\'') && raw_value.ends_with('\'')))
+                {
+                    (&raw_value[1..raw_value.len() - 1], true)
+                } else {
+                    (raw_value, false)
+                };
+
+                let should_resolve = path_value != "dynamic"
+                    && !path_value.starts_with('/')
+                    && path_value.contains('/');
+
+                if should_resolve {
+                    let candidate = base_dir.join(path_value);
+                    if candidate.exists() {
+                        let resolved = candidate.canonicalize().unwrap_or(candidate);
+                        if quoted {
+                            output.push_str(&format!("{indent}path: \"{}\"\n", resolved.display()));
+                        } else {
+                            output.push_str(&format!("{indent}path: {}\n", resolved.display()));
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            output.push_str(line);
+            output.push('\n');
+        }
+
+        if !has_trailing_newline && output.ends_with('\n') {
+            output.pop();
+        }
+        output
+    }
+
+    fn resolve_dataflow_template_path(&self) -> PathBuf {
+        let env_path = std::env::var("MOXIN_DATAFLOW_PATH")
+            .ok()
+            .map(PathBuf::from)
+            .filter(|p| p.exists());
+        if let Some(path) = env_path {
+            return path;
+        }
+
+        let app_resources = std::env::var("MOXIN_APP_RESOURCES")
+            .ok()
+            .map(PathBuf::from)
+            .filter(|p| p.exists());
+        if let Some(resources) = app_resources {
+            let bundle_dataflow = resources.join("dataflow").join("tts.yml");
+            if bundle_dataflow.exists() {
+                return bundle_dataflow;
+            }
+        }
+
+        PathBuf::from("apps/moxin-voice/dataflow/tts.yml")
+    }
+
+    fn materialize_runtime_dataflow(&mut self, cx: &mut Cx) -> Result<PathBuf, String> {
+        let template_path = self.resolve_dataflow_template_path();
+        let template = fs::read_to_string(&template_path).map_err(|e| {
+            format!(
+                "read template failed ({}): {}",
+                template_path.display(),
+                e
+            )
+        })?;
+
+        let inference_backend =
+            Self::normalize_inference_backend(&self.app_preferences.inference_backend).to_string();
+        let zero_shot_backend =
+            Self::normalize_zero_shot_backend(&self.app_preferences.zero_shot_backend).to_string();
+        std::env::set_var("MOXIN_INFERENCE_BACKEND", &inference_backend);
+        std::env::set_var("MOXIN_ZERO_SHOT_BACKEND", &zero_shot_backend);
+
+        let rendered = template
+            .replace("__MOXIN_INFERENCE_BACKEND__", &inference_backend)
+            .replace("__MOXIN_ZERO_SHOT_BACKEND__", &zero_shot_backend);
+        let rendered = Self::absolutize_dataflow_paths(&template_path, &rendered);
+
+        let runtime_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".dora")
+            .join("runtime")
+            .join("dataflow");
+        fs::create_dir_all(&runtime_dir)
+            .map_err(|e| format!("create runtime dataflow dir failed: {}", e))?;
+        let runtime_path = runtime_dir.join("tts.runtime.yml");
+        fs::write(&runtime_path, rendered)
+            .map_err(|e| format!("write runtime dataflow failed: {}", e))?;
+
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [tts] Runtime dataflow prepared: {} (inference={}, zero_shot={})",
+                runtime_path.display(),
+                inference_backend,
+                zero_shot_backend
+            ),
+        );
+        Ok(runtime_path)
+    }
+
     fn stop_dora(&mut self, cx: &mut Cx) {
         if self.dora.is_none() {
             return;
@@ -12979,6 +13758,29 @@ impl TTSScreen {
     }
 
     fn generate_speech(&mut self, cx: &mut Cx) {
+        // Qwen backend currently does not support VOICE:TRAINED prompt format.
+        let selected_voice_is_trained = self
+            .selected_voice_id
+            .as_ref()
+            .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
+            .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
+            .unwrap_or(false);
+        if self.app_preferences.inference_backend == "qwen3_tts_mlx" && selected_voice_is_trained {
+            self.add_log(
+                cx,
+                "[WARN] [tts] Qwen backend does not support trained voices (VOICE:TRAINED)",
+            );
+            self.show_toast(
+                cx,
+                self.tr(
+                    "Qwen 推理后端暂不支持训练音色，请切换推理后端或选择其他音色",
+                    "Qwen inference backend does not support trained voices. Switch backend or voice",
+                ),
+            );
+            self.set_generate_button_loading(cx, false);
+            return;
+        }
+
         // Check if Dora is connected
         let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
         if !is_running {
@@ -14852,10 +15654,22 @@ impl TTSScreen {
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.experiments_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_pick_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.backend_pick_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_pick_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.qwen_status_row.qwen_status_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.qwen_status_row.qwen_status_value))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
@@ -14865,6 +15679,12 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
@@ -15437,6 +16257,7 @@ impl TTSScreen {
                 ))
                 .set_visible(cx, false);
         }
+        self.set_generate_button_loading(cx, self.tts_status == TTSStatus::Generating);
     }
 
     fn select_voice(&mut self, cx: &mut Cx, voice: Voice) {

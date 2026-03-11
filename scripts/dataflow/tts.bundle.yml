@@ -31,8 +31,8 @@ nodes:
 
   - id: primespeech-tts
     # Relative to this file:
-    # Contents/Resources/dataflow/tts.yml -> Contents/MacOS/moxin-tts-node
-    path: ../../MacOS/moxin-tts-node
+    # Contents/Resources/dataflow/tts.yml -> Contents/Resources/scripts/macos_run_tts_backend.sh
+    path: ../scripts/macos_run_tts_backend.sh
     inputs:
       text: moxin-prompt-input/control
     outputs:
@@ -42,6 +42,8 @@ nodes:
       - log
     env:
       VOICE_NAME: "Doubao"
+      MOXIN_INFERENCE_BACKEND: "__MOXIN_INFERENCE_BACKEND__"
+      MOXIN_ZERO_SHOT_BACKEND: "__MOXIN_ZERO_SHOT_BACKEND__"
       LOG_LEVEL: INFO
 
   - id: moxin-audio-player
