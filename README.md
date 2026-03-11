@@ -16,23 +16,24 @@ Moxin Voice is a modern, GPU-accelerated desktop application for text-to-speech 
 - **🎵 Text-to-Speech** - Natural-sounding speech synthesis with 14+ preset voices
 - **🎤 Audio Recording** - Built-in audio recording with real-time visualization
 - **🔍 Speech Recognition** - Automatic text recognition from audio (ASR integration)
-- **💾 Audio Export** - Save generated speech as WAV files
+- **💾 Audio Export** - Save generated speech as WAV / MP3 files
 - **🚀 Native Performance** - Built with Rust for maximum efficiency
 
 ## 🏗️ Architecture
 
-Moxin TTS uses a modular workspace structure focused on TTS functionality:
+Moxin Voice uses a modular workspace structure focused on TTS functionality:
 
 ```
 moxin-voice/
-├── moxin-voice-shell/      # Standalone TTS application entry
-├── apps/moxin-voice/        # TTS application logic
+├── moxin-voice-shell/     # Standalone TTS application entry
+├── apps/moxin-voice/      # TTS application logic
 ├── moxin-widgets/         # Shared UI components
 ├── moxin-ui/              # Application infrastructure
 ├── moxin-dora-bridge/     # Dora dataflow integration
-└── node-hub/             # Python Dora nodes (TTS & ASR)
-    ├── dora-primespeech/ # GPT-SoVITS TTS engine
-    └── dora-asr/         # Speech recognition
+└── node-hub/              # Python Dora nodes (TTS & ASR)
+    ├── dora-primespeech/  # GPT-SoVITS TTS engine
+    ├── moxin-tts-node/    # GPT-SoVITS MLX TTS engine
+    └── dora-asr/          # Speech recognition
 ```
 
 ### Key Design Principles
@@ -76,7 +77,7 @@ cd models/setup-local-models
 ./setup_isolated_env.sh
 ```
 
-This creates a conda environment `moxin-studio` with:
+This creates a conda environment `moxin-voice` with:
 
 - Python 3.12
 - PyTorch 2.2.0, NumPy 1.26.4, Transformers 4.45.0
@@ -86,7 +87,7 @@ This creates a conda environment `moxin-studio` with:
 After the conda environment is created, install all Python and Rust components:
 
 ```bash
-conda activate moxin-studio
+conda activate moxin-voice
 ./install_all_packages.sh
 ```
 
@@ -167,7 +168,7 @@ cargo run -p moxin-voice-shell -- --log-level debug
 
 ## 📦 Project Structure
 
-Moxin TTS is organized as a Cargo workspace with 5 core crates:
+Moxin Voice is organized as a Cargo workspace with 5 core crates:
 
 | Crate               | Type    | Description                               |
 | ------------------- | ------- | ----------------------------------------- |
@@ -193,7 +194,7 @@ Moxin TTS is organized as a Cargo workspace with 5 core crates:
 
 ## 🎯 Current Status
 
-Moxin TTS is a **functional standalone application** with the following capabilities:
+Moxin Voice is a **functional standalone application** with the following capabilities:
 
 ### ✅ Implemented
 
@@ -275,7 +276,6 @@ You may obtain a copy of the License at
 - **[Makepad](https://github.com/makepad/makepad)** - For the incredible GPU-accelerated UI framework
 - **[GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)** - For the excellent voice cloning technology
 - **[Dora Robotics Framework](https://github.com/dora-rs/dora)** - For the dataflow architecture
-- **[Moxin Studio](https://github.com/moxin-org/moxin-studio)** - Original multi-app platform (upstream)
 - **Rust Community** - For excellent tooling and libraries
 
 ## 📧 Contact
