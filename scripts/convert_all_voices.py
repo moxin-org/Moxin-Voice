@@ -22,7 +22,7 @@ OMINIX_SCRIPTS = Path(
 if OMINIX_SCRIPTS is None or not OMINIX_SCRIPTS.exists():
     repo_fallback = (
         Path(__file__).parent.parent
-        / "node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts"
+        / "node-hub/dora-primespeech-mlx/patches/gpt-sovits-mlx/scripts"
     )
     bundle_fallback = Path(__file__).parent / "omx-scripts"
     OMINIX_SCRIPTS = repo_fallback if repo_fallback.exists() else bundle_fallback

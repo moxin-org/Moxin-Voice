@@ -306,6 +306,151 @@ pub fn get_builtin_voices() -> Vec<Voice> {
     ]
 }
 
+/// Get built-in voices for qwen3-tts backend.
+///
+/// NOTE:
+/// - These are qwen speakers, not PrimeSpeech preset voices.
+/// - Preview audio is optional and currently not bundled for qwen speakers.
+pub fn get_qwen_builtin_voices() -> Vec<Voice> {
+    vec![
+        Voice {
+            id: "vivian".to_string(),
+            name: "Vivian (Qwen)".to_string(),
+            description: "Bright, slightly edgy young female voice".to_string(),
+            category: VoiceCategory::Female,
+            language: "zh".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+        Voice {
+            id: "serena".to_string(),
+            name: "Serena (Qwen)".to_string(),
+            description: "Warm, gentle young female voice".to_string(),
+            category: VoiceCategory::Female,
+            language: "zh".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+        Voice {
+            id: "uncle_fu".to_string(),
+            name: "Uncle Fu (Qwen)".to_string(),
+            description: "Seasoned male voice with low, mellow timbre".to_string(),
+            category: VoiceCategory::Male,
+            language: "zh".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+        Voice {
+            id: "dylan".to_string(),
+            name: "Dylan (Qwen)".to_string(),
+            description: "Youthful Beijing male voice, clear and natural".to_string(),
+            category: VoiceCategory::Male,
+            language: "zh".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+        Voice {
+            id: "eric".to_string(),
+            name: "Eric (Qwen)".to_string(),
+            description: "Lively Chengdu male voice with husky brightness".to_string(),
+            category: VoiceCategory::Male,
+            language: "zh".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+        Voice {
+            id: "ryan".to_string(),
+            name: "Ryan (Qwen)".to_string(),
+            description: "Dynamic male voice with strong rhythmic drive".to_string(),
+            category: VoiceCategory::Male,
+            language: "en".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+        Voice {
+            id: "aiden".to_string(),
+            name: "Aiden (Qwen)".to_string(),
+            description: "Sunny American male voice with clear midrange".to_string(),
+            category: VoiceCategory::Male,
+            language: "en".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+        Voice {
+            id: "ono_anna".to_string(),
+            name: "Ono Anna (Qwen)".to_string(),
+            description: "Playful Japanese female voice, light and nimble".to_string(),
+            category: VoiceCategory::Female,
+            language: "ja".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+        Voice {
+            id: "sohee".to_string(),
+            name: "Sohee (Qwen)".to_string(),
+            description: "Warm Korean female voice with rich emotion".to_string(),
+            category: VoiceCategory::Female,
+            language: "ko".to_string(),
+            preview_audio: None,
+            source: VoiceSource::Builtin,
+            reference_audio_path: None,
+            prompt_text: None,
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        },
+    ]
+}
+
+/// Select built-in voices by current inference backend.
+pub fn get_builtin_voices_for_backend(inference_backend: &str) -> Vec<Voice> {
+    if inference_backend == "qwen3_tts_mlx" {
+        get_qwen_builtin_voices()
+    } else {
+        get_builtin_voices()
+    }
+}
+
 /// TTS generation status
 #[derive(Clone, Debug, PartialEq)]
 pub enum TTSStatus {

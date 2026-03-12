@@ -221,14 +221,14 @@ let text = asr.transcribe_samples(&samples_16khz, "Chinese")?;
 
 **改动范围：**
 
-1. 新建 Rust Dora 节点 `node-hub/moxin-tts-node/`
+1. 新建 Rust Dora 节点 `node-hub/dora-primespeech-mlx/`
 2. 修改 `tts.yml` 替换 Python 节点为 Rust 二进制
 3. 可选：同步替换 ASR 节点
 
 **节点结构：**
 
 ```
-node-hub/moxin-tts-node/
+node-hub/dora-primespeech-mlx/
 ├── Cargo.toml
 └── src/
     └── main.rs
@@ -420,7 +420,7 @@ OminiX-MLX 默认读取 `~/.OminiX/models/` 目录（通过环境变量可覆盖
 | `apps/moxin-voice/dataflow/tts.yml`  | Dora 数据流配置                 |
 | `node-hub/dora-primespeech/`         | 当前 Python TTS 节点            |
 | `node-hub/dora-asr/`                 | 当前 Python ASR 节点            |
-| `node-hub/moxin-tts-node/`（待创建） | Rust TTS 节点（gpt-sovits-mlx） |
+| `node-hub/dora-primespeech-mlx/` | Rust TTS 节点（gpt-sovits-mlx） |
 | `node-hub/moxin-asr-node/`（待创建） | Rust ASR 节点（qwen3-asr-mlx）  |
 | `../OminiX-MLX/gpt-sovits-mlx/`      | GPT-SoVITS Rust 实现            |
 | `../OminiX-MLX/qwen3-tts-mlx/`       | Qwen3-TTS Rust 实现             |

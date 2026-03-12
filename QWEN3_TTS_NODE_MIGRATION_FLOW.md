@@ -54,8 +54,8 @@
 状态：已完成
 - 新增内置节点：`qwen-tts-node`
 - 关键文件：
-  - `node-hub/moxin-tts-node/src/qwen_node.rs`
-  - `node-hub/moxin-tts-node/Cargo.toml`（新增 `[[bin]] qwen-tts-node`）
+  - `node-hub/dora-qwen3-tts-mlx/src/main.rs`
+  - `node-hub/dora-qwen3-tts-mlx/Cargo.toml`
 
 ## 2.3 协议与 I/O 契约对齐
 状态：部分完成
@@ -98,7 +98,7 @@
 ## 2.8 验证与回归
 状态：已完成（代码级）
 - 已通过：
-  - `cargo check -p moxin-tts-node --bins`
+  - `cargo check -p dora-qwen3-tts-mlx`
   - `cargo check -p moxin-voice-shell`
 - 脚本语法检查通过：
   - `scripts/run_tts_backend.sh`
@@ -132,10 +132,10 @@
 ## 5. 关键文件索引
 
 - 节点实现
-  - `node-hub/moxin-tts-node/src/qwen_node.rs`
-  - `node-hub/moxin-tts-node/src/protocol.rs`
-  - `node-hub/moxin-tts-node/src/audio_post.rs`
-  - `node-hub/moxin-tts-node/Cargo.toml`
+  - `node-hub/dora-qwen3-tts-mlx/src/main.rs`
+  - `node-hub/dora-qwen3-tts-mlx/src/protocol.rs`
+  - `node-hub/dora-qwen3-tts-mlx/src/audio_post.rs`
+  - `node-hub/dora-qwen3-tts-mlx/Cargo.toml`
 
 - UI 与运行时切换
   - `apps/moxin-voice/src/app_preferences.rs`

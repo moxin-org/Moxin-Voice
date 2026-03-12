@@ -1,0 +1,22 @@
+[package]
+name = "dora-qwen3-tts-mlx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Qwen3 TTS MLX Dora backend for Moxin Voice"
+
+[dependencies]
+qwen3-tts-mlx = { path = "patches/qwen3-tts-mlx" }
+dora-node-api = "0.4.0"
+arrow = { version = "54.2.1", default-features = false, features = ["ipc"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "5.0"
+hound = "3.5"
+
+[[bin]]
+name = "qwen-tts-node"
+path = "src/main.rs"

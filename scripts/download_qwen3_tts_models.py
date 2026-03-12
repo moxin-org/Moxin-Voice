@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download Qwen3 TTS MLX model snapshots into deterministic local directories."""
+"""Download Qwen3 TTS model snapshots for the MLX backend."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def download_repo(snapshot_download, repo_id: str, target_dir: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Download Qwen3 TTS MLX models")
+    parser = argparse.ArgumentParser(description="Download Qwen3 TTS models for the MLX backend")
     parser.add_argument("--root", required=True, help="Root dir for qwen3-tts models")
     parser.add_argument("--custom-repo", default="mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit")
     parser.add_argument("--base-repo", default="Qwen/Qwen3-TTS-12Hz-1.7B-Base")
@@ -67,7 +67,7 @@ def main() -> int:
     base_dir = root / args.base_dir
 
     if not args.need_custom and not args.need_base:
-        print("[Qwen3-TTS] Nothing requested (need-custom/base both false), skip")
+        print("[Qwen3-TTS] Nothing requested, skip")
         return 0
 
     if args.need_custom:

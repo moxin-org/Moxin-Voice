@@ -95,11 +95,11 @@ def emit_progress(event_type: str, message: str, data: Optional[Dict] = None):
 
 def find_mlx_convert_script() -> Optional[str]:
     """
-    Locate the MLX weight conversion script used by moxin-tts-node.
+    Locate the MLX weight conversion script used by the PrimeSpeech MLX backend.
 
     Priority:
     1) MOXIN_CONVERT_WEIGHTS_SCRIPT env var
-    2) repo-local node-hub/moxin-tts-node/vendor/... path
+    2) repo-local node-hub/dora-primespeech-mlx/patches/... path
     """
     env_path = os.environ.get("MOXIN_CONVERT_WEIGHTS_SCRIPT")
     if env_path and os.path.exists(env_path):
@@ -109,7 +109,7 @@ def find_mlx_convert_script() -> Optional[str]:
     # node-hub root is parents[3]
     try:
         node_hub_dir = Path(__file__).resolve().parents[3]
-        candidate = node_hub_dir / "moxin-tts-node" / "vendor" / "gpt-sovits-mlx" / "scripts" / "convert_gpt_weights.py"
+        candidate = node_hub_dir / "dora-primespeech-mlx" / "patches" / "gpt-sovits-mlx" / "scripts" / "convert_gpt_weights.py"
         if candidate.exists():
             return str(candidate)
     except Exception:

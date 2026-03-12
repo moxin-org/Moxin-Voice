@@ -68,7 +68,7 @@ else
   EXPORT_VITS_SCRIPT="$REPO_ROOT/scripts/export_all_vits_onnx.py"
   EXTRACT_SEM_SCRIPT="$REPO_ROOT/scripts/extract_all_prompt_semantic.py"
   QWEN_DOWNLOAD_SCRIPT="$REPO_ROOT/scripts/download_qwen3_tts_models.py"
-  OMINIX_SCRIPTS_DIR="$REPO_ROOT/node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts"
+  OMINIX_SCRIPTS_DIR="$REPO_ROOT/node-hub/dora-primespeech-mlx/patches/gpt-sovits-mlx/scripts"
   OMINIX_EXPORT_VITS_SCRIPT="$OMINIX_SCRIPTS_DIR/export_vits_onnx.py"
 fi
 
@@ -153,6 +153,7 @@ if [[ ! -x "$CONDA_ENV_PREFIX/bin/python" ]]; then
   "$CONDA_BIN" create -p "$CONDA_ENV_PREFIX" python=3.12 -y
 fi
 
+
 write_step 2 "Install Git LFS" "Installing git and git-lfs in private runtime"
 echo "Installing Git + Git LFS into app-private conda ..."
 "$CONDA_BIN" install -p "$CONDA_ENV_PREFIX" -y -c conda-forge git git-lfs
@@ -206,7 +207,7 @@ if [[ -f "$EXTRACT_SEM_SCRIPT" ]]; then
 fi
 
 write_step 9 "Download Qwen3 Models" "Preparing qwen3-tts-mlx model files if required"
-if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" ]]; then
+if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" || "$NEED_QWEN_PY_CUSTOM" == "1" || "$NEED_QWEN_PY_BASE" == "1" ]]; then
   if [[ ! -f "$QWEN_DOWNLOAD_SCRIPT" ]]; then
     echo "ERROR: missing qwen download script: $QWEN_DOWNLOAD_SCRIPT"
     exit 1
@@ -218,6 +219,12 @@ if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" ]]; then
   if [[ "$NEED_QWEN_BASE" == "1" ]] && ! qwen_model_ready "$QWEN_BASE_DIR"; then
     echo "Qwen Base model missing; downloading..."
   fi
+  if [[ "$NEED_QWEN_PY_CUSTOM" == "1" ]] && ! qwen_model_ready "$QWEN_PY_CUSTOM_DIR"; then
+    echo "Qwen Python CustomVoice model missing; downloading..."
+  fi
+  if [[ "$NEED_QWEN_PY_BASE" == "1" ]] && ! qwen_model_ready "$QWEN_PY_BASE_DIR"; then
+    echo "Qwen Python Base model missing; downloading..."
+  fi
 
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
     HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
@@ -225,8 +232,12 @@ if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" ]]; then
       --root "$QWEN_ROOT" \
       --custom-repo "$QWEN_CUSTOM_REPO" \
       --base-repo "$QWEN_BASE_REPO" \
+      --py-custom-repo "$QWEN_PY_CUSTOM_REPO" \
+      --py-base-repo "$QWEN_PY_BASE_REPO" \
       $([[ "$NEED_QWEN_CUSTOM" == "1" ]] && echo "--need-custom") \
-      $([[ "$NEED_QWEN_BASE" == "1" ]] && echo "--need-base")
+      $([[ "$NEED_QWEN_BASE" == "1" ]] && echo "--need-base") \
+      $([[ "$NEED_QWEN_PY_CUSTOM" == "1" ]] && echo "--need-py-custom") \
+      $([[ "$NEED_QWEN_PY_BASE" == "1" ]] && echo "--need-py-base")
 fi
 
 write_step 10 "Finalize" "Runtime initialization complete"

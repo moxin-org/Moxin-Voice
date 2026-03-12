@@ -251,6 +251,11 @@ impl QwenState {
 fn choose_speaker(synth: &Synthesizer, requested: &str, language: &str) -> String {
     let speakers: Vec<String> = synth.speakers().into_iter().map(|s| s.to_string()).collect();
     if speakers.is_empty() {
+        tracing::warn!(
+            "Qwen speaker list empty, fallback speaker='vivian' (requested='{}', language='{}')",
+            requested,
+            language
+        );
         return "vivian".to_string();
     }
 
@@ -260,6 +265,12 @@ fn choose_speaker(synth: &Synthesizer, requested: &str, language: &str) -> Strin
         .find(|s| s.to_lowercase() == req)
         .cloned()
     {
+        tracing::info!(
+            "Qwen speaker resolved: requested='{}' -> speaker='{}' (language='{}', mode=direct_match)",
+            requested,
+            hit,
+            language
+        );
         return hit;
     }
 
@@ -279,13 +290,27 @@ fn choose_speaker(synth: &Synthesizer, requested: &str, language: &str) -> Strin
     };
 
     if speakers.iter().any(|s| s == &mapped) {
+        tracing::info!(
+            "Qwen speaker resolved: requested='{}' -> speaker='{}' (language='{}', mode=fallback_map)",
+            requested,
+            mapped,
+            language
+        );
         mapped
     } else {
-        speakers[0].clone()
+        let fallback = speakers[0].clone();
+        tracing::warn!(
+            "Qwen speaker fallback to first entry: requested='{}', mapped='{}', chosen='{}', language='{}'",
+            requested,
+            mapped,
+            fallback,
+            language
+        );
+        fallback
     }
 }
 
-fn synthesize_qwen(state: &mut QwenState, request: TtsRequest, params: &TtsParams) -> Result<(Vec<f32>, u32)> {
+fn synthesize_qwen(state: &mut QwenState, request: TtsRequest, _params: &TtsParams) -> Result<(Vec<f32>, u32)> {
     match request {
         TtsRequest::Preset { voice, text } => {
             let synth = state.customvoice()?;
@@ -294,7 +319,6 @@ fn synthesize_qwen(state: &mut QwenState, request: TtsRequest, params: &TtsParam
             let options = SynthesizeOptions {
                 speaker: &speaker,
                 language: &lang,
-                speed_factor: params.speed.map(|s| s.clamp(0.5, 2.0)),
                 ..Default::default()
             };
             let samples = synth.synthesize(&text, &options)?;
@@ -313,11 +337,10 @@ fn synthesize_qwen(state: &mut QwenState, request: TtsRequest, params: &TtsParam
 
             let options = SynthesizeOptions {
                 language: &lang,
-                speed_factor: params.speed.map(|s| s.clamp(0.5, 2.0)),
                 ..Default::default()
             };
 
-            // Prefer ICL when prompt text available; fallback to x-vector mode.
+            // Prefer ICL when prompt text available; fallback to x-vector mode on hard failure.
             let samples = if prompt_text.trim().is_empty() {
                 synth.synthesize_voice_clone(&text, &ref_audio_24k, &lang, &options)?
             } else {

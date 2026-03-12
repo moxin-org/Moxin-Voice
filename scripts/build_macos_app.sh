@@ -82,8 +82,31 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "Building binaries..."
-MAKEPAD=apple_bundle MAKEPAD_PACKAGE_DIR=makepad cargo build -p moxin-voice-shell --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
-cargo build -p moxin-tts-node --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
+resolve_mlx_prebuilt_path() {
+  local root_dir="$1"
+  local profile="$2"
+  local build_dir="$root_dir/target/$profile/build"
+  if [[ -d "$build_dir" ]]; then
+    find "$build_dir" -type d -path '*mlx-sys-*/out/mlx-prebuilt' 2>/dev/null | tail -n 1 || true
+  fi
+}
+
+run_cargo_build() {
+  local root_dir="$1"
+  local profile="$2"
+  shift 2
+  local mlx_prebuilt_path=""
+  mlx_prebuilt_path="$(resolve_mlx_prebuilt_path "$root_dir" "$profile")"
+  if [[ -n "$mlx_prebuilt_path" ]]; then
+    MLX_PREBUILT_PATH="$mlx_prebuilt_path" cargo build "$@"
+  else
+    cargo build "$@"
+  fi
+}
+
+MAKEPAD=apple_bundle MAKEPAD_PACKAGE_DIR=makepad run_cargo_build "$ROOT_DIR" "$PROFILE" -p moxin-voice-shell --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
+run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-primespeech-mlx --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
+run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen3-tts-mlx --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 
 SHELL_BIN_PATH="$ROOT_DIR/target/$PROFILE/$BIN_NAME"
 TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-tts-node"
@@ -153,7 +176,7 @@ if [[ "$INCLUDE_PY_SRC" == "true" ]]; then
   cp "$ROOT_DIR/scripts/export_all_vits_onnx.py" "$PY_DST/scripts/export_all_vits_onnx.py"
   cp "$ROOT_DIR/scripts/extract_all_prompt_semantic.py" "$PY_DST/scripts/extract_all_prompt_semantic.py"
   cp "$ROOT_DIR/scripts/download_qwen3_tts_models.py" "$PY_DST/scripts/download_qwen3_tts_models.py"
-  cp -R "$ROOT_DIR/node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts/." "$PY_DST/omx-scripts/"
+  cp -R "$ROOT_DIR/node-hub/dora-primespeech-mlx/patches/gpt-sovits-mlx/scripts/." "$PY_DST/omx-scripts/"
 fi
 
 # Bundle Makepad live resources for distributable app builds.
@@ -220,6 +243,8 @@ export MOXIN_CONDA_ROOT="${MOXIN_CONDA_ROOT:-$HOME/.moxinvoice/conda}"
 export MOXIN_CONDA_ENV="${MOXIN_CONDA_ENV:-moxin-studio}"
 export MOXIN_CONDA_ENV_PREFIX="${MOXIN_CONDA_ENV_PREFIX:-$MOXIN_CONDA_ROOT/envs/$MOXIN_CONDA_ENV}"
 export MOXIN_CONDA_BIN="${MOXIN_CONDA_BIN:-$MOXIN_CONDA_ROOT/bin/conda}"
+export MOXIN_QWEN_PY_CONDA_ENV="${MOXIN_QWEN_PY_CONDA_ENV:-moxin-qwen-tts}"
+export MOXIN_QWEN_PY_CONDA_ENV_PREFIX="${MOXIN_QWEN_PY_CONDA_ENV_PREFIX:-$MOXIN_CONDA_ROOT/envs/$MOXIN_QWEN_PY_CONDA_ENV}"
 export QWEN3_TTS_MODEL_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
 export QWEN3_TTS_CUSTOMVOICE_MODEL_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN3_TTS_MODEL_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 export QWEN3_TTS_BASE_MODEL_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN3_TTS_MODEL_ROOT/Qwen3-TTS-12Hz-1.7B-Base}"

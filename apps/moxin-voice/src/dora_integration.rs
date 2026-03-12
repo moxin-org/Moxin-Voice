@@ -283,6 +283,14 @@ impl DoraIntegration {
                                     }
                                     Err(e) => {
                                         log::error!("Failed to start dataflow: {}", e);
+                                        // Best-effort cleanup for partially connected bridges.
+                                        if let Err(stop_err) = disp.stop() {
+                                            log::warn!(
+                                                "Failed to cleanup dispatcher after start error: {}",
+                                                stop_err
+                                            );
+                                        }
+                                        std::thread::sleep(Duration::from_millis(300));
                                         // Clear bridges on failure
                                         shared_state_for_dispatcher.status.set(
                                             moxin_dora_bridge::DoraStatus {

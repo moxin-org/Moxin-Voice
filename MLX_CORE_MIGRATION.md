@@ -86,7 +86,7 @@ Rust Dora 节点要保持与原链路一致的输入输出契约：
 当前状态：
 
 - 已落地新节点 crate：
-  - `node-hub/moxin-tts-node`
+  - `node-hub/dora-primespeech-mlx`
 - dataflow 已指向 Rust 节点：
   - `apps/moxin-voice/dataflow/tts.yml`
 - 节点产物：
@@ -165,7 +165,7 @@ Rust Dora 节点要保持与原链路一致的输入输出契约：
 ```bash
 cd /path/to/Moxin-Voice
 git pull
-cargo build -p moxin-tts-node --release
+cargo build -p dora-primespeech-mlx --release
 ```
 
 应看到：

@@ -33,7 +33,7 @@ EXPORT_SCRIPT = Path(
         "OMINIX_EXPORT_VITS_SCRIPT",
         str(
             Path(__file__).parent.parent
-            / "node-hub/moxin-tts-node/patches/gpt-sovits-mlx/scripts/export_vits_onnx.py"
+            / "node-hub/dora-primespeech-mlx/patches/gpt-sovits-mlx/scripts/export_vits_onnx.py"
         ),
     )
 )

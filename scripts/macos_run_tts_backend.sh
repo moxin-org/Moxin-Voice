@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 backend="${MOXIN_INFERENCE_BACKEND:-primespeech_mlx}"
 zero_shot_backend="${MOXIN_ZERO_SHOT_BACKEND:-primespeech_mlx}"
 

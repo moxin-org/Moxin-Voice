@@ -27,7 +27,7 @@
 ```bash
 cd /path/to/Moxin-Voice
 git pull
-cargo build -p moxin-tts-node --release
+cargo build -p dora-primespeech-mlx --release
 ```
 
 期望产物：

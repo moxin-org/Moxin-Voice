@@ -7248,6 +7248,10 @@ pub struct TTSScreen {
 
     #[rust]
     dora_started: bool,
+    #[rust]
+    dora_start_attempt_at: Option<std::time::Instant>,
+    #[rust]
+    dora_start_in_flight: bool,
 
     #[rust]
     loading_dismissed: bool,
@@ -7463,14 +7467,10 @@ impl Widget for TTSScreen {
                 let _ = i18n::set_locale("zh");
             }
             self.app_preferences = app_preferences::load_preferences();
-            if self.app_preferences.inference_backend == "qwen3_tts_mlx"
-                && !Self::qwen_custom_ready()
-            {
+            if self.app_preferences.inference_backend == "qwen3_tts_mlx" && !Self::qwen_custom_ready() {
                 self.app_preferences.inference_backend = "primespeech_mlx".to_string();
             }
-            if self.app_preferences.zero_shot_backend == "qwen3_tts_mlx"
-                && !Self::qwen_base_ready()
-            {
+            if self.app_preferences.zero_shot_backend == "qwen3_tts_mlx" && !Self::qwen_base_ready() {
                 self.app_preferences.zero_shot_backend = "primespeech_mlx".to_string();
             }
             self.user_profile_customized = true;
@@ -7558,6 +7558,8 @@ impl Widget for TTSScreen {
             self.qwen_download_in_progress = false;
             self.qwen_download_rx = None;
             self.qwen_model_status_text = self.tr("未就绪", "Not ready").to_string();
+            self.dora_start_attempt_at = None;
+            self.dora_start_in_flight = false;
             
             // Add initial log entries
             self.log_entries
@@ -7638,6 +7640,8 @@ impl Widget for TTSScreen {
         if self.update_timer.is_event(event).is_some() {
             self.poll_runtime_initialization(cx);
             self.poll_qwen_model_download(cx);
+            self.poll_dora_events(cx);
+            self.maybe_retry_dataflow_start(cx);
 
             // Poll Dora Audio - store audio samples instead of auto-playing
             if let Some(dora) = &self.dora {
@@ -7653,8 +7657,9 @@ impl Widget for TTSScreen {
                         // Transition to Ready state - user must click Play
                         if self.tts_status == TTSStatus::Generating {
                             let sample_count = self.effective_audio_samples().len();
-                            let duration_secs = if self.stored_audio_sample_rate > 0 {
-                                sample_count as f32 / self.stored_audio_sample_rate as f32
+                            let effective_rate = self.effective_audio_sample_rate();
+                            let duration_secs = if effective_rate > 0 {
+                                sample_count as f32 / effective_rate as f32
                             } else {
                                 0.0
                             };
@@ -8472,20 +8477,25 @@ impl Widget for TTSScreen {
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
             .changed(&actions)
         {
-            let target_backend = if idx == 1 {
-                "qwen3_tts_mlx"
-            } else {
-                "primespeech_mlx"
+            let target_backend = match idx {
+                1 => "qwen3_tts_mlx",
+                _ => "primespeech_mlx",
             };
 
-            if target_backend == "qwen3_tts_mlx" && !Self::qwen_custom_ready() {
+            let inference_ready = match target_backend {
+                "qwen3_tts_mlx" => Self::qwen_custom_ready(),
+                _ => true,
+            };
+
+            if !inference_ready {
                 self.view
                     .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
                     .set_selected_item(cx, 0);
                 self.start_qwen_model_download(
                     cx,
+                    target_backend,
                     true,
-                    self.app_preferences.zero_shot_backend == "qwen3_tts_mlx",
+                    self.app_preferences.zero_shot_backend == target_backend,
                 );
                 self.show_toast(
                     cx,
@@ -8503,6 +8513,7 @@ impl Widget for TTSScreen {
                 self.app_preferences.inference_backend.clone(),
             );
             self.persist_app_preferences(cx);
+            self.load_voice_library(cx);
             self.update_user_settings_page(cx);
             self.set_generate_button_loading(cx, self.tts_status == TTSStatus::Generating);
             self.stop_dora(cx);
@@ -8514,17 +8525,21 @@ impl Widget for TTSScreen {
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
             .changed(&actions)
         {
-            let target_backend = if idx == 1 {
-                "qwen3_tts_mlx"
-            } else {
-                "primespeech_mlx"
+            let target_backend = match idx {
+                1 => "qwen3_tts_mlx",
+                _ => "primespeech_mlx",
             };
 
-            if target_backend == "qwen3_tts_mlx" && !Self::qwen_base_ready() {
+            let zero_shot_ready = match target_backend {
+                "qwen3_tts_mlx" => Self::qwen_base_ready(),
+                _ => true,
+            };
+
+            if !zero_shot_ready {
                 self.view
                     .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
                     .set_selected_item(cx, 0);
-                self.start_qwen_model_download(cx, false, true);
+                self.start_qwen_model_download(cx, target_backend, false, true);
                 self.show_toast(
                     cx,
                     self.tr(
@@ -8543,7 +8558,9 @@ impl Widget for TTSScreen {
             self.persist_app_preferences(cx);
             self.update_user_settings_page(cx);
             self.set_generate_button_loading(cx, self.tts_status == TTSStatus::Generating);
-            if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
+            if self.app_preferences.inference_backend == target_backend
+                && Self::is_qwen_backend(target_backend)
+            {
                 self.stop_dora(cx);
                 self.auto_start_dataflow(cx);
             }
@@ -8991,13 +9008,21 @@ impl Widget for TTSScreen {
             }
             
             let voice = &filtered_voices[voice_idx];
+            let can_preview = match voice.source {
+                crate::voice_data::VoiceSource::Builtin => voice.preview_audio.is_some(),
+                crate::voice_data::VoiceSource::Custom | crate::voice_data::VoiceSource::Trained => {
+                    voice.reference_audio_path.is_some()
+                }
+            };
             
             // Check preview button click
-            match event.hits(cx, preview_btn_area) {
-                Hit::FingerUp(fe) if fe.was_tap() => {
-                    self.preview_voice(cx, voice.id.clone());
+            if can_preview {
+                match event.hits(cx, preview_btn_area) {
+                    Hit::FingerUp(fe) if fe.was_tap() => {
+                        self.preview_voice(cx, voice.id.clone());
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
             
             // Check delete button click (only for custom voices)
@@ -9515,7 +9540,7 @@ impl Widget for TTSScreen {
                 .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
                 .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
                 .unwrap_or(false);
-            if self.app_preferences.inference_backend == "qwen3_tts_mlx" && selected_voice_is_trained {
+            if Self::is_qwen_backend(&self.app_preferences.inference_backend) && selected_voice_is_trained {
                 self.show_toast(
                     cx,
                     self.tr(
@@ -9525,7 +9550,7 @@ impl Widget for TTSScreen {
                 );
                 self.add_log(
                     cx,
-                    "[WARN] [tts] Generate blocked: trained voice selected while inference backend is qwen3_tts_mlx",
+                    "[WARN] [tts] Generate blocked: trained voice selected while inference backend is qwen",
                 );
                 self.set_generate_button_loading(cx, false);
                 return;
@@ -9744,6 +9769,13 @@ impl Widget for TTSScreen {
                                 crate::voice_data::VoiceSource::Trained => self.tr("训练", "Trained"),
                             };
                             let is_custom = source != crate::voice_data::VoiceSource::Builtin;
+                            let can_preview = match source {
+                                crate::voice_data::VoiceSource::Builtin => voice.preview_audio.is_some(),
+                                crate::voice_data::VoiceSource::Custom
+                                | crate::voice_data::VoiceSource::Trained => {
+                                    voice.reference_audio_path.is_some()
+                                }
+                            };
                             let dark_mode = self.dark_mode;
 
                             let card = list.item(cx, item_id, live_id!(VoiceCard));
@@ -9765,6 +9797,8 @@ impl Widget for TTSScreen {
 
                             // Show delete button only for custom/trained voices
                             card.button(ids!(actions.delete_btn)).set_visible(cx, is_custom);
+                            // Show preview button only when preview audio exists.
+                            card.button(ids!(actions.preview_btn)).set_visible(cx, can_preview);
 
                             // Draw the card
                             card.draw_all(cx, &mut Scope::empty());
@@ -10347,13 +10381,11 @@ impl TTSScreen {
                 Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit")
             })
     }
-
     fn qwen_base_model_dir() -> PathBuf {
         std::env::var("QWEN3_TTS_BASE_MODEL_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-Base"))
     }
-
     fn qwen_model_dir_ready(model_dir: &Path) -> bool {
         model_dir.join("config.json").exists()
             && model_dir.join("generation_config.json").exists()
@@ -10620,10 +10652,9 @@ impl TTSScreen {
                     ]
                 },
             );
-        let inference_backend_idx = if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
-            1
-        } else {
-            0
+        let inference_backend_idx = match self.app_preferences.inference_backend.as_str() {
+            "qwen3_tts_mlx" => 1,
+            _ => 0,
         };
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
@@ -10645,10 +10676,9 @@ impl TTSScreen {
                     ]
                 },
             );
-        let zero_shot_backend_idx = if self.app_preferences.zero_shot_backend == "qwen3_tts_mlx" {
-            1
-        } else {
-            0
+        let zero_shot_backend_idx = match self.app_preferences.zero_shot_backend.as_str() {
+            "qwen3_tts_mlx" => 1,
+            _ => 0,
         };
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
@@ -11997,7 +12027,7 @@ impl TTSScreen {
             .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
             .unwrap_or(false);
         let trained_voice_supported = !(
-            self.app_preferences.inference_backend == "qwen3_tts_mlx" && selected_voice_is_trained
+            Self::is_qwen_backend(&self.app_preferences.inference_backend) && selected_voice_is_trained
         );
 
         // Update button text
@@ -12292,9 +12322,8 @@ impl TTSScreen {
             .set_text(cx, status_text);
 
         let audio_len = self.effective_audio_samples().len();
-        let has_playable_audio = self.has_generated_audio
-            && audio_len > 0
-            && self.stored_audio_sample_rate > 0;
+        let effective_rate = self.effective_audio_sample_rate();
+        let has_playable_audio = self.has_generated_audio && audio_len > 0 && effective_rate > 0;
         let controls_enabled =
             has_playable_audio && self.tts_status != TTSStatus::Generating;
 
@@ -12343,7 +12372,7 @@ impl TTSScreen {
 
         // Update total time
         if has_playable_audio {
-            let duration_secs = audio_len as f32 / self.stored_audio_sample_rate as f32;
+            let duration_secs = audio_len as f32 / effective_rate as f32;
             let mins = (duration_secs / 60.0) as u32;
             let secs = (duration_secs % 60.0) as u32;
             let time_str = format!("{:02}:{:02}", mins, secs);
@@ -12456,7 +12485,8 @@ impl TTSScreen {
 
     fn append_current_generation_to_history(&mut self, cx: &mut Cx) {
         let samples = self.effective_audio_samples().to_vec();
-        if samples.is_empty() || self.stored_audio_sample_rate == 0 {
+        let effective_rate = self.effective_audio_sample_rate();
+        if samples.is_empty() || effective_rate == 0 {
             return;
         }
 
@@ -12475,8 +12505,7 @@ impl TTSScreen {
             );
             return;
         }
-        if let Err(e) =
-            Self::write_wav_file_with_sample_rate(&audio_path, &samples, self.stored_audio_sample_rate)
+        if let Err(e) = Self::write_wav_file_with_sample_rate(&audio_path, &samples, effective_rate)
         {
             self.add_log(
                 cx,
@@ -12516,7 +12545,7 @@ impl TTSScreen {
                     .text()
             });
 
-        let duration_secs = samples.len() as f32 / self.stored_audio_sample_rate as f32;
+        let duration_secs = samples.len() as f32 / effective_rate as f32;
         let entry = TtsHistoryEntry {
             id: entry_id,
             created_at,
@@ -12527,7 +12556,7 @@ impl TTSScreen {
             model_id: self.pending_generation_model_id.clone(),
             model_name: self.pending_generation_model_name.clone(),
             duration_secs,
-            sample_rate: self.stored_audio_sample_rate,
+            sample_rate: effective_rate,
             sample_count: samples.len(),
             speed: self.pending_generation_speed,
             pitch: self.pending_generation_pitch,
@@ -12767,11 +12796,12 @@ impl TTSScreen {
     fn update_playback_progress(&mut self, cx: &mut Cx) {
         // Calculate total duration and current position
         let audio_len = self.effective_audio_samples().len();
-        if audio_len == 0 || self.stored_audio_sample_rate == 0 {
+        let effective_rate = self.effective_audio_sample_rate();
+        if audio_len == 0 || effective_rate == 0 {
             return;
         }
 
-        let total_duration = audio_len as f32 / self.stored_audio_sample_rate as f32;
+        let total_duration = audio_len as f32 / effective_rate as f32;
         let current_time = self.audio_playing_time as f32;
         let progress = (current_time / total_duration).min(1.0).max(0.0);
 
@@ -13113,6 +13143,7 @@ impl TTSScreen {
     fn start_qwen_model_download(
         &mut self,
         cx: &mut Cx,
+        target_backend: &str,
         need_custom: bool,
         need_base: bool,
     ) {
@@ -13151,8 +13182,8 @@ impl TTSScreen {
         self.add_log(
             cx,
             &format!(
-                "[INFO] [qwen] Starting background model download (custom={}, base={})",
-                need_custom, need_base
+                "[INFO] [qwen] Starting background model download (backend={}, custom={}, base={})",
+                target_backend, need_custom, need_base
             ),
         );
 
@@ -13311,9 +13342,12 @@ impl TTSScreen {
         let app_resources = match std::env::var("MOXIN_APP_RESOURCES") {
             Ok(v) => PathBuf::from(v),
             Err(_) => {
+                // Dev mode default: skip bootstrap/preflight unless explicitly enabled.
+                let enable_dev_bootstrap =
+                    std::env::var("MOXIN_ENABLE_DEV_BOOTSTRAP").ok().as_deref() == Some("1");
                 let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
                 let direct = cwd.join("scripts").join("macos_preflight.sh");
-                if direct.exists() {
+                if enable_dev_bootstrap && direct.exists() {
                     cwd
                 } else {
                     self.runtime_init_state = RuntimeInitState::Ready;
@@ -13512,47 +13546,59 @@ impl TTSScreen {
 
     fn auto_start_dataflow(&mut self, cx: &mut Cx) {
         let should_start = self.dora.as_ref().map(|d| !d.is_running()).unwrap_or(false);
-        if !should_start {
+        if !should_start || self.dora_start_in_flight {
             return;
         }
+        self.dora_start_in_flight = true;
+        self.dora_start_attempt_at = Some(std::time::Instant::now());
 
-        // Ensure Dora coordinator/daemon are up so users don't need manual `dora up`.
+        // Ensure Dora coordinator/daemon are up, then wait briefly for readiness.
         self.add_log(cx, "[INFO] [tts] Ensuring Dora runtime is up...");
-        match std::process::Command::new("dora").args(["up"]).output() {
-            Ok(output) => {
-                if output.status.success() {
-                    self.add_log(cx, "[INFO] [tts] Dora runtime is ready");
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let err = stderr.trim();
-                    if err.is_empty() {
-                        self.add_log(
-                            cx,
-                            &format!(
-                                "[WARN] [tts] `dora up` exited with status {}. Continuing to start dataflow.",
-                                output.status
-                            ),
-                        );
-                    } else {
-                        self.add_log(
-                            cx,
-                            &format!(
-                                "[WARN] [tts] `dora up` failed (status {}): {}",
-                                output.status, err
-                            ),
-                        );
-                    }
+        match std::process::Command::new("dora").args(["up"]).status() {
+            Ok(status) => {
+                if !status.success() {
+                    self.add_log(
+                        cx,
+                        &format!(
+                            "[WARN] [tts] `dora up` exited with status {}. Will still try to start dataflow.",
+                            status
+                        ),
+                    );
                 }
             }
             Err(err) => {
                 self.add_log(
                     cx,
                     &format!(
-                        "[WARN] [tts] Failed to run `dora up`: {}. Continuing to start dataflow.",
+                        "[WARN] [tts] Failed to run `dora up`: {}. Will still try to start dataflow.",
                         err
                     ),
                 );
             }
+        }
+
+        let mut dora_ready = false;
+        for _ in 0..12 {
+            match std::process::Command::new("dora")
+                .args(["system", "status"])
+                .status()
+            {
+                Ok(status) if status.success() => {
+                    dora_ready = true;
+                    break;
+                }
+                _ => {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+            }
+        }
+        if dora_ready {
+            self.add_log(cx, "[INFO] [tts] Dora runtime ready");
+        } else {
+            self.add_log(
+                cx,
+                "[WARN] [tts] Dora runtime still not ready after wait; attempting dataflow start anyway",
+            );
         }
 
         let dataflow_path = match self.materialize_runtime_dataflow(cx) {
@@ -13562,6 +13608,7 @@ impl TTSScreen {
                     cx,
                     &format!("[ERROR] [tts] Failed to prepare runtime dataflow: {}", err),
                 );
+                self.dora_start_in_flight = false;
                 return;
             }
         };
@@ -13573,6 +13620,7 @@ impl TTSScreen {
                     dataflow_path.display()
                 ),
             );
+            self.dora_start_in_flight = false;
             return;
         }
 
@@ -13608,18 +13656,86 @@ impl TTSScreen {
         self.add_log(cx, "[INFO] [tts] Dataflow started, connecting...");
     }
 
+    fn maybe_retry_dataflow_start(&mut self, cx: &mut Cx) {
+        if !self.dora_started {
+            return;
+        }
+        if self.dora_start_in_flight {
+            return;
+        }
+        if matches!(
+            self.runtime_init_state,
+            RuntimeInitState::Running | RuntimeInitState::Failed
+        ) {
+            return;
+        }
+
+        let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
+        if is_running {
+            return;
+        }
+
+        let should_retry = self
+            .dora_start_attempt_at
+            .map(|t| t.elapsed() >= Duration::from_secs(4))
+            .unwrap_or(true);
+        if should_retry {
+            self.add_log(
+                cx,
+                "[WARN] [tts] Dora dataflow not running yet, retrying startup...",
+            );
+            self.dora_started = false;
+        }
+    }
+
+    fn poll_dora_events(&mut self, cx: &mut Cx) {
+        let events = self
+            .dora
+            .as_ref()
+            .map(|d| d.poll_events())
+            .unwrap_or_default();
+        for event in events {
+            match event {
+                crate::dora_integration::DoraEvent::DataflowStarted { dataflow_id } => {
+                    self.dora_start_in_flight = false;
+                    self.add_log(cx, &format!("[INFO] [tts] Dora dataflow started: {}", dataflow_id));
+                }
+                crate::dora_integration::DoraEvent::DataflowStopped => {
+                    self.dora_start_in_flight = false;
+                    self.add_log(cx, "[WARN] [tts] Dora dataflow stopped");
+                    self.dora_started = false;
+                }
+                crate::dora_integration::DoraEvent::Error { message } => {
+                    self.dora_start_in_flight = false;
+                    self.add_log(cx, &format!("[ERROR] [tts] Dora error: {}", message));
+                    self.dora_started = false;
+                    self.show_toast(
+                        cx,
+                        self.tr(
+                            "Dora 启动失败，正在重试，请查看日志",
+                            "Dora start failed; retrying. Please check logs",
+                        ),
+                    );
+                }
+                crate::dora_integration::DoraEvent::AsrTranscription { .. } => {}
+            }
+        }
+    }
+
+    fn is_qwen_backend(backend: &str) -> bool {
+        backend == "qwen3_tts_mlx"
+    }
+
     fn normalize_inference_backend(raw: &str) -> &'static str {
         if raw == "qwen3_tts_mlx" {
-            "qwen3_tts_mlx"
-        } else {
+            "qwen3_tts_mlx"        } else {
             "primespeech_mlx"
         }
     }
 
     fn normalize_zero_shot_backend(raw: &str) -> &'static str {
         if raw == "qwen3_tts_mlx" {
-            "qwen3_tts_mlx"
-        } else {
+            "qwen3_tts_mlx"        } else {
             "primespeech_mlx"
         }
     }
@@ -13753,6 +13869,9 @@ impl TTSScreen {
         if let Some(dora) = &mut self.dora {
             dora.stop_dataflow();
         }
+        self.dora_started = false;
+        self.dora_start_in_flight = false;
+        self.dora_start_attempt_at = None;
 
         self.add_log(cx, "[INFO] [tts] Dataflow stopped");
     }
@@ -13765,7 +13884,7 @@ impl TTSScreen {
             .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
             .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
             .unwrap_or(false);
-        if self.app_preferences.inference_backend == "qwen3_tts_mlx" && selected_voice_is_trained {
+        if Self::is_qwen_backend(&self.app_preferences.inference_backend) && selected_voice_is_trained {
             self.add_log(
                 cx,
                 "[WARN] [tts] Qwen backend does not support trained voices (VOICE:TRAINED)",
@@ -14048,7 +14167,8 @@ impl TTSScreen {
             }
 
             // Check if we're resuming from a paused state or starting fresh
-            let total_duration = playback_samples.len() as f64 / self.stored_audio_sample_rate as f64;
+            let effective_rate = self.effective_audio_sample_rate();
+            let total_duration = playback_samples.len() as f64 / effective_rate as f64;
             let is_resuming = self.audio_playing_time > 0.1
                 && self.audio_playing_time < (total_duration - 0.1);
 
@@ -14058,7 +14178,7 @@ impl TTSScreen {
 
                 if is_resuming {
                     // Resume from paused position - write remaining audio from current position
-                    let current_sample_index = (self.audio_playing_time * self.stored_audio_sample_rate as f64) as usize;
+                    let current_sample_index = (self.audio_playing_time * effective_rate as f64) as usize;
                     if current_sample_index < playback_samples.len() {
                         let remaining_samples = &playback_samples[current_sample_index..];
                         player.write_audio(remaining_samples);
@@ -14399,12 +14519,13 @@ impl TTSScreen {
 
     fn export_current_audio(&mut self, cx: &mut Cx, format: DownloadFormat) -> Option<PathBuf> {
         let samples = self.effective_audio_samples().to_vec();
+        let effective_rate = self.effective_audio_sample_rate();
         if samples.is_empty() {
             self.add_log(cx, "[WARN] [download] No current audio available");
             self.show_toast(cx, self.tr("暂无可下载音频", "No audio available to download"));
             return None;
         }
-        if self.stored_audio_sample_rate == 0 {
+        if effective_rate == 0 {
             self.add_log(cx, "[ERROR] [download] Current audio sample rate is invalid");
             self.show_toast(
                 cx,
@@ -14431,7 +14552,7 @@ impl TTSScreen {
                 .write_wav_file(&target, &samples)
                 .map_err(|e| e.to_string()),
             DownloadFormat::Mp3 => {
-                Self::write_mp3_file_from_samples(&target, &samples, self.stored_audio_sample_rate)
+                Self::write_mp3_file_from_samples(&target, &samples, effective_rate)
             }
         };
 
@@ -14649,7 +14770,7 @@ impl TTSScreen {
     }
 
     fn write_wav_file(&self, path: &PathBuf, samples: &[f32]) -> std::io::Result<()> {
-        Self::write_wav_file_with_sample_rate(path, samples, self.stored_audio_sample_rate)
+        Self::write_wav_file_with_sample_rate(path, samples, self.effective_audio_sample_rate())
     }
 
     fn write_wav_file_with_sample_rate(
@@ -14803,8 +14924,10 @@ impl TTSScreen {
         self.library_loading = true;
         self.add_log(cx, "[INFO] [library] Loading voice library...");
 
-        // Load builtin voices
-        let mut voices = crate::voice_data::get_builtin_voices();
+        // Load backend-specific builtin voices
+        let mut voices = crate::voice_data::get_builtin_voices_for_backend(
+            &self.app_preferences.inference_backend,
+        );
         let builtin_count = voices.len();
 
         // Load custom/trained voices from disk
@@ -15264,15 +15387,54 @@ impl TTSScreen {
         }
     }
 
+    fn effective_audio_sample_rate(&self) -> u32 {
+        if self.stored_audio_samples.is_empty() {
+            self.stored_audio_sample_rate
+        } else if self.processed_audio_samples.is_empty() {
+            self.stored_audio_sample_rate
+        } else {
+            32000
+        }
+    }
+
+    fn resample_linear(samples: &[f32], in_rate: u32, out_rate: u32) -> Vec<f32> {
+        if samples.is_empty() || in_rate == 0 || out_rate == 0 || in_rate == out_rate {
+            return samples.to_vec();
+        }
+
+        let ratio = out_rate as f32 / in_rate as f32;
+        let new_len = (samples.len() as f32 * ratio).round().max(1.0) as usize;
+        let mut result = Vec::with_capacity(new_len);
+
+        for i in 0..new_len {
+            let src_idx = i as f32 / ratio;
+            let idx = src_idx as usize;
+            let frac = src_idx - idx as f32;
+            let s1 = samples.get(idx).copied().unwrap_or(0.0);
+            let s2 = samples.get(idx + 1).copied().unwrap_or(s1);
+            result.push(s1 + (s2 - s1) * frac);
+        }
+
+        result
+    }
+
     fn rebuild_processed_audio_samples(&mut self) {
         if self.stored_audio_samples.is_empty() {
             self.processed_audio_samples.clear();
             return;
         }
 
-        // Generated audio should remain immutable after completion.
-        // Speed/Pitch/Volume changes only apply to the next synthesis request.
-        self.processed_audio_samples = self.stored_audio_samples.clone();
+        // The local player expects 32k source audio. Qwen MLX returns 24k,
+        // so normalize playback/export samples here to avoid pitch/time distortion.
+        if self.stored_audio_sample_rate > 0 && self.stored_audio_sample_rate != 32000 {
+            self.processed_audio_samples = Self::resample_linear(
+                &self.stored_audio_samples,
+                self.stored_audio_sample_rate,
+                32000,
+            );
+        } else {
+            self.processed_audio_samples = self.stored_audio_samples.clone();
+        }
     }
 
     /// Apply dark mode to the entire UI

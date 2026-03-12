@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 backend="${MOXIN_INFERENCE_BACKEND:-primespeech_mlx}"
 zero_shot_backend="${MOXIN_ZERO_SHOT_BACKEND:-primespeech_mlx}"
 
@@ -35,13 +37,38 @@ resolve_primespeech_node() {
 resolve_qwen_node() {
   local root_dir
   root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  local debug_bin="$root_dir/target/debug/qwen-tts-node"
 
   if [[ -n "${MOXIN_QWEN3_TTS_NODE_BIN:-}" && -x "${MOXIN_QWEN3_TTS_NODE_BIN}" ]]; then
     echo "${MOXIN_QWEN3_TTS_NODE_BIN}"
     return 0
   fi
-  if [[ -x "$root_dir/target/debug/qwen-tts-node" ]]; then
-    echo "$root_dir/target/debug/qwen-tts-node"
+
+  # Dev convenience: rebuild when source is newer than the current debug binary.
+  if [[ -f "$root_dir/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then
+    local needs_build="0"
+    if [[ ! -x "$debug_bin" ]]; then
+      needs_build="1"
+    elif find "$root_dir/node-hub/dora-qwen3-tts-mlx" -type f \
+      \( -name '*.rs' -o -name 'Cargo.toml' -o -name '*.yml' -o -name '*.yaml' \) \
+      -newer "$debug_bin" | grep -q .; then
+      needs_build="1"
+    fi
+
+    if [[ "$needs_build" == "1" ]]; then
+      echo "[qwen-tts-node] building debug binary..." >&2
+      local mlx_prebuilt_path=""
+      mlx_prebuilt_path="$(find "$root_dir/target/debug/build" -type d -path '*mlx-sys-*/out/mlx-prebuilt' 2>/dev/null | tail -n 1 || true)"
+      if [[ -n "$mlx_prebuilt_path" ]]; then
+        (cd "$root_dir" && MLX_PREBUILT_PATH="$mlx_prebuilt_path" cargo build -p dora-qwen3-tts-mlx --bin qwen-tts-node >/dev/null 2>&1 || true)
+      else
+        (cd "$root_dir" && cargo build -p dora-qwen3-tts-mlx --bin qwen-tts-node >/dev/null 2>&1 || true)
+      fi
+    fi
+  fi
+
+  if [[ -x "$debug_bin" ]]; then
+    echo "$debug_bin"
     return 0
   fi
   if [[ -x "$root_dir/target/release/qwen-tts-node" ]]; then
@@ -57,15 +84,6 @@ resolve_qwen_node() {
     return 0
   fi
 
-  # Dev convenience: build node on demand if source tree is available.
-  if [[ -f "$root_dir/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then
-    echo "[qwen-tts-node] building debug binary..." >&2
-    (cd "$root_dir" && cargo build -p moxin-tts-node --bin qwen-tts-node >/dev/null 2>&1 || true)
-    if [[ -x "$root_dir/target/debug/qwen-tts-node" ]]; then
-      echo "$root_dir/target/debug/qwen-tts-node"
-      return 0
-    fi
-  fi
   return 1
 }
 
@@ -107,7 +125,7 @@ case "$backend" in
     if node_bin="$(resolve_primespeech_node)"; then
       exec "$node_bin" "$@"
     fi
-    echo "ERROR: primespeech node not found. Build moxin-tts-node first." >&2
+    echo "ERROR: primespeech node not found. Build dora-primespeech-mlx first." >&2
     exit 127
     ;;
 esac

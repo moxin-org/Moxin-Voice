@@ -498,7 +498,7 @@ impl TrainingManager {
         }
 
         Err(
-            "Cannot find moxin-fewshot-trainer binary. Build it with `cargo build -p moxin-tts-node --release` or set MOXIN_FEWSHOT_TRAINER_BIN."
+            "Cannot find moxin-fewshot-trainer binary. Build it with `cargo build -p dora-primespeech-mlx --release` or set MOXIN_FEWSHOT_TRAINER_BIN."
                 .to_string(),
         )
     }
