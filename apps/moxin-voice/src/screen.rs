@@ -103,19 +103,30 @@ struct TtsModelOption {
 }
 
 fn get_project_tts_models() -> Vec<TtsModelOption> {
-    // Current project wiring uses one TTS engine node in dataflow:
-    // apps/moxin-voice/dataflow/tts.yml -> primespeech-tts
-    vec![TtsModelOption {
-        id: "primespeech-gsv2".to_string(),
-        name: "PrimeSpeech (GPT-SoVITS v2)".to_string(),
-        description: "Current production TTS pipeline in this project. Supports built-in voices and cloned voices.".to_string(),
-        tag_labels: vec![
-            "Chinese".to_string(),
-            "English".to_string(),
-            "Voice Clone".to_string(),
-        ],
-        badge: Some("Available".to_string()),
-    }]
+    vec![
+        TtsModelOption {
+            id: "primespeech_mlx".to_string(),
+            name: "PrimeSpeech MLX".to_string(),
+            description: "GPT-SoVITS v2 MLX inference engine. Supports preset voices, zero-shot clone, and trained voices. Best choice for high-quality voice cloning.".to_string(),
+            tag_labels: vec![
+                "Chinese".to_string(),
+                "English".to_string(),
+                "Voice Clone".to_string(),
+            ],
+            badge: None,
+        },
+        TtsModelOption {
+            id: "qwen3_tts_mlx".to_string(),
+            name: "Qwen3 TTS MLX".to_string(),
+            description: "Qwen3 TTS MLX inference engine. Supports preset voices and zero-shot voice clone. Fast and lightweight on Apple Silicon.".to_string(),
+            tag_labels: vec![
+                "Chinese".to_string(),
+                "English".to_string(),
+                "Zero-shot".to_string(),
+            ],
+            badge: None,
+        },
+    ]
 }
 
 live_design! {
@@ -4886,8 +4897,6 @@ live_design! {
                             dora_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "Dora: -" }
                             asr_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "ASR: -" }
                             tts_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "TTS: -" }
-                            model_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "Model: -" }
-                            backend_status = <SettingsBodyLabel> { width: Fill, height: Fit text: "Backend: -" }
 
                             runtime_refresh_btn = <SettingsActionBtn> {
                                 width: Fit, height: 34
@@ -5068,19 +5077,6 @@ live_design! {
                             }
 
                             experiments_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "实验功能" }
-                            inference_backend_pick_row = <View> {
-                                width: Fill, height: Fit
-                                flow: Right
-                                spacing: 12
-                                align: {y: 0.5}
-                                inference_backend_pick_label = <SettingsBodyLabel> {
-                                    width: 110, height: Fit
-                                    text: "推理后端"
-                                }
-                                inference_backend_dropdown = <SettingsDeviceDropDown> {
-                                    width: Fill, height: 38
-                                }
-                            }
 
                             zero_shot_backend_pick_row = <View> {
                                 width: Fill, height: Fit
@@ -6474,7 +6470,7 @@ live_design! {
 
             model_picker_dialog = <RoundedView> {
                 width: 560, height: 600
-                flow: Down
+                flow: Overlay
                 spacing: 0
                 draw_bg: {
                     instance dark_mode: 0.0
@@ -6487,6 +6483,12 @@ live_design! {
                         return sdf.result;
                     }
                 }
+
+                // Existing content
+                dialog_content = <View> {
+                    width: Fill, height: Fill
+                    flow: Down
+                    spacing: 0
 
                 model_picker_header = <View> {
                     width: Fill, height: 56
@@ -6683,6 +6685,59 @@ live_design! {
                             }
                         }
                         text: "Show all models"
+                    }
+                }
+
+                } // end dialog_content
+
+                // Semi-transparent overlay shown while switching inference backend
+                switching_overlay = <View> {
+                    width: Fill, height: Fill
+                    visible: false
+                    flow: Down
+                    align: {x: 0.5, y: 0.5}
+                    spacing: 16
+
+                    show_bg: true
+                    draw_bg: {
+                        instance border_radius: 16.0
+                        fn pixel(self) -> vec4 {
+                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                            sdf.fill(vec4(0.0, 0.0, 0.0, 0.55));
+                            return sdf.result;
+                        }
+                    }
+
+                    switching_spinner = <View> {
+                        width: 36, height: 36
+                        show_bg: true
+                        draw_bg: {
+                            instance phase: 0.0
+                            fn pixel(self) -> vec4 {
+                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                let cx = self.rect_size.x * 0.5;
+                                let cy = self.rect_size.y * 0.5;
+                                let radius = min(cx, cy) - 3.0;
+                                let pi = 3.141592653589793;
+                                sdf.circle(cx, cy, radius);
+                                sdf.stroke(vec4(1.0, 1.0, 1.0, 0.2), 3.0);
+                                let start = self.phase * 2.0 * pi;
+                                let end = start + pi * 1.5;
+                                sdf.arc_round_caps(cx, cy, radius, start, end, 3.0);
+                                sdf.fill(vec4(0.39, 0.40, 0.95, 1.0));
+                                return sdf.result;
+                            }
+                        }
+                    }
+
+                    switching_status = <Label> {
+                        width: Fit, height: Fit
+                        draw_text: {
+                            text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                            fn get_color(self) -> vec4 { return (WHITE); }
+                        }
+                        text: "正在切换"
                     }
                 }
             }
@@ -7254,6 +7309,11 @@ pub struct TTSScreen {
     dora_start_in_flight: bool,
 
     #[rust]
+    backend_switching: bool,
+    #[rust]
+    backend_switch_bridges_dropped: bool,
+
+    #[rust]
     loading_dismissed: bool,
 
     #[rust]
@@ -7428,7 +7488,7 @@ impl Widget for TTSScreen {
             // Initialize model picker state
             self.model_picker_visible = false;
             self.model_options = get_project_tts_models();
-            self.selected_tts_model_id = self.model_options.first().map(|m| m.id.clone());
+            // selected_tts_model_id synced below, AFTER qwen validation
             self.model_picker_card_areas = Vec::new();
 
             // Initialize voice picker state
@@ -7472,6 +7532,15 @@ impl Widget for TTSScreen {
             }
             if self.app_preferences.zero_shot_backend == "qwen3_tts_mlx" && !Self::qwen_base_ready() {
                 self.app_preferences.zero_shot_backend = "primespeech_mlx".to_string();
+            }
+            // Sync selected model with validated inference_backend preference
+            {
+                let validated_backend = self.app_preferences.inference_backend.clone();
+                self.selected_tts_model_id = if self.model_options.iter().any(|m| m.id == validated_backend) {
+                    Some(validated_backend)
+                } else {
+                    self.model_options.first().map(|m| m.id.clone())
+                };
             }
             self.user_profile_customized = true;
             self.user_settings_tab = 0;
@@ -7642,6 +7711,36 @@ impl Widget for TTSScreen {
             self.poll_qwen_model_download(cx);
             self.poll_dora_events(cx);
             self.maybe_retry_dataflow_start(cx);
+
+            // Two-phase wait after backend switch: first bridges drop, then come back to 4
+            if self.backend_switching {
+                // Animate the in-dialog spinner
+                self.spinner_phase += 0.03;
+                if self.spinner_phase > 1.0 { self.spinner_phase -= 1.0; }
+                self.view
+                    .view(ids!(model_picker_modal.model_picker_dialog.switching_overlay.switching_spinner))
+                    .apply_over(cx, live! { draw_bg: { phase: (self.spinner_phase) } });
+
+                let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
+                let bridge_count = self.dora.as_ref()
+                    .map(|d| d.shared_dora_state().status.read().active_bridges.len())
+                    .unwrap_or(0);
+                if !self.backend_switch_bridges_dropped {
+                    if !is_running || bridge_count == 0 {
+                        self.backend_switch_bridges_dropped = true;
+                        // Old dataflow is down — now safe to start the new one
+                        self.auto_start_dataflow(cx);
+                    }
+                } else if bridge_count >= 4 {
+                    self.backend_switching = false;
+                    self.backend_switch_bridges_dropped = false;
+                    self.view.view(ids!(model_picker_modal.model_picker_dialog.switching_overlay)).set_visible(cx, false);
+                    self.model_picker_visible = false;
+                    self.view.view(ids!(model_picker_modal)).set_visible(cx, false);
+                    self.show_toast(cx, self.tr("推理后端已就绪", "Inference backend is ready"));
+                    self.view.redraw(cx);
+                }
+            }
 
             // Poll Dora Audio - store audio samples instead of auto-playing
             if let Some(dora) = &self.dora {
@@ -7871,7 +7970,7 @@ impl Widget for TTSScreen {
                         .label(ids!(loading_overlay.loading_content.loading_detail))
                         .set_text(cx, &self.runtime_init_detail_text);
                 } else {
-                    // Update status text based on dora state
+                    // Initial startup: dismiss once dora is running
                     let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
                     if is_running {
                         self.view
@@ -7880,7 +7979,6 @@ impl Widget for TTSScreen {
                         self.view
                             .label(ids!(loading_overlay.loading_content.loading_detail))
                             .set_text(cx, self.tr("TTS 引擎已就绪", "TTS engine ready"));
-                        // Dismiss loading overlay
                         self.loading_dismissed = true;
                         self.view.view(ids!(loading_overlay)).set_visible(cx, false);
                         self.view.redraw(cx);
@@ -8084,9 +8182,13 @@ impl Widget for TTSScreen {
             .clicked(&actions)
         {
             self.model_options = get_project_tts_models();
-            if self.selected_tts_model_id.is_none() {
-                self.selected_tts_model_id = self.model_options.first().map(|m| m.id.clone());
-            }
+            // Always sync with current inference_backend when opening picker
+            let current_backend = self.app_preferences.inference_backend.clone();
+            self.selected_tts_model_id = if self.model_options.iter().any(|m| m.id == current_backend) {
+                Some(current_backend)
+            } else {
+                self.model_options.first().map(|m| m.id.clone())
+            };
             self.model_picker_visible = true;
             self.view.view(ids!(model_picker_modal)).set_visible(cx, true);
             self.update_model_picker_controls(cx);
@@ -8474,54 +8576,6 @@ impl Widget for TTSScreen {
 
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
-            .changed(&actions)
-        {
-            let target_backend = match idx {
-                1 => "qwen3_tts_mlx",
-                _ => "primespeech_mlx",
-            };
-
-            let inference_ready = match target_backend {
-                "qwen3_tts_mlx" => Self::qwen_custom_ready(),
-                _ => true,
-            };
-
-            if !inference_ready {
-                self.view
-                    .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
-                    .set_selected_item(cx, 0);
-                self.start_qwen_model_download(
-                    cx,
-                    target_backend,
-                    true,
-                    self.app_preferences.zero_shot_backend == target_backend,
-                );
-                self.show_toast(
-                    cx,
-                    self.tr(
-                        "Qwen 推理模型未就绪，已开始后台下载",
-                        "Qwen inference model not ready. Background download started",
-                    ),
-                );
-                return;
-            }
-
-            self.app_preferences.inference_backend = target_backend.to_string();
-            std::env::set_var(
-                "MOXIN_INFERENCE_BACKEND",
-                self.app_preferences.inference_backend.clone(),
-            );
-            self.persist_app_preferences(cx);
-            self.load_voice_library(cx);
-            self.update_user_settings_page(cx);
-            self.set_generate_button_loading(cx, self.tts_status == TTSStatus::Generating);
-            self.stop_dora(cx);
-            self.auto_start_dataflow(cx);
-            self.show_toast(cx, self.tr("推理后端已切换", "Inference backend switched"));
-        }
-        if let Some(idx) = self
-            .view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
             .changed(&actions)
         {
@@ -8571,13 +8625,26 @@ impl Widget for TTSScreen {
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
             .changed(&actions)
         {
-            self.app_preferences.training_backend = if idx == 1 {
-                "option_b".to_string()
-            } else {
-                "option_a".to_string()
+            self.app_preferences.training_backend = match idx {
+                1 => "option_b".to_string(),
+                2 => "option_c".to_string(),
+                _ => "option_a".to_string(),
             };
             self.runtime_status_training_backend = self.app_preferences.training_backend.clone();
             std::env::set_var("MOXIN_TRAINING_BACKEND", self.app_preferences.training_backend.clone());
+            // If Qwen3 mode selected and currently in Pro mode, force switch to Express
+            if self.app_preferences.training_backend == "option_c" && self.current_clone_mode == CloneMode::Pro {
+                self.current_clone_mode = CloneMode::Express;
+                self.view.button(ids!(
+                    content_wrapper.main_content.left_column.content_area
+                    .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
+                )).apply_over(cx, live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } });
+                self.view.button(ids!(
+                    content_wrapper.main_content.left_column.content_area
+                    .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
+                )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
+                self.show_toast(cx, self.tr("Qwen3 模式仅支持快速模式，已自动切换", "Qwen3 mode only supports Express mode. Switched automatically."));
+            }
             self.persist_app_preferences(cx);
             self.update_user_settings_page(cx);
         }
@@ -8916,16 +8983,23 @@ impl Widget for TTSScreen {
             content_wrapper.main_content.left_column.content_area
             .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
         )).clicked(&actions) {
-            self.current_clone_mode = CloneMode::Pro;
-            // Update advanced_mode_btn active state
-            self.view.button(ids!(
-                content_wrapper.main_content.left_column.content_area
-                .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
-            )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
-            self.view.button(ids!(
-                content_wrapper.main_content.left_column.content_area
-                .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
-            )).apply_over(cx, live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } });
+            if self.app_preferences.training_backend == "option_c" {
+                self.show_toast(cx, self.tr(
+                    "Qwen3 模式仅支持快速模式，如需高级模式请切换训练后端",
+                    "Qwen3 mode only supports Express mode. Switch training backend to use Advanced mode.",
+                ));
+            } else {
+                self.current_clone_mode = CloneMode::Pro;
+                // Update advanced_mode_btn active state
+                self.view.button(ids!(
+                    content_wrapper.main_content.left_column.content_area
+                    .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
+                )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
+                self.view.button(ids!(
+                    content_wrapper.main_content.left_column.content_area
+                    .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
+                )).apply_over(cx, live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } });
+            }
         }
 
         // Handle Voice Clone page buttons
@@ -9176,8 +9250,12 @@ impl Widget for TTSScreen {
                 match event.hits(cx, card_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
                         self.select_tts_model(cx, &model.id);
-                        self.model_picker_visible = false;
-                        self.view.view(ids!(model_picker_modal)).set_visible(cx, false);
+                        // Only close dialog immediately if NOT switching backend
+                        // (if switching, the timer will close the dialog when new dataflow is ready)
+                        if !self.backend_switching {
+                            self.model_picker_visible = false;
+                            self.view.view(ids!(model_picker_modal)).set_visible(cx, false);
+                        }
                         self.view.redraw(cx);
                     }
                     _ => {}
@@ -10186,12 +10264,22 @@ impl TTSScreen {
             return model.description.clone();
         }
         match model.id.as_str() {
-            "primespeech-gsv2" => "当前项目生产可用的 TTS 流水线，支持内置音色和克隆音色。".to_string(),
+            "primespeech_mlx" => "GPT-SoVITS v2 MLX 推理引擎。支持内置音色、零样本克隆和训练音色推理，适合高质量音色克隆场景。".to_string(),
+            "qwen3_tts_mlx" => "Qwen3 TTS MLX 推理引擎。支持内置音色和零样本音色克隆，在 Apple Silicon 上运行轻量快速。".to_string(),
             _ => model.description.clone(),
         }
     }
 
     fn localized_model_badge(&self, model: &TtsModelOption) -> Option<String> {
+        if model.id == "qwen3_tts_mlx" {
+            if self.qwen_download_in_progress {
+                return Some(self.tr("下载中", "Downloading").to_string());
+            }
+            if !Self::qwen_custom_ready() {
+                return Some(self.tr("待下载", "Download needed").to_string());
+            }
+            return None;
+        }
         let badge = model.badge.as_ref()?;
         if self.is_english() {
             return Some(badge.clone());
@@ -10214,6 +10302,7 @@ impl TTSScreen {
                 "Chinese" => "中文".to_string(),
                 "English" => "英文".to_string(),
                 "Voice Clone" => "音色克隆".to_string(),
+                "Zero-shot" => "零样本克隆".to_string(),
                 _ => tag.clone(),
             })
             .collect()
@@ -10536,12 +10625,6 @@ impl TTSScreen {
         self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.tts_status))
             .set_text(cx, &format!("TTS: {}", self.runtime_status_tts));
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.model_status))
-            .set_text(cx, &format!("Model: {}", self.runtime_status_model));
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.backend_status))
-            .set_text(cx, &format!("Backend: {}", self.runtime_status_training_backend));
     }
 
     fn update_system_paths_ui(&mut self, cx: &mut Cx) {
@@ -10637,30 +10720,6 @@ impl TTSScreen {
             .set_selected_item(cx, retention_idx);
 
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
-            .set_labels(
-                cx,
-                if en {
-                    vec![
-                        "PrimeSpeech MLX (current)".to_string(),
-                        "Qwen3 TTS MLX".to_string(),
-                    ]
-                } else {
-                    vec![
-                        "PrimeSpeech MLX（当前）".to_string(),
-                        "Qwen3 TTS MLX".to_string(),
-                    ]
-                },
-            );
-        let inference_backend_idx = match self.app_preferences.inference_backend.as_str() {
-            "qwen3_tts_mlx" => 1,
-            _ => 0,
-        };
-        self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
-            .set_selected_item(cx, inference_backend_idx);
-
-        self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
             .set_labels(
                 cx,
@@ -10692,18 +10751,20 @@ impl TTSScreen {
                     vec![
                         "Compatibility (Python)".to_string(),
                         "MLX Experimental (Rust)".to_string(),
+                        "Qwen3 Mode".to_string(),
                     ]
                 } else {
                     vec![
                         "兼容模式（Python）".to_string(),
                         "MLX 实验模式（Rust）".to_string(),
+                        "Qwen3 模式".to_string(),
                     ]
                 },
             );
-        let backend_idx = if self.app_preferences.training_backend == "option_b" {
-            1
-        } else {
-            0
+        let backend_idx = match self.app_preferences.training_backend.as_str() {
+            "option_b" => 1,
+            "option_c" => 2,
+            _ => 0,
         };
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
@@ -11438,11 +11499,6 @@ impl TTSScreen {
             .set_text(cx, self.tr("实验功能", "Experimental"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_pick_label
-            ))
-            .set_text(cx, self.tr("推理后端", "Inference backend"));
-        self.view
-            .label(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label
             ))
             .set_text(cx, self.tr("Zero-shot 后端", "Zero-shot backend"));
@@ -11475,24 +11531,6 @@ impl TTSScreen {
             );
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown
-            ))
-            .set_labels(
-                cx,
-                if en {
-                    vec![
-                        "PrimeSpeech MLX (current)".to_string(),
-                        "Qwen3 TTS MLX".to_string(),
-                    ]
-                } else {
-                    vec![
-                        "PrimeSpeech MLX（当前）".to_string(),
-                        "Qwen3 TTS MLX".to_string(),
-                    ]
-                },
-            );
-        self.view
-            .drop_down(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown
             ))
             .set_labels(
@@ -11519,11 +11557,13 @@ impl TTSScreen {
                     vec![
                         "Compatibility (Python)".to_string(),
                         "MLX Experimental (Rust)".to_string(),
+                        "Qwen3 Mode".to_string(),
                     ]
                 } else {
                     vec![
                         "兼容模式（Python）".to_string(),
                         "MLX 实验模式（Rust）".to_string(),
+                        "Qwen3 模式".to_string(),
                     ]
                 },
             );
@@ -15768,12 +15808,6 @@ impl TTSScreen {
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.tts_status))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.model_status))
-            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.backend_status))
-            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-        self.view
             .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
@@ -15816,9 +15850,6 @@ impl TTSScreen {
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.experiments_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_pick_label))
-            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-        self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
@@ -15841,9 +15872,6 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
-        self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.inference_backend_pick_row.inference_backend_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
@@ -16239,8 +16267,41 @@ impl TTSScreen {
     }
 
     fn select_tts_model(&mut self, cx: &mut Cx, model_id: &str) {
+        // Check if Qwen3 model is ready before switching
+        if model_id == "qwen3_tts_mlx" && !Self::qwen_custom_ready() {
+            self.start_qwen_model_download(
+                cx,
+                "qwen3_tts_mlx",
+                true,
+                self.app_preferences.zero_shot_backend == "qwen3_tts_mlx",
+            );
+            self.show_toast(
+                cx,
+                self.tr(
+                    "Qwen 推理模型未就绪，已开始后台下载，完成后可切换",
+                    "Qwen inference model not ready. Background download started. You can switch after download completes.",
+                ),
+            );
+            return;
+        }
+
         if let Some(model) = self.model_options.iter().find(|m| m.id == model_id).cloned() {
             self.selected_tts_model_id = Some(model.id.clone());
+            // Update the inference_backend preference to match selected model
+            self.app_preferences.inference_backend = model.id.clone();
+            std::env::set_var("MOXIN_INFERENCE_BACKEND", &model.id);
+            self.persist_app_preferences(cx);
+            self.load_voice_library(cx);
+            self.update_user_settings_page(cx);
+            self.set_generate_button_loading(cx, self.tts_status == TTSStatus::Generating);
+            self.stop_dora(cx);
+            // Do NOT call auto_start_dataflow here — stop_dora is async, so is_running() is still
+            // true immediately after. The timer will call auto_start_dataflow once the old bridges
+            // have dropped (phase 1 complete), then wait for 4 bridges to come up (phase 2).
+            // Show in-dialog switching overlay and wait for new dataflow to be ready
+            self.backend_switching = true;
+            self.backend_switch_bridges_dropped = false;
+            self.view.view(ids!(model_picker_modal.model_picker_dialog.switching_overlay)).set_visible(cx, true);
             self.sync_selected_model_ui(cx);
             self.update_model_picker_controls(cx);
             self.add_log(
