@@ -2445,7 +2445,7 @@ live_design! {
                                     flow: Down
 
                                     VoicePickerItem = <View> {
-                                        width: Fill, height: 84
+                                        width: Fill, height: Fit
                                         margin: {left: 0, right: 0, top: 8}
                                         padding: {left: 12, right: 12, top: 10, bottom: 10}
                                         flow: Right
@@ -2503,7 +2503,8 @@ live_design! {
                                             spacing: 8
 
                                             picker_name = <Label> {
-                                                width: Fill, height: 24
+                                                width: Fill, height: Fit
+                                                padding: {top: 4, bottom: 2}
                                                 draw_text: {
                                                     instance dark_mode: 0.0
                                                     text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
@@ -6313,7 +6314,7 @@ live_design! {
                     flow: Down
 
                     VoicePickerItem = <View> {
-                        width: Fill, height: 96
+                        width: Fill, height: Fit
                         margin: {left: 12, right: 12, top: 8}
                         padding: {left: 14, right: 14, top: 12, bottom: 12}
                         flow: Right
@@ -6371,7 +6372,8 @@ live_design! {
                             spacing: 8
 
                             picker_name = <Label> {
-                                width: Fill, height: 24
+                                width: Fill, height: Fit
+                                padding: {top: 4, bottom: 2}
                                 draw_text: {
                                     instance dark_mode: 0.0
                                     text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }

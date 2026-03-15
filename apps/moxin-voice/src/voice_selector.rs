@@ -91,10 +91,12 @@ live_design! {
             width: Fill, height: Fit
             flow: Down
             spacing: 2
+            clip_x: false
+            clip_y: false
 
             name = <Label> {
                 width: Fill, height: Fit
-                padding: {top: 2, bottom: 2}
+                padding: {top: 6, bottom: 2}
                 draw_text: {
                     instance dark_mode: 0.0
                     instance selected: 0.0
@@ -110,6 +112,7 @@ live_design! {
 
             description = <Label> {
                 width: Fill, height: Fit
+                padding: {bottom: 5}
                 draw_text: {
                     instance dark_mode: 0.0
                     text_style: { font_size: 11.0 }
