@@ -12940,7 +12940,7 @@ impl TTSScreen {
                 }
             }
         } else {
-            // Built-in voice: use preview_audio from models directory
+            // Built-in voice: resolve preview audio path by backend
             let preview_file = match &voice.preview_audio {
                 Some(f) => f.clone(),
                 None => {
@@ -12953,12 +12953,22 @@ impl TTSScreen {
             };
 
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            home.join(".dora")
-                .join("models")
-                .join("primespeech")
-                .join("moyoyo")
-                .join("ref_audios")
-                .join(&preview_file)
+            if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
+                // Qwen3 preview audio: pre-generated samples in the model dir
+                home.join(".OminiX")
+                    .join("models")
+                    .join("qwen3-tts-mlx")
+                    .join("previews")
+                    .join(&preview_file)
+            } else {
+                // PrimeSpeech preview audio: reference WAVs in the models dir
+                home.join(".dora")
+                    .join("models")
+                    .join("primespeech")
+                    .join("moyoyo")
+                    .join("ref_audios")
+                    .join(&preview_file)
+            }
         };
 
         if !audio_path.exists() {
@@ -16698,12 +16708,20 @@ impl TTSScreen {
                 }
             };
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            home.join(".dora")
-                .join("models")
-                .join("primespeech")
-                .join("moyoyo")
-                .join("ref_audios")
-                .join(&preview_file)
+            if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
+                home.join(".OminiX")
+                    .join("models")
+                    .join("qwen3-tts-mlx")
+                    .join("previews")
+                    .join(&preview_file)
+            } else {
+                home.join(".dora")
+                    .join("models")
+                    .join("primespeech")
+                    .join("moyoyo")
+                    .join("ref_audios")
+                    .join(&preview_file)
+            }
         };
 
         if !audio_path.exists() {
