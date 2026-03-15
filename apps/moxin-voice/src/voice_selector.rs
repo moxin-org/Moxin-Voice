@@ -834,14 +834,19 @@ impl Widget for VoiceSelector {
                             },
                         );
 
-                        // Apply preview button state
-                        let is_playing = self.preview_playing_voice_id.as_ref() == Some(&voice.id);
-                        let playing_val = if is_playing { 1.0 } else { 0.0 };
-                        let is_hovered = self.hovered_preview_idx == Some(item_id);
-                        let hover_val = if is_hovered { 1.0 } else { 0.0 };
-                        item.view(ids!(preview_btn)).apply_over(cx, live! {
-                            draw_bg: { dark_mode: (self.dark_mode), playing: (playing_val), hover: (hover_val) }
-                        });
+                        // Apply preview button state — hide when no audio is available
+                        let can_preview = voice.preview_audio.is_some()
+                            || voice.reference_audio_path.is_some();
+                        item.view(ids!(preview_btn)).set_visible(cx, can_preview);
+                        if can_preview {
+                            let is_playing = self.preview_playing_voice_id.as_ref() == Some(&voice.id);
+                            let playing_val = if is_playing { 1.0 } else { 0.0 };
+                            let is_hovered = self.hovered_preview_idx == Some(item_id);
+                            let hover_val = if is_hovered { 1.0 } else { 0.0 };
+                            item.view(ids!(preview_btn)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (self.dark_mode), playing: (playing_val), hover: (hover_val) }
+                            });
+                        }
 
                         // Show delete button only for custom voices
                         let is_custom = voice.is_custom();

@@ -315,8 +315,8 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
     vec![
         Voice {
             id: "vivian".to_string(),
-            name: "Vivian (Qwen)".to_string(),
-            description: "Bright, slightly edgy young female voice".to_string(),
+            name: "薇薇安 (Vivian)".to_string(),
+            description: "活泼灵动、略带个性的年轻女声".to_string(),
             category: VoiceCategory::Female,
             language: "zh".to_string(),
             preview_audio: None,
@@ -329,8 +329,8 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "serena".to_string(),
-            name: "Serena (Qwen)".to_string(),
-            description: "Warm, gentle young female voice".to_string(),
+            name: "赛琳娜 (Serena)".to_string(),
+            description: "温柔亲切的年轻女声".to_string(),
             category: VoiceCategory::Female,
             language: "zh".to_string(),
             preview_audio: None,
@@ -343,8 +343,8 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "uncle_fu".to_string(),
-            name: "Uncle Fu (Qwen)".to_string(),
-            description: "Seasoned male voice with low, mellow timbre".to_string(),
+            name: "傅叔 (Uncle Fu)".to_string(),
+            description: "低沉醇厚的成熟男声".to_string(),
             category: VoiceCategory::Male,
             language: "zh".to_string(),
             preview_audio: None,
@@ -357,8 +357,8 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "dylan".to_string(),
-            name: "Dylan (Qwen)".to_string(),
-            description: "Youthful Beijing male voice, clear and natural".to_string(),
+            name: "迪伦 (Dylan)".to_string(),
+            description: "清朗自然的北京青年男声".to_string(),
             category: VoiceCategory::Male,
             language: "zh".to_string(),
             preview_audio: None,
@@ -371,8 +371,8 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "eric".to_string(),
-            name: "Eric (Qwen)".to_string(),
-            description: "Lively Chengdu male voice with husky brightness".to_string(),
+            name: "埃里克 (Eric)".to_string(),
+            description: "活泼明亮的成都青年男声".to_string(),
             category: VoiceCategory::Male,
             language: "zh".to_string(),
             preview_audio: None,
@@ -385,7 +385,7 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "ryan".to_string(),
-            name: "Ryan (Qwen)".to_string(),
+            name: "Ryan".to_string(),
             description: "Dynamic male voice with strong rhythmic drive".to_string(),
             category: VoiceCategory::Male,
             language: "en".to_string(),
@@ -399,7 +399,7 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "aiden".to_string(),
-            name: "Aiden (Qwen)".to_string(),
+            name: "Aiden".to_string(),
             description: "Sunny American male voice with clear midrange".to_string(),
             category: VoiceCategory::Male,
             language: "en".to_string(),
@@ -413,8 +413,8 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "ono_anna".to_string(),
-            name: "Ono Anna (Qwen)".to_string(),
-            description: "Playful Japanese female voice, light and nimble".to_string(),
+            name: "小野安奈 (Ono Anna)".to_string(),
+            description: "轻快灵动的日本女声".to_string(),
             category: VoiceCategory::Female,
             language: "ja".to_string(),
             preview_audio: None,
@@ -427,8 +427,8 @@ pub fn get_qwen_builtin_voices() -> Vec<Voice> {
         },
         Voice {
             id: "sohee".to_string(),
-            name: "Sohee (Qwen)".to_string(),
-            description: "Warm Korean female voice with rich emotion".to_string(),
+            name: "素熙 (Sohee)".to_string(),
+            description: "情感丰富的韩国女声".to_string(),
             category: VoiceCategory::Female,
             language: "ko".to_string(),
             preview_audio: None,
