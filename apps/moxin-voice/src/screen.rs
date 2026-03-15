@@ -1401,7 +1401,7 @@ live_design! {
                 width: Fill, height: Fill
                 flow: Down
                 spacing: 0
-                padding: { left: 32, right: 32, top: 24, bottom: 0 }
+                padding: { left: 32, right: 32, top: 12, bottom: 0 }
 
             // Left column - we keep this structure for compatibility but it now contains everything
             left_column = <View> {
@@ -1420,7 +1420,7 @@ live_design! {
                     tts_page = <View> {
                         width: Fill, height: Fill
                         flow: Down
-                        spacing: 20
+                        spacing: 12
                         visible: true  // Default visible
 
                     // Page title - Moxin.tts style
@@ -1433,7 +1433,7 @@ live_design! {
                             width: Fit, height: Fit
                             draw_text: {
                                 instance dark_mode: 0.0
-                                text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
+                                text_style: <FONT_SEMIBOLD>{ font_size: 18.0 }
                                 fn get_color(self) -> vec4 {
                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                 }
@@ -2955,7 +2955,7 @@ live_design! {
                                     width: Fit, height: Fit
                                     draw_text: {
                                         instance dark_mode: 0.0
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 18.0 }
                                         fn get_color(self) -> vec4 {
                                             return mix((MOXIN_TEXT_PRIMARY), (MOXIN_TEXT_PRIMARY_DARK), self.dark_mode);
                                         }
@@ -3457,7 +3457,7 @@ live_design! {
                     clone_page = <View> {
                         width: Fill, height: Fill
                         flow: Down
-                        spacing: 20
+                        spacing: 12
                         visible: false  // Hidden by default
 
                         // Page header
@@ -3477,7 +3477,7 @@ live_design! {
                                     width: Fit, height: Fit
                                     draw_text: {
                                         instance dark_mode: 0.0
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 18.0 }
                                         fn get_color(self) -> vec4 {
                                             return mix((MOXIN_TEXT_PRIMARY), (MOXIN_TEXT_PRIMARY_DARK), self.dark_mode);
                                         }
@@ -4419,7 +4419,7 @@ live_design! {
                                 width: Fit, height: Fit
                                 draw_text: {
                                     instance dark_mode: 0.0
-                                    text_style: <FONT_SEMIBOLD>{ font_size: 24.0 }
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 18.0 }
                                     fn get_color(self) -> vec4 {
                                         return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                     }

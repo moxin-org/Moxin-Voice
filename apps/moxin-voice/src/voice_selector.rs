@@ -94,6 +94,7 @@ live_design! {
 
             name = <Label> {
                 width: Fill, height: Fit
+                padding: {top: 2, bottom: 2}
                 draw_text: {
                     instance dark_mode: 0.0
                     instance selected: 0.0
