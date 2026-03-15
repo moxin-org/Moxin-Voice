@@ -144,6 +144,13 @@ mkdir -p "$MACOS_DIR" "$RES_DIR" "$SCRIPTS_DIR" "$DATAFLOW_DIR"
 cp "$SHELL_BIN_PATH" "$MACOS_DIR/${BIN_NAME}-bin"
 cp "$TTS_BIN_PATH" "$MACOS_DIR/moxin-tts-node"
 cp "$QWEN_TTS_BIN_PATH" "$MACOS_DIR/qwen-tts-node"
+
+# Bundle Qwen3-TTS voice preview WAV files (pre-generated, committed to repo)
+QWEN_PREVIEWS_SRC="$ROOT_DIR/node-hub/dora-qwen3-tts-mlx/previews"
+if [[ -d "$QWEN_PREVIEWS_SRC" ]]; then
+  mkdir -p "$RES_DIR/qwen3-previews"
+  cp "$QWEN_PREVIEWS_SRC"/*.wav "$RES_DIR/qwen3-previews/"
+fi
 cp "$DORA_BIN_PATH" "$MACOS_DIR/dora"
 if [[ -f "$MLX_METALLIB_PATH" ]]; then
   cp "$MLX_METALLIB_PATH" "$MACOS_DIR/mlx.metallib"

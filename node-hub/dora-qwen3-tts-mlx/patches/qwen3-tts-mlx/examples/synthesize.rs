@@ -101,6 +101,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         top_p: args.top_p,
         max_new_tokens: args.max_tokens,
         seed: args.seed,
+        speed_factor: None,
     };
 
     if let Some(ref ref_audio_path) = args.reference_audio {

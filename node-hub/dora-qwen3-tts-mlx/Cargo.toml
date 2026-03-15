@@ -20,3 +20,7 @@ hound = "3.5"
 [[bin]]
 name = "qwen-tts-node"
 path = "src/main.rs"
+
+[[bin]]
+name = "gen-qwen-previews"
+path = "src/bin/gen_qwen_previews.rs"

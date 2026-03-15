@@ -129,10 +129,15 @@ cargo run -p moxin-voice-shell
 
 Models are stored in:
 
-| Location                      | Contents                      |
-| ----------------------------- | ----------------------------- |
-| `~/.dora/models/asr/funasr/`  | FunASR ASR models             |
-| `~/.dora/models/primespeech/` | PrimeSpeech TTS base + voices |
+| Location                                              | Contents                              |
+| ----------------------------------------------------- | ------------------------------------- |
+| `~/.dora/models/asr/funasr/`                          | FunASR ASR models                     |
+| `~/.dora/models/primespeech/`                         | PrimeSpeech TTS base + voices         |
+| `~/.OminiX/models/qwen3-tts-mlx/<model-name>/`        | Qwen3-TTS model weights               |
+
+Qwen3-TTS voice preview clips are pre-generated and committed to the repository under `node-hub/dora-qwen3-tts-mlx/previews/`. They are automatically bundled into the distributed app — no generation step is required on the user's machine.
+
+> **Maintainers only**: to regenerate previews after a model update, run `bash scripts/generate_qwen_previews.sh` and commit the updated WAV files.
 
 ### Build & Run
 

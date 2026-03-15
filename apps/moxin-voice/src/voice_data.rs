@@ -306,146 +306,80 @@ pub fn get_builtin_voices() -> Vec<Voice> {
     ]
 }
 
+/// Localized (name, description) pairs for each Qwen3 preset speaker.
+/// Returns English strings when `locale` is "en", Chinese otherwise.
+fn qwen_voice_i18n(id: &str, locale: &str) -> (&'static str, &'static str) {
+    let en = locale == "en";
+    match id {
+        "vivian"   => if en { ("Vivian",    "Bright, slightly edgy young female voice") }
+                      else  { ("薇薇安 (Vivian)",  "活泼灵动、略带个性的年轻女声") },
+        "serena"   => if en { ("Serena",    "Warm, gentle young female voice") }
+                      else  { ("赛琳娜 (Serena)",  "温柔亲切的年轻女声") },
+        "uncle_fu" => if en { ("Uncle Fu",  "Seasoned male voice with low, mellow timbre") }
+                      else  { ("傅叔 (Uncle Fu)", "低沉醇厚的成熟男声") },
+        "dylan"    => if en { ("Dylan",     "Youthful Beijing male voice, clear and natural") }
+                      else  { ("迪伦 (Dylan)",    "清朗自然的北京青年男声") },
+        "eric"     => if en { ("Eric",      "Lively Chengdu male voice with husky brightness") }
+                      else  { ("埃里克 (Eric)",   "活泼明亮的成都青年男声") },
+        // English-only speakers — same regardless of locale
+        "ryan"     => ("Ryan",     "Dynamic male voice with strong rhythmic drive"),
+        "aiden"    => ("Aiden",    "Sunny American male voice with clear midrange"),
+        // Japanese / Korean — show romaji name with locale-aware description
+        "ono_anna" => if en { ("Ono Anna",  "Playful Japanese female voice, light and nimble") }
+                      else  { ("小野安奈 (Ono Anna)", "轻快灵动的日本女声") },
+        "sohee"    => if en { ("Sohee",     "Warm Korean female voice with rich emotion") }
+                      else  { ("素熙 (Sohee)",   "情感丰富的韩国女声") },
+        _          => ("",         ""),
+    }
+}
+
 /// Get built-in voices for qwen3-tts backend.
-///
-/// NOTE:
-/// - These are qwen speakers, not PrimeSpeech preset voices.
-/// - Preview audio is optional and currently not bundled for qwen speakers.
-pub fn get_qwen_builtin_voices() -> Vec<Voice> {
-    vec![
+/// `locale` should be "en" or "zh" (default zh for anything else).
+pub fn get_qwen_builtin_voices(locale: &str) -> Vec<Voice> {
+    // (id, voice_language, preview_wav)
+    let specs: &[(&str, &str, &str)] = &[
+        ("vivian",   "zh", "vivian.wav"),
+        ("serena",   "zh", "serena.wav"),
+        ("uncle_fu", "zh", "uncle_fu.wav"),
+        ("dylan",    "zh", "dylan.wav"),
+        ("eric",     "zh", "eric.wav"),
+        ("ryan",     "en", "ryan.wav"),
+        ("aiden",    "en", "aiden.wav"),
+        ("ono_anna", "ja", "ono_anna.wav"),
+        ("sohee",    "ko", "sohee.wav"),
+    ];
+    specs.iter().map(|(id, lang, wav)| {
+        let (name, desc) = qwen_voice_i18n(id, locale);
+        let cat = match *lang {
+            "en" => VoiceCategory::Male,
+            _ => if *id == "vivian" || *id == "serena" || *id == "ono_anna" || *id == "sohee" {
+                VoiceCategory::Female
+            } else {
+                VoiceCategory::Male
+            },
+        };
         Voice {
-            id: "vivian".to_string(),
-            name: "薇薇安 (Vivian)".to_string(),
-            description: "活泼灵动、略带个性的年轻女声".to_string(),
-            category: VoiceCategory::Female,
-            language: "zh".to_string(),
-            preview_audio: Some("vivian.wav".to_string()),
+            id: id.to_string(),
+            name: name.to_string(),
+            description: desc.to_string(),
+            category: cat,
+            language: lang.to_string(),
+            preview_audio: Some(wav.to_string()),
             source: VoiceSource::Builtin,
             reference_audio_path: None,
             prompt_text: None,
             gpt_weights: None,
             sovits_weights: None,
             created_at: None,
-        },
-        Voice {
-            id: "serena".to_string(),
-            name: "赛琳娜 (Serena)".to_string(),
-            description: "温柔亲切的年轻女声".to_string(),
-            category: VoiceCategory::Female,
-            language: "zh".to_string(),
-            preview_audio: Some("serena.wav".to_string()),
-            source: VoiceSource::Builtin,
-            reference_audio_path: None,
-            prompt_text: None,
-            gpt_weights: None,
-            sovits_weights: None,
-            created_at: None,
-        },
-        Voice {
-            id: "uncle_fu".to_string(),
-            name: "傅叔 (Uncle Fu)".to_string(),
-            description: "低沉醇厚的成熟男声".to_string(),
-            category: VoiceCategory::Male,
-            language: "zh".to_string(),
-            preview_audio: Some("uncle_fu.wav".to_string()),
-            source: VoiceSource::Builtin,
-            reference_audio_path: None,
-            prompt_text: None,
-            gpt_weights: None,
-            sovits_weights: None,
-            created_at: None,
-        },
-        Voice {
-            id: "dylan".to_string(),
-            name: "迪伦 (Dylan)".to_string(),
-            description: "清朗自然的北京青年男声".to_string(),
-            category: VoiceCategory::Male,
-            language: "zh".to_string(),
-            preview_audio: Some("dylan.wav".to_string()),
-            source: VoiceSource::Builtin,
-            reference_audio_path: None,
-            prompt_text: None,
-            gpt_weights: None,
-            sovits_weights: None,
-            created_at: None,
-        },
-        Voice {
-            id: "eric".to_string(),
-            name: "埃里克 (Eric)".to_string(),
-            description: "活泼明亮的成都青年男声".to_string(),
-            category: VoiceCategory::Male,
-            language: "zh".to_string(),
-            preview_audio: Some("eric.wav".to_string()),
-            source: VoiceSource::Builtin,
-            reference_audio_path: None,
-            prompt_text: None,
-            gpt_weights: None,
-            sovits_weights: None,
-            created_at: None,
-        },
-        Voice {
-            id: "ryan".to_string(),
-            name: "Ryan".to_string(),
-            description: "Dynamic male voice with strong rhythmic drive".to_string(),
-            category: VoiceCategory::Male,
-            language: "en".to_string(),
-            preview_audio: Some("ryan.wav".to_string()),
-            source: VoiceSource::Builtin,
-            reference_audio_path: None,
-            prompt_text: None,
-            gpt_weights: None,
-            sovits_weights: None,
-            created_at: None,
-        },
-        Voice {
-            id: "aiden".to_string(),
-            name: "Aiden".to_string(),
-            description: "Sunny American male voice with clear midrange".to_string(),
-            category: VoiceCategory::Male,
-            language: "en".to_string(),
-            preview_audio: Some("aiden.wav".to_string()),
-            source: VoiceSource::Builtin,
-            reference_audio_path: None,
-            prompt_text: None,
-            gpt_weights: None,
-            sovits_weights: None,
-            created_at: None,
-        },
-        Voice {
-            id: "ono_anna".to_string(),
-            name: "小野安奈 (Ono Anna)".to_string(),
-            description: "轻快灵动的日本女声".to_string(),
-            category: VoiceCategory::Female,
-            language: "ja".to_string(),
-            preview_audio: Some("ono_anna.wav".to_string()),
-            source: VoiceSource::Builtin,
-            reference_audio_path: None,
-            prompt_text: None,
-            gpt_weights: None,
-            sovits_weights: None,
-            created_at: None,
-        },
-        Voice {
-            id: "sohee".to_string(),
-            name: "素熙 (Sohee)".to_string(),
-            description: "情感丰富的韩国女声".to_string(),
-            category: VoiceCategory::Female,
-            language: "ko".to_string(),
-            preview_audio: Some("sohee.wav".to_string()),
-            source: VoiceSource::Builtin,
-            reference_audio_path: None,
-            prompt_text: None,
-            gpt_weights: None,
-            sovits_weights: None,
-            created_at: None,
-        },
-    ]
+        }
+    }).collect()
 }
 
 /// Select built-in voices by current inference backend.
-pub fn get_builtin_voices_for_backend(inference_backend: &str) -> Vec<Voice> {
+/// `locale` is "en" or "zh" and controls display language for Qwen3 voices.
+pub fn get_builtin_voices_for_backend(inference_backend: &str, locale: &str) -> Vec<Voice> {
     if inference_backend == "qwen3_tts_mlx" {
-        get_qwen_builtin_voices()
+        get_qwen_builtin_voices(locale)
     } else {
         get_builtin_voices()
     }

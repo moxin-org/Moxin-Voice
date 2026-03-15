@@ -8703,6 +8703,7 @@ impl Widget for TTSScreen {
             let _ = i18n::set_locale("en");
             self.update_language_options(cx);
             self.apply_localization(cx);
+            self.load_voice_library(cx);
         }
 
         if self
@@ -8718,6 +8719,7 @@ impl Widget for TTSScreen {
             let _ = i18n::set_locale("zh");
             self.update_language_options(cx);
             self.apply_localization(cx);
+            self.load_voice_library(cx);
         }
 
         // Handle theme selection in global settings
@@ -12952,16 +12954,12 @@ impl TTSScreen {
                 }
             };
 
-            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
             if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
-                // Qwen3 preview audio: pre-generated samples in the model dir
-                home.join(".OminiX")
-                    .join("models")
-                    .join("qwen3-tts-mlx")
-                    .join("previews")
-                    .join(&preview_file)
+                // Qwen3 preview audio: bundled in repo/app
+                self.resolve_qwen_preview_path(&preview_file)
             } else {
                 // PrimeSpeech preview audio: reference WAVs in the models dir
+                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
                 home.join(".dora")
                     .join("models")
                     .join("primespeech")
@@ -13010,6 +13008,42 @@ impl TTSScreen {
                 self.add_log(cx, &format!("[ERROR] [tts] Failed to load preview: {}", e));
             }
         }
+    }
+
+    /// Resolve the path for a Qwen3-TTS built-in voice preview WAV file.
+    /// Search order:
+    ///   1. App bundle: $MOXIN_APP_RESOURCES/qwen3-previews/<file>
+    ///   2. Dev repo:   <exe>/../../node-hub/dora-qwen3-tts-mlx/previews/<file>
+    ///   3. Fallback:   ~/.OminiX/models/qwen3-tts-mlx/previews/<file>
+    fn resolve_qwen_preview_path(&self, filename: &str) -> PathBuf {
+        // 1. Bundle location (set by the launcher script for packaged apps)
+        if let Ok(res) = std::env::var("MOXIN_APP_RESOURCES") {
+            let p = PathBuf::from(&res).join("qwen3-previews").join(filename);
+            if p.exists() {
+                return p;
+            }
+        }
+        // 2. Dev: repo root relative to the compiled binary
+        //    target/{debug,release}/moxin-voice-shell → ../../node-hub/dora-qwen3-tts-mlx/previews
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(target_dir) = exe.parent().and_then(|d| d.parent()) {
+                let p = target_dir
+                    .join("node-hub")
+                    .join("dora-qwen3-tts-mlx")
+                    .join("previews")
+                    .join(filename);
+                if p.exists() {
+                    return p;
+                }
+            }
+        }
+        // 3. Fallback: user-local generated previews
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        home.join(".OminiX")
+            .join("models")
+            .join("qwen3-tts-mlx")
+            .join("previews")
+            .join(filename)
     }
 
     fn load_wav_file(&self, path: &PathBuf) -> Result<Vec<f32>, String> {
@@ -14974,9 +15008,10 @@ impl TTSScreen {
         self.library_loading = true;
         self.add_log(cx, "[INFO] [library] Loading voice library...");
 
-        // Load backend-specific builtin voices
+        // Load backend-specific builtin voices (locale-aware for Qwen3)
         let mut voices = crate::voice_data::get_builtin_voices_for_backend(
             &self.app_preferences.inference_backend,
+            &self.app_language,
         );
         let builtin_count = voices.len();
 
@@ -16707,14 +16742,11 @@ impl TTSScreen {
                     return;
                 }
             };
-            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
             if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
-                home.join(".OminiX")
-                    .join("models")
-                    .join("qwen3-tts-mlx")
-                    .join("previews")
-                    .join(&preview_file)
+                // Qwen3 preview audio: bundled in repo/app
+                self.resolve_qwen_preview_path(&preview_file)
             } else {
+                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
                 home.join(".dora")
                     .join("models")
                     .join("primespeech")
