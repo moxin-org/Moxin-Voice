@@ -2037,6 +2037,21 @@ impl VoiceCloneModal {
         }
     }
 
+    /// Returns "option_b" if Qwen3/MLX backend is active, "option_a" otherwise.
+    fn get_training_backend() -> String {
+        std::env::var("MOXIN_TRAINING_BACKEND")
+            .ok()
+            .map(|v| v.to_ascii_lowercase())
+            .map(|v| {
+                if matches!(v.as_str(), "option_b" | "rust" | "mlx" | "b") {
+                    "option_b".to_string()
+                } else {
+                    "option_a".to_string()
+                }
+            })
+            .unwrap_or_else(|| "option_a".to_string())
+    }
+
     fn add_log(&mut self, cx: &mut Cx, message: &str) {
         self.log_messages.push(message.to_string());
         let log_text = self.log_messages.join("\n");
@@ -2432,24 +2447,27 @@ impl VoiceCloneModal {
             }
         };
 
-        // Validate audio duration (GPT-SoVITS requires 3-10 seconds)
+        // Validate audio duration — limits differ by backend:
+        // option_a (GPT-SoVITS zero-shot): 3-10 seconds
+        // option_b (Qwen3 zero-shot): 3-30 seconds
+        let express_max_secs: f32 = if Self::get_training_backend() == "option_b" { 30.0 } else { 10.0 };
         if let Some(ref info) = self.audio_info {
             if info.duration_secs < 3.0 {
                 self.show_error(
                     cx,
                     &format!(
-                        "Audio too short ({:.1}s). Required: 3-10 seconds",
-                        info.duration_secs
+                        "Audio too short ({:.1}s). Required: 3-{:.0} seconds",
+                        info.duration_secs, express_max_secs
                     ),
                 );
                 return;
             }
-            if info.duration_secs > 10.0 {
+            if info.duration_secs > express_max_secs {
                 self.show_error(
                     cx,
                     &format!(
-                        "Audio too long ({:.1}s). Required: 3-10 seconds",
-                        info.duration_secs
+                        "Audio too long ({:.1}s). Required: 3-{:.0} seconds",
+                        info.duration_secs, express_max_secs
                     ),
                 );
                 return;
@@ -2626,7 +2644,8 @@ impl VoiceCloneModal {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
         self.add_log(cx, "[INFO] Starting microphone recording...");
-        self.add_log(cx, "[INFO] Speak clearly for 3-10 seconds");
+        let max_s = if Self::get_training_backend() == "option_b" { 30 } else { 10 };
+        self.add_log(cx, &format!("[INFO] Speak clearly for 3-{} seconds", max_s));
 
         // Initialize buffer and sample rate
         self.recording_buffer = Arc::new(Mutex::new(Vec::new()));
@@ -2757,8 +2776,9 @@ impl VoiceCloneModal {
             return;
         }
 
-        if duration > 10.0 {
-            self.add_log(cx, "[WARN] Recording over 10s will be trimmed to 10s");
+        let express_max_secs: f32 = if Self::get_training_backend() == "option_b" { 30.0 } else { 10.0 };
+        if duration > express_max_secs {
+            self.add_log(cx, &format!("[WARN] Recording over {:.0}s will be trimmed to {:.0}s", express_max_secs, express_max_secs));
         }
 
         self.recording_status = RecordingStatus::Transcribing;
@@ -2770,6 +2790,7 @@ impl VoiceCloneModal {
         let sample_rate_store = Arc::clone(&self.recording_sample_rate);
         let processing_complete = Arc::clone(&self.processing_complete);
         let temp_file_store = Arc::clone(&self.temp_audio_file);
+        let express_max_secs_bg: u32 = if Self::get_training_backend() == "option_b" { 30 } else { 10 };
 
         std::thread::spawn(move || {
             // Give the recording thread a moment to finalize
@@ -2819,8 +2840,8 @@ impl VoiceCloneModal {
                 samples
             };
 
-            // Trim to max 10 seconds
-            let max_samples = (10 * target_sample_rate) as usize;
+            // Trim to backend-specific max (Qwen3: 30s, GPT-SoVITS: 10s)
+            let max_samples = (express_max_secs_bg * target_sample_rate) as usize;
             let trimmed_samples: Vec<f32> = if resampled.len() > max_samples {
                 resampled[..max_samples].to_vec()
             } else {
@@ -3257,7 +3278,7 @@ impl VoiceCloneModal {
 
         if duration > 600.0 {
             self.add_training_log(cx, &format!(
-                    "[WARNING] Recording too long: {:.1}s (will be trimmed to 600s = 10 minutes)",
+                    "[WARNING] Recording too long: {:.1}s, trimming to 600s (10 minutes)",
                     duration
             ));
         }
@@ -3276,6 +3297,14 @@ impl VoiceCloneModal {
             Self::resample(&samples, source_sample_rate, target_sample_rate)
         } else {
             samples
+        };
+
+        // Trim to 600s (10 minutes) to match UI description
+        let max_training_samples = 600 * target_sample_rate as usize;
+        let resampled = if resampled.len() > max_training_samples {
+            resampled[..max_training_samples].to_vec()
+        } else {
+            resampled
         };
 
         // Store samples
@@ -3408,7 +3437,7 @@ impl VoiceCloneModal {
 
         if duration > 600.0 {
             self.add_training_log(cx, &format!(
-                    "[WARNING] Audio too long: {:.1}s (will be trimmed to 600s = 10 minutes)",
+                    "[WARNING] Audio too long: {:.1}s, trimming to 600s (10 minutes)",
                     duration
             ));
         }
@@ -3419,6 +3448,14 @@ impl VoiceCloneModal {
             Self::resample(&samples, source_sample_rate, target_sample_rate)
         } else {
             samples
+        };
+
+        // Trim to 600s (10 minutes) to match UI description
+        let max_training_samples = 600 * target_sample_rate as usize;
+        let resampled = if resampled.len() > max_training_samples {
+            resampled[..max_training_samples].to_vec()
+        } else {
+            resampled
         };
 
         // Store samples
