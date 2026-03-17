@@ -318,70 +318,45 @@ git push origin main
 
 ## 🎯 项目当前状态
 
-### 开发阶段
+### 版本：v0.0.2（2026-03-17）
 
-| 阶段                 | 状态      | 说明                         |
-| -------------------- | --------- | ---------------------------- |
-| Phase 1: 基础搭建    | ✅ 100%   | 创建独立 Shell，工作区集成   |
-| Phase 2: Shell 修复  | ✅ 100%   | Makepad 初始化，编译错误修复 |
-| Phase 3: Few-Shot UI | ✅ 100%   | Express/Pro 模式 UI 实现     |
-| Phase 4: 代码库清理  | ✅ 100%   | 删除 24K 行未使用代码        |
-| Phase 5: 功能测试    | 🔧 进行中 | TTS 生成、语音克隆测试       |
-| Phase 6: 文档和发布  | 📋 待开始 | 完善文档，准备发布           |
+| 阶段                   | 状态    | 说明                                   |
+| ---------------------- | ------- | -------------------------------------- |
+| Phase 1: 基础搭建      | ✅ 100% | 创建独立 Shell，工作区集成             |
+| Phase 2: Shell 修复    | ✅ 100% | Makepad 初始化，编译错误修复           |
+| Phase 3: Few-Shot UI   | ✅ 100% | Express/Pro 模式 UI 实现               |
+| Phase 4: 代码库清理    | ✅ 100% | 删除 24K 行未使用代码                  |
+| Phase 5: Qwen3-TTS集成 | ✅ 100% | 双后端切换、内置音色、预览、i18n       |
+| Phase 6: 分发打包      | ✅ 100% | macOS .app + DMG，bootstrap 脚本       |
 
-### Git 状态快照
+### 最近提交（v0.0.1 → v0.0.2）
 
 ```
-Current branch: main
-Main branch: main
-
-Modified:
-  M README.md
-  M models/setup-local-models/install_all_packages.sh
-  M models/setup-local-models/setup_isolated_env.sh
-  M models/setup-local-models/test_dependencies.py
-
-Untracked files:
-  ?? CURRENT_STATUS.md
-  ?? DORA_MACOS_ISSUE.md
-  ?? MACOS_CHECKLIST.md
-  ?? (多个 macOS 相关文档)
-  ?? debug_dora_macos.sh
-  ?? install_macos_deps.sh
-  ?? models/setup-local-models/check_macos_deps.sh
-  ?? models/setup-local-models/quick_setup_macos.sh
-  ?? models/setup-local-models/verify_setup.sh
-
-Recent commits:
-  92ac28f - fix: resolve Pro Mode Few-Shot training root cause
-  3f87c7b - docs: investigate and document Pro Mode Few-Shot training issue
-  61e9d40 - fix: resolve trained voice model loading and UI refresh issues
+c0b5f89 fix: prevent text clipping in voice picker items and voice selector
+404b7f2 feat: bundle Qwen3 voice previews in repo and resolve from bundle/repo path
+768cc48 feat: add Qwen3 voice preview support with pre-generation script
+2c0c074 fix: localize Qwen3 voice names/descriptions and hide unavailable preview
+c466f96 fix: reduce page header vertical footprint and fix voice name clipping
+50fd5f0 fix: correct backend switcher startup sync and async dataflow race
 ```
 
-### 关键里程碑
+### 关键设计（v0.0.2 新增）
 
-✅ **已完成**:
+**Qwen3-TTS 后端**:
+- 9 个内置音色，中英文名称随 UI 语言切换
+- 预览 WAV 提交到 `node-hub/dora-qwen3-tts-mlx/previews/`，随 app bundle 分发
+- `resolve_qwen_preview_path()` 查找顺序：bundle → dev repo → `~/.OminiX` 兜底
+- 维护者工具：`bash scripts/generate_qwen_previews.sh`
 
-- 独立应用 Shell 创建
-- TTS 屏幕实现（两种布局）
-- 零样本语音克隆 UI (Express Mode)
-- Few-Shot 训练 UI (Pro Mode)
-- 音频录制和播放
-- Dora 数据流集成
-- Pro Mode 训练问题修复（GPT 预训练模型 + 架构修复）
-- 训练音色加载和 UI 刷新问题修复
+**后端切换**:
+- 两阶段等待：Phase1 旧桥接归零 → Phase2 新桥接到达4
+- `auto_start_dataflow` 在 Phase1→2 时触发，NOT 在 `stop_dora` 后立即触发
+- 切换期间 dialog 保持打开
 
-🚧 **进行中**:
-
-- macOS 平台适配和优化
-- 功能测试和验证
-- 性能优化
-
-📋 **待完成**:
-
-- 完整端到端测试
-- 用户文档完善
-- 发布准备
+**Makepad 文字裁切**:
+- 根因是父容器固定 height（84/96px），不是 Label padding
+- VoicePickerItem 改为 `height: Fit`
+- Label `padding` 计入 `height: Fit`，但裁切来自更上层的 clip rect
 
 ---
 
