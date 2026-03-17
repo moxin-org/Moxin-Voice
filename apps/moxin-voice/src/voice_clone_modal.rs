@@ -316,6 +316,37 @@ live_design! {
                     }
                 }
             }
+
+            // Clear recording button — shown after recording/upload, hidden initially
+            clear_recording_btn = <Button> {
+                width: 36, height: 36
+                visible: false
+
+                draw_bg: {
+                    instance dark_mode: 0.0
+                    instance hover: 0.0
+
+                    fn pixel(self) -> vec4 {
+                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                        sdf.circle(18.0, 18.0, 17.0);
+                        let base = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                        let hover_color = mix((RED_100), (RED_900), self.dark_mode);
+                        sdf.fill(mix(base, hover_color, self.hover));
+                        let icon_color = mix((SLATE_500), (SLATE_400), self.dark_mode);
+                        let icon_color = mix(icon_color, (RED_400), self.hover);
+                        sdf.move_to(12.0, 12.0); sdf.line_to(24.0, 24.0);
+                        sdf.stroke(icon_color, 2.0);
+                        sdf.move_to(24.0, 12.0); sdf.line_to(12.0, 24.0);
+                        sdf.stroke(icon_color, 2.0);
+                        return sdf.result;
+                    }
+                }
+
+                draw_text: {
+                    text_style: { font_size: 0.0 }
+                    fn get_color(self) -> vec4 { return vec4(0.0, 0.0, 0.0, 0.0); }
+                }
+            }
         }
 
         audio_info = <Label> {
@@ -952,6 +983,41 @@ live_design! {
                                             }
                                         }
                                         text: "Target: 5-10 minutes"
+                                    }
+
+                                    // Clear recording button — shown after recording/upload
+                                    clear_recording_btn = <Button> {
+                                        width: Fit, height: 22
+                                        padding: {left: 6, right: 6}
+                                        visible: false
+
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            instance hover: 0.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 4.0);
+                                                let base = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                let hover_color = mix((RED_50), (RED_900), self.dark_mode);
+                                                sdf.fill(mix(base, hover_color, self.hover));
+                                                let border = mix((SLATE_300), (SLATE_500), self.dark_mode);
+                                                sdf.stroke(border, 1.0);
+                                                return sdf.result;
+                                            }
+                                        }
+
+                                        draw_text: {
+                                            instance dark_mode: 0.0
+                                            instance hover: 0.0
+                                            text_style: { font_size: 10.0 }
+                                            fn get_color(self) -> vec4 {
+                                                let base = mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                                let hover_color = mix((RED_600), (RED_300), self.dark_mode);
+                                                return mix(base, hover_color, self.hover);
+                                            }
+                                        }
+
+                                        text: "× Clear"
                                     }
                                 }
 
@@ -1880,6 +1946,17 @@ impl Widget for VoiceCloneModal {
             _ => {}
         }
 
+        // Handle express clear recording button
+        let express_clear_btn = self.view.button(ids!(
+            modal_container.modal_wrapper.modal_content.body.file_selector.file_row.clear_recording_btn
+        ));
+        match event.hits(cx, express_clear_btn.area()) {
+            Hit::FingerUp(fe) if fe.was_tap() => {
+                self.clear_express_recording(cx);
+            }
+            _ => {}
+        }
+
         // Handle language buttons
         let zh_btn = self.view.button(ids!(
             modal_container
@@ -1958,6 +2035,18 @@ impl Widget for VoiceCloneModal {
             match event.hits(cx, start_training_btn.area()) {
                 Hit::FingerUp(fe) if fe.was_tap() => {
                     self.start_training(cx, scope);
+                }
+                _ => {}
+            }
+
+            // Pro mode clear recording button
+            let pro_clear_btn = self.view.button(ids!(
+                modal_container.modal_wrapper.modal_content.body.pro_mode_content
+                .training_recording_section.record_row.recording_info.clear_recording_btn
+            ));
+            match event.hits(cx, pro_clear_btn.area()) {
+                Hit::FingerUp(fe) if fe.was_tap() => {
+                    self.clear_pro_recording(cx);
                 }
                 _ => {}
             }
@@ -2179,6 +2268,19 @@ impl VoiceCloneModal {
                     ))
                     .set_visible(cx, true);
 
+                // Show clear button so user can discard and re-record/re-select
+                self.view
+                    .button(ids!(
+                        modal_container
+                            .modal_wrapper
+                            .modal_content
+                            .body
+                            .file_selector
+                            .file_row
+                            .clear_recording_btn
+                    ))
+                    .set_visible(cx, true);
+
                 // Trigger ASR transcription for uploaded file (same as recording flow)
                 // Skip if already transcribing (avoids re-trigger when called from ASR result handler)
                 if self.recording_status != RecordingStatus::Transcribing {
@@ -2214,7 +2316,7 @@ impl VoiceCloneModal {
                     ))
                     .set_text(cx, "");
 
-                // Hide preview button
+                // Hide preview and clear buttons
                 self.view
                     .button(ids!(
                         modal_container
@@ -2224,6 +2326,17 @@ impl VoiceCloneModal {
                             .file_selector
                             .file_row
                             .preview_btn
+                    ))
+                    .set_visible(cx, false);
+                self.view
+                    .button(ids!(
+                        modal_container
+                            .modal_wrapper
+                            .modal_content
+                            .body
+                            .file_selector
+                            .file_row
+                            .clear_recording_btn
                     ))
                     .set_visible(cx, false);
 
@@ -2617,6 +2730,17 @@ impl VoiceCloneModal {
                     .preview_btn
             ))
             .set_visible(cx, false);
+        self.view
+            .button(ids!(
+                modal_container
+                    .modal_wrapper
+                    .modal_content
+                    .body
+                    .file_selector
+                    .file_row
+                    .clear_recording_btn
+            ))
+            .set_visible(cx, false);
 
         // Reset record button
         self.update_record_button(cx, false);
@@ -2638,6 +2762,80 @@ impl VoiceCloneModal {
         } else {
             self.start_recording(cx);
         }
+    }
+
+    /// Clear the Express mode recording / selected file, resetting to idle state.
+    fn clear_express_recording(&mut self, cx: &mut Cx) {
+        // Stop any preview playing
+        if let Some(player) = &self.preview_player {
+            player.stop();
+        }
+        self.preview_playing = false;
+        self.update_preview_button(cx, false);
+
+        // Clear state
+        self.selected_file = None;
+        self.audio_info = None;
+        self.recording_status = RecordingStatus::Idle;
+        self.recorded_audio_path = None;
+
+        // Reset file name label
+        self.view.label(ids!(
+            modal_container.modal_wrapper.modal_content.body.file_selector.file_row.file_name
+        )).set_text(cx, "No file selected · drag audio here");
+
+        // Clear audio info label
+        self.view.label(ids!(
+            modal_container.modal_wrapper.modal_content.body.file_selector.audio_info
+        )).set_text(cx, "");
+
+        // Hide preview and clear buttons
+        self.view.button(ids!(
+            modal_container.modal_wrapper.modal_content.body.file_selector.file_row.preview_btn
+        )).set_visible(cx, false);
+        self.view.button(ids!(
+            modal_container.modal_wrapper.modal_content.body.file_selector.file_row.clear_recording_btn
+        )).set_visible(cx, false);
+
+        self.update_record_button(cx, false);
+        self.clear_error(cx);
+        self.view.redraw(cx);
+    }
+
+    /// Clear the Pro mode recording / uploaded file, resetting to idle state.
+    fn clear_pro_recording(&mut self, cx: &mut Cx) {
+        self.training_audio_file = None;
+        self.training_audio_samples.clear();
+
+        // Reset duration and progress labels
+        self.view.label(ids!(
+            modal_container.modal_wrapper.modal_content.body.pro_mode_content
+            .training_recording_section.record_row.recording_info.duration_label
+        )).set_text(cx, "Click to start recording");
+
+        self.view.label(ids!(
+            modal_container.modal_wrapper.modal_content.body.pro_mode_content
+            .training_recording_section.record_row.recording_info.progress_label
+        )).set_text(cx, "Target: 5-10 minutes");
+
+        // Hide the clear button
+        self.view.button(ids!(
+            modal_container.modal_wrapper.modal_content.body.pro_mode_content
+            .training_recording_section.record_row.recording_info.clear_recording_btn
+        )).set_visible(cx, false);
+
+        // Hide uploaded file info
+        self.view.view(ids!(
+            modal_container.modal_wrapper.modal_content.body.pro_mode_content
+            .training_recording_section.uploaded_file_info
+        )).set_visible(cx, false);
+
+        // Disable the start training button
+        self.view.button(ids!(
+            modal_container.modal_wrapper.modal_content.footer.pro_actions.start_training_btn
+        )).set_enabled(cx, false);
+
+        self.view.redraw(cx);
     }
 
     fn start_recording(&mut self, cx: &mut Cx) {
@@ -3341,6 +3539,12 @@ impl VoiceCloneModal {
                     ))
                     .set_enabled(cx, true);
 
+                // Show clear button so user can discard and re-record
+                self.view.button(ids!(
+                    modal_container.modal_wrapper.modal_content.body.pro_mode_content
+                    .training_recording_section.record_row.recording_info.clear_recording_btn
+                )).set_visible(cx, true);
+
                 // Auto-transcribe training recording via dora-asr.
                 self.transcribe_audio(cx, &temp_file);
             }
@@ -3507,6 +3711,12 @@ impl VoiceCloneModal {
                             .start_training_btn
                     ))
                     .set_enabled(cx, true);
+
+                // Show clear button so user can discard and re-upload/re-record
+                self.view.button(ids!(
+                    modal_container.modal_wrapper.modal_content.body.pro_mode_content
+                    .training_recording_section.record_row.recording_info.clear_recording_btn
+                )).set_visible(cx, true);
 
                 // Auto-transcribe uploaded training audio via dora-asr.
                 self.transcribe_audio(cx, &temp_file);
