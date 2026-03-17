@@ -2127,9 +2127,9 @@ impl VoiceCloneModal {
     }
 
     /// Returns true if Qwen3 is the active zero-shot (express) backend.
-    /// Reads MOXIN_ZERO_SHOT_BACKEND which is set by the main backend switcher.
+    /// Reads MOXIN_INFERENCE_BACKEND which is set by the main backend switcher.
     fn is_qwen3_zero_shot() -> bool {
-        std::env::var("MOXIN_ZERO_SHOT_BACKEND")
+        std::env::var("MOXIN_INFERENCE_BACKEND")
             .ok()
             .map(|v| v.to_ascii_lowercase().contains("qwen3"))
             .unwrap_or(false)
