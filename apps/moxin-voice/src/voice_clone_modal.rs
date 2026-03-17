@@ -2126,7 +2126,17 @@ impl VoiceCloneModal {
         }
     }
 
-    /// Returns "option_b" if Qwen3/MLX backend is active, "option_a" otherwise.
+    /// Returns true if Qwen3 is the active zero-shot (express) backend.
+    /// Reads MOXIN_ZERO_SHOT_BACKEND which is set by the main backend switcher.
+    fn is_qwen3_zero_shot() -> bool {
+        std::env::var("MOXIN_ZERO_SHOT_BACKEND")
+            .ok()
+            .map(|v| v.to_ascii_lowercase().contains("qwen3"))
+            .unwrap_or(false)
+    }
+
+    /// Returns "option_b" if Qwen3/MLX is the active pro-mode training backend, "option_a" otherwise.
+    /// Reads MOXIN_TRAINING_BACKEND which is set by the Experiments settings dropdown.
     fn get_training_backend() -> String {
         std::env::var("MOXIN_TRAINING_BACKEND")
             .ok()
@@ -2563,7 +2573,7 @@ impl VoiceCloneModal {
         // Validate audio duration — limits differ by backend:
         // option_a (GPT-SoVITS zero-shot): 3-10 seconds
         // option_b (Qwen3 zero-shot): 3-30 seconds
-        let express_max_secs: f32 = if Self::get_training_backend() == "option_b" { 30.0 } else { 10.0 };
+        let express_max_secs: f32 = if Self::is_qwen3_zero_shot() { 30.0 } else { 10.0 };
         if let Some(ref info) = self.audio_info {
             if info.duration_secs < 3.0 {
                 self.show_error(
@@ -2842,7 +2852,7 @@ impl VoiceCloneModal {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
         self.add_log(cx, "[INFO] Starting microphone recording...");
-        let max_s = if Self::get_training_backend() == "option_b" { 30 } else { 10 };
+        let max_s = if Self::is_qwen3_zero_shot() { 30 } else { 10 };
         self.add_log(cx, &format!("[INFO] Speak clearly for 3-{} seconds", max_s));
 
         // Initialize buffer and sample rate
@@ -2974,7 +2984,7 @@ impl VoiceCloneModal {
             return;
         }
 
-        let express_max_secs: f32 = if Self::get_training_backend() == "option_b" { 30.0 } else { 10.0 };
+        let express_max_secs: f32 = if Self::is_qwen3_zero_shot() { 30.0 } else { 10.0 };
         if duration > express_max_secs {
             self.add_log(cx, &format!("[WARN] Recording over {:.0}s will be trimmed to {:.0}s", express_max_secs, express_max_secs));
         }
@@ -2988,7 +2998,7 @@ impl VoiceCloneModal {
         let sample_rate_store = Arc::clone(&self.recording_sample_rate);
         let processing_complete = Arc::clone(&self.processing_complete);
         let temp_file_store = Arc::clone(&self.temp_audio_file);
-        let express_max_secs_bg: u32 = if Self::get_training_backend() == "option_b" { 30 } else { 10 };
+        let express_max_secs_bg: u32 = if Self::is_qwen3_zero_shot() { 30 } else { 10 };
 
         std::thread::spawn(move || {
             // Give the recording thread a moment to finalize
