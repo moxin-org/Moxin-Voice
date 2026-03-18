@@ -1254,6 +1254,16 @@ live_design! {
                             }
                             text: "Moxin Voice"
                         }
+
+                        logo_subtitle = <Label> {
+                            width: Fit, height: Fit
+                            margin: {top: 3}
+                            draw_text: {
+                                text_style: <FONT_REGULAR>{ font_size: 9.5 }
+                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 0.5); }
+                            }
+                            text: "Powered by OminiX MLX"
+                        }
                     }
                 }
 
@@ -4425,10 +4435,9 @@ live_design! {
                             flow: Right
                             spacing: 10
 
-                            tab_profile_btn = <SettingsTabBtn> { text: "资料" }
-                            tab_app_btn = <SettingsTabBtn> { text: "应用" }
-                            tab_runtime_btn = <SettingsTabBtn> { text: "运行" }
-                            tab_data_btn = <SettingsTabBtn> { text: "数据" }
+                            tab_profile_btn = <SettingsTabBtn> { text: "通用" }
+                            tab_app_btn = <SettingsTabBtn> { text: "语音" }
+                            tab_runtime_btn = <SettingsTabBtn> { text: "系统" }
                         }
 
                         settings_scroll = <ScrollYView> {
@@ -4450,111 +4459,6 @@ live_design! {
                             flow: Down
                             spacing: 14
                             visible: true
-
-                        profile_card = <SettingsCard> {
-                            width: Fill, height: Fit
-                            flow: Down
-                            spacing: 14
-                            padding: {left: 18, right: 18, top: 16, bottom: 16}
-                            draw_bg: {
-                                instance dark_mode: 0.0
-                                instance border_radius: 12.0
-                                fn pixel(self) -> vec4 {
-                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
-                                    sdf.fill(bg);
-                                    sdf.stroke(border, 1.0);
-                                    return sdf.result;
-                                }
-                            }
-
-                            profile_title = <Label> {
-                                width: Fit, height: Fit
-                                draw_text: {
-                                    instance dark_mode: 0.0
-                                    text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }
-                                    fn get_color(self) -> vec4 {
-                                        return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                                    }
-                                }
-                                text: "个人资料"
-                            }
-
-                            profile_body = <View> {
-                                width: Fill, height: Fit
-                                flow: Down
-                                spacing: 10
-                                align: {x: 0.0, y: 0.0}
-
-                                profile_form = <View> {
-                                    width: Fill, height: Fit
-                                    flow: Down
-                                    spacing: 10
-
-                                    name_row = <View> {
-                                        width: Fill, height: Fit
-                                        flow: Down
-                                        spacing: 6
-
-                                        name_label = <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: { font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
-                                                }
-                                            }
-                                            text: "用户名"
-                                        }
-
-                                        name_input = <SettingsTextInput> {
-                                            width: Fill, height: 36
-                                            empty_text: "输入用户名"
-                                        }
-                                    }
-                                }
-                            }
-
-                            profile_actions = <View> {
-                                width: Fill, height: Fit
-                                flow: Right
-                                align: {x: 1.0}
-
-                                save_profile_btn = <Button> {
-                                    width: Fit, height: 36
-                                    padding: {left: 16, right: 16}
-                                    text: "保存"
-                                    draw_bg: {
-                                        instance dark_mode: 0.0
-                                        instance hover: 0.0
-                                        instance border_radius: 8.0
-                                        fn pixel(self) -> vec4 {
-                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            let base = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);
-                                            let hover_color = mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
-                                            sdf.fill(mix(base, hover_color, self.hover));
-                                            return sdf.result;
-                                        }
-                                    }
-                                    draw_text: {
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
-                                        fn get_color(self) -> vec4 { return (WHITE); }
-                                    }
-                                }
-                            }
-                        }
-
-                        } // End profile_panel
-
-                        app_panel = <View> {
-                            width: Fill, height: Fit
-                            flow: Down
-                            spacing: 14
-                            visible: false
 
                         app_settings_card = <SettingsCard> {
                             width: Fill, height: Fit
@@ -4584,7 +4488,7 @@ live_design! {
                                         return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                     }
                                 }
-                                text: "应用设置"
+                                text: "通用设置"
                             }
 
                             language_section = <View> {
@@ -4744,6 +4648,111 @@ live_design! {
                             }
                         }
 
+                        profile_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 14
+                            padding: {left: 18, right: 18, top: 16, bottom: 16}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            profile_title = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "个人资料"
+                            }
+
+                            profile_body = <View> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 10
+                                align: {x: 0.0, y: 0.0}
+
+                                profile_form = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Down
+                                    spacing: 10
+
+                                    name_row = <View> {
+                                        width: Fill, height: Fit
+                                        flow: Down
+                                        spacing: 6
+
+                                        name_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: { font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "用户名"
+                                        }
+
+                                        name_input = <SettingsTextInput> {
+                                            width: Fill, height: 36
+                                            empty_text: "输入用户名"
+                                        }
+                                    }
+                                }
+                            }
+
+                            profile_actions = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                align: {x: 1.0}
+
+                                save_profile_btn = <Button> {
+                                    width: Fit, height: 36
+                                    padding: {left: 16, right: 16}
+                                    text: "保存"
+                                    draw_bg: {
+                                        instance dark_mode: 0.0
+                                        instance hover: 0.0
+                                        instance border_radius: 8.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            let base = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);
+                                            let hover_color = mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
+                                            sdf.fill(mix(base, hover_color, self.hover));
+                                            return sdf.result;
+                                        }
+                                    }
+                                    draw_text: {
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                        fn get_color(self) -> vec4 { return (WHITE); }
+                                    }
+                                }
+                            }
+                        }
+
+                        } // End profile_panel
+
+                        app_panel = <View> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 14
+                            visible: false
+
                         defaults_card = <SettingsCard> {
                             width: Fill, height: Fit
                             flow: Down
@@ -4847,6 +4856,67 @@ live_design! {
                             }
                         }
 
+                        devices_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 12
+                            padding: {left: 18, right: 18, top: 14, bottom: 14}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            devices_header = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                align: {y: 0.5}
+                                spacing: 8
+                                devices_title = <SettingsSectionTitle> { width: Fill, height: Fit text: "音频设备" }
+                                refresh_devices_btn = <SettingsActionBtn> {
+                                    width: Fit, height: 34
+                                    padding: {left: 12, right: 12}
+                                    text: "刷新设备"
+                                }
+                            }
+
+                            input_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                input_pick_label = <SettingsBodyLabel> {
+                                    width: 76, height: Fit
+                                    text: "输入"
+                                }
+                                input_device_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+
+                            output_pick_row = <View> {
+                                width: Fill, height: Fit
+                                flow: Right
+                                spacing: 12
+                                align: {y: 0.5}
+                                output_pick_label = <SettingsBodyLabel> {
+                                    width: 76, height: Fit
+                                    text: "输出"
+                                }
+                                output_device_dropdown = <SettingsDeviceDropDown> {
+                                    width: Fill, height: 38
+                                }
+                            }
+                        }
+
                         } // End app_panel
 
                         runtime_panel = <View> {
@@ -4937,14 +5007,6 @@ live_design! {
                             }
                         }
 
-                        } // End runtime_panel
-
-                        data_panel = <View> {
-                            width: Fill, height: Fit
-                            flow: Down
-                            spacing: 14
-                            visible: false
-
                         privacy_card = <SettingsCard> {
                             width: Fill, height: Fit
                             flow: Down
@@ -4985,67 +5047,6 @@ live_design! {
                                 spacing: 8
                                 clear_tts_history_btn = <SettingsActionBtn> { width: Fit, height: 34 padding: {left: 10, right: 10} text: "清空 TTS 历史" }
                                 clear_training_artifacts_btn = <SettingsActionBtn> { width: Fit, height: 34 padding: {left: 10, right: 10} text: "清理训练中间产物" }
-                            }
-                        }
-
-                        devices_card = <SettingsCard> {
-                            width: Fill, height: Fit
-                            flow: Down
-                            spacing: 12
-                            padding: {left: 18, right: 18, top: 14, bottom: 14}
-                            draw_bg: {
-                                instance dark_mode: 0.0
-                                instance border_radius: 12.0
-                                fn pixel(self) -> vec4 {
-                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
-                                    sdf.fill(bg);
-                                    sdf.stroke(border, 1.0);
-                                    return sdf.result;
-                                }
-                            }
-
-                            devices_header = <View> {
-                                width: Fill, height: Fit
-                                flow: Right
-                                align: {y: 0.5}
-                                spacing: 8
-                                devices_title = <SettingsSectionTitle> { width: Fill, height: Fit text: "音频设备" }
-                                refresh_devices_btn = <SettingsActionBtn> {
-                                    width: Fit, height: 34
-                                    padding: {left: 12, right: 12}
-                                    text: "刷新设备"
-                                }
-                            }
-
-                            input_pick_row = <View> {
-                                width: Fill, height: Fit
-                                flow: Right
-                                spacing: 12
-                                align: {y: 0.5}
-                                input_pick_label = <SettingsBodyLabel> {
-                                    width: 76, height: Fit
-                                    text: "输入"
-                                }
-                                input_device_dropdown = <SettingsDeviceDropDown> {
-                                    width: Fill, height: 38
-                                }
-                            }
-
-                            output_pick_row = <View> {
-                                width: Fill, height: Fit
-                                flow: Right
-                                spacing: 12
-                                align: {y: 0.5}
-                                output_pick_label = <SettingsBodyLabel> {
-                                    width: 76, height: Fit
-                                    text: "输出"
-                                }
-                                output_device_dropdown = <SettingsDeviceDropDown> {
-                                    width: Fill, height: 38
-                                }
                             }
                         }
 
@@ -5127,6 +5128,51 @@ live_design! {
                                 }
                             }
                         }
+
+                        about_card = <SettingsCard> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 8
+                            padding: {left: 18, right: 18, top: 14, bottom: 14}
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance border_radius: 12.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                    sdf.fill(bg);
+                                    sdf.stroke(border, 1.0);
+                                    return sdf.result;
+                                }
+                            }
+
+                            about_section_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "关于" }
+
+                            about_version_label = <SettingsBodyLabel> {
+                                width: Fill, height: Fit
+                                text: "Moxin Voice v0.1.0"
+                            }
+
+                            about_engine_label = <SettingsBodyLabel> {
+                                width: Fill, height: Fit
+                                text: "Powered by OminiX MLX · Qwen3-TTS-MLX"
+                            }
+
+                            about_ominix_label = <SettingsBodyLabel> {
+                                width: Fill, height: Fit
+                                text: "github.com/OminiX-ai/OminiX-MLX"
+                            }
+                        }
+
+                        } // End runtime_panel
+
+                        data_panel = <View> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 14
+                            visible: false
                         } // End data_panel
                             } // End settings_scroll_content
                         } // End settings_scroll
@@ -6756,7 +6802,7 @@ live_design! {
 
             // Settings dialog
             settings_dialog = <RoundedView> {
-                width: 400, height: 480
+                width: 400, height: 560
                 flow: Down
                 spacing: 0
 
@@ -8102,15 +8148,6 @@ impl Widget for TTSScreen {
             self.user_settings_tab = 2;
             self.update_user_settings_tabs(cx);
         }
-        if self
-            .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_data_btn))
-            .clicked(&actions)
-        {
-            self.user_settings_tab = 3;
-            self.update_user_settings_tabs(cx);
-        }
-
         // Handle Settings/History tab clicks
         if self
             .view
@@ -8383,21 +8420,22 @@ impl Widget for TTSScreen {
             ))
             .clicked(&actions)
         {
-            let name_input = self
+            let raw_name = self
                 .view
-                .text_input(ids!(
-                    content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input
-                ))
+                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input))
                 .text();
-            let name = Self::normalized_profile_name(&name_input);
-            let avatar = Self::normalized_avatar_letter("", &name);
-            self.user_display_name = name;
-            self.user_avatar_letter = avatar;
-            self.user_profile_customized = true;
-            self.sync_user_profile_ui(cx);
+            let trimmed = raw_name.trim().to_string();
+            if !trimmed.is_empty() {
+                self.user_display_name = trimmed.clone();
+                self.user_avatar_letter = trimmed
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_default();
+            }
             self.persist_app_preferences(cx);
-            self.show_toast(cx, self.tr("个人资料已更新", "Profile updated"));
-            self.view.redraw(cx);
+            self.sync_user_profile_ui(cx);
+            self.show_toast(cx, self.tr("用户名已保存", "Username saved"));
         }
 
         if self
@@ -8500,7 +8538,7 @@ impl Widget for TTSScreen {
 
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown))
             .changed(&actions)
         {
             self.app_preferences.history_retention_days = match idx {
@@ -8514,7 +8552,7 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_actions.clear_tts_history_btn))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_tts_history_btn))
             .clicked(&actions)
         {
             self.clear_tts_history(cx);
@@ -8522,7 +8560,7 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_actions.clear_training_artifacts_btn))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_training_artifacts_btn))
             .clicked(&actions)
         {
             self.clear_training_artifacts(cx);
@@ -8531,7 +8569,7 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.devices_header.refresh_devices_btn))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_header.refresh_devices_btn))
             .clicked(&actions)
         {
             self.available_output_devices = list_output_devices();
@@ -8546,7 +8584,7 @@ impl Widget for TTSScreen {
         }
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_device_dropdown))
             .changed(&actions)
         {
             if idx == 0 {
@@ -8562,7 +8600,7 @@ impl Widget for TTSScreen {
         }
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_device_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_device_dropdown))
             .changed(&actions)
         {
             if idx == 0 {
@@ -8582,7 +8620,7 @@ impl Widget for TTSScreen {
         // Qwen3-only mode: these dropdowns are hidden. See doc/REFACTOR_QWEN3_ONLY.md.
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
             .changed(&actions)
         {
             self.app_preferences.debug_logs_enabled = idx == 1;
@@ -8628,7 +8666,7 @@ impl Widget for TTSScreen {
             .clicked(&actions)
             || self
                 .view
-                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_en_option))
+                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_en_option))
                 .clicked(&actions)
         {
             self.app_language = "en".to_string();
@@ -8644,7 +8682,7 @@ impl Widget for TTSScreen {
             .clicked(&actions)
             || self
                 .view
-                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_zh_option))
+                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_zh_option))
                 .clicked(&actions)
         {
             self.app_language = "zh".to_string();
@@ -8661,7 +8699,7 @@ impl Widget for TTSScreen {
             .clicked(&actions)
             || self
                 .view
-                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_light_option))
+                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_light_option))
                 .clicked(&actions)
         {
             self.dark_mode = 0.0;
@@ -8675,7 +8713,7 @@ impl Widget for TTSScreen {
             .clicked(&actions)
             || self
                 .view
-                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
+                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
                 .clicked(&actions)
         {
             self.dark_mode = 1.0;
@@ -10323,9 +10361,7 @@ impl TTSScreen {
             .label(ids!(app_layout.sidebar.sidebar_footer.user_avatar.avatar_letter))
             .set_text(cx, &self.user_avatar_letter);
         self.view
-            .text_input(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input
-            ))
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input))
             .set_text(cx, &self.user_display_name);
     }
 
@@ -10561,7 +10597,7 @@ impl TTSScreen {
         let mut input_labels = vec!["系统默认".to_string()];
         input_labels.extend(self.available_input_devices.clone());
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_device_dropdown))
             .set_labels(cx, input_labels);
         let input_selected_idx = self
             .app_preferences
@@ -10572,13 +10608,13 @@ impl TTSScreen {
             .unwrap_or(0);
         self.selected_input_device_idx = input_selected_idx.saturating_sub(1);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_device_dropdown))
             .set_selected_item(cx, input_selected_idx);
 
         let mut output_labels = vec!["系统默认".to_string()];
         output_labels.extend(self.available_output_devices.clone());
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_device_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_device_dropdown))
             .set_labels(cx, output_labels);
         let output_selected_idx = self
             .app_preferences
@@ -10589,7 +10625,7 @@ impl TTSScreen {
             .unwrap_or(0);
         self.selected_output_device_idx = output_selected_idx.saturating_sub(1);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_device_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_device_dropdown))
             .set_selected_item(cx, output_selected_idx);
     }
 
@@ -10615,7 +10651,7 @@ impl TTSScreen {
             .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_input))
             .set_text(cx, &format!("{:.0}", self.app_preferences.default_volume));
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown))
             .set_labels(
                 cx,
                 if en {
@@ -10630,21 +10666,21 @@ impl TTSScreen {
             _ => 0,
         };
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown))
             .set_selected_item(cx, retention_idx);
 
         // Qwen3-only: hide zero-shot backend picker and training backend picker.
         // These rows are kept in live_design for easy restoration.
         // See doc/REFACTOR_QWEN3_ONLY.md.
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row))
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row))
             .set_visible(cx, false);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row))
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row))
             .set_visible(cx, false);
 
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
             .set_labels(
                 cx,
                 if en {
@@ -10654,7 +10690,7 @@ impl TTSScreen {
                 },
             );
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
             .set_selected_item(cx, if self.app_preferences.debug_logs_enabled { 1 } else { 0 });
 
         let custom_ready = Self::qwen_custom_ready();
@@ -10669,7 +10705,7 @@ impl TTSScreen {
             };
         }
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.qwen_status_row.qwen_status_value))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.qwen_status_row.qwen_status_value))
             .set_text(cx, &self.qwen_model_status_text);
 
         self.update_user_settings_tabs(cx);
@@ -11206,22 +11242,32 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_profile_btn
             ))
-            .set_text(cx, self.tr("资料", "Profile"));
+            .set_text(cx, self.tr("通用", "General"));
         self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_app_btn
             ))
-            .set_text(cx, self.tr("应用", "App"));
+            .set_text(cx, self.tr("语音", "Voice"));
         self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_btn
             ))
-            .set_text(cx, self.tr("运行", "Runtime"));
+            .set_text(cx, self.tr("系统", "System"));
         self.view
-            .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_data_btn
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.app_settings_title
             ))
-            .set_text(cx, self.tr("数据", "Data"));
+            .set_text(cx, self.tr("通用设置", "General Settings"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_title
+            ))
+            .set_text(cx, self.tr("语言", "Language"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_title
+            ))
+            .set_text(cx, self.tr("主题", "Theme"));
         self.view
             .label(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_title
@@ -11231,37 +11277,17 @@ impl TTSScreen {
             .label(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_label
             ))
-            .set_text(cx, self.tr("用户名", "Display name"));
+            .set_text(cx, self.tr("用户名", "Username"));
         self.view
             .text_input(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input
             ))
-            .apply_over(
-                cx,
-                live! {
-                    empty_text: (if en { "Enter display name" } else { "输入用户名" })
-                },
-            );
+            .set_empty_text(cx, self.tr("输入用户名", "Enter username").to_string());
         self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn
             ))
             .set_text(cx, self.tr("保存", "Save"));
-        self.view
-            .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.app_settings_title
-            ))
-            .set_text(cx, self.tr("应用设置", "App Settings"));
-        self.view
-            .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_title
-            ))
-            .set_text(cx, self.tr("语言", "Language"));
-        self.view
-            .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_title
-            ))
-            .set_text(cx, self.tr("主题", "Theme"));
         self.view
             .label(ids!(
                 content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_title
@@ -11329,72 +11355,72 @@ impl TTSScreen {
             .set_text(cx, self.tr("清理缓存", "Clear Cache"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_title
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_title
             ))
             .set_text(cx, self.tr("隐私与数据", "Privacy & Data"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_pick_label
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_pick_label
             ))
             .set_text(cx, self.tr("历史保留", "History retention"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_actions.clear_tts_history_btn
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_tts_history_btn
             ))
             .set_text(cx, self.tr("清空 TTS 历史", "Clear TTS History"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_actions.clear_training_artifacts_btn
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_training_artifacts_btn
             ))
             .set_text(cx, self.tr("清理训练中间产物", "Clear Training Artifacts"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.devices_title
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_title
             ))
             .set_text(cx, self.tr("音频设备", "Audio Devices"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_pick_label
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_pick_label
             ))
             .set_text(cx, self.tr("输入", "Input"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_pick_label
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_pick_label
             ))
             .set_text(cx, self.tr("输出", "Output"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.devices_header.refresh_devices_btn
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_header.refresh_devices_btn
             ))
             .set_text(cx, self.tr("刷新设备", "Refresh Devices"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.experiments_title
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.experiments_title
             ))
             .set_text(cx, self.tr("实验功能", "Experimental"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label
             ))
             .set_text(cx, self.tr("Zero-shot 后端", "Zero-shot backend"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.backend_pick_label
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row.backend_pick_label
             ))
             .set_text(cx, self.tr("训练后端", "Training backend"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_pick_label
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_pick_label
             ))
             .set_text(cx, self.tr("Debug 日志", "Debug logs"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.qwen_status_row.qwen_status_label
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.qwen_status_row.qwen_status_label
             ))
             .set_text(cx, self.tr("Qwen 模型", "Qwen models"));
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown
             ))
             .set_labels(
                 cx,
@@ -11406,7 +11432,7 @@ impl TTSScreen {
             );
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown
             ))
             .set_labels(
                 cx,
@@ -11424,7 +11450,7 @@ impl TTSScreen {
             );
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row.training_backend_dropdown
             ))
             .set_labels(
                 cx,
@@ -11444,7 +11470,7 @@ impl TTSScreen {
             );
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown
+                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown
             ))
             .set_labels(
                 cx,
@@ -11595,16 +11621,16 @@ impl TTSScreen {
             .set_text(cx, self.tr("🌙 深色", "🌙 Dark"));
 
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_en_option))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_en_option))
             .set_text(cx, "English");
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_zh_option))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_zh_option))
             .set_text(cx, if en { "Chinese" } else { "中文" });
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_light_option))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_light_option))
             .set_text(cx, self.tr("☀️ 浅色", "☀️ Light"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
             .set_text(cx, self.tr("🌙 深色", "🌙 Dark"));
 
         if !self.user_profile_customized {
@@ -14978,54 +15004,39 @@ impl TTSScreen {
     }
 
     fn update_user_settings_tabs(&mut self, cx: &mut Cx) {
-        let profile_active = if self.user_settings_tab == 0 { 1.0 } else { 0.0 };
-        let app_active = if self.user_settings_tab == 1 { 1.0 } else { 0.0 };
-        let runtime_active = if self.user_settings_tab == 2 { 1.0 } else { 0.0 };
-        let data_active = if self.user_settings_tab == 3 { 1.0 } else { 0.0 };
+        let general_active = if self.user_settings_tab == 0 { 1.0 } else { 0.0 };
+        let voice_active = if self.user_settings_tab == 1 { 1.0 } else { 0.0 };
+        let system_active = if self.user_settings_tab == 2 { 1.0 } else { 0.0 };
         let dark_mode = self.dark_mode;
 
         self.view
             .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_profile_btn))
             .apply_over(
                 cx,
-                live! { draw_bg: { active: (profile_active), dark_mode: (dark_mode) } draw_text: { active: (profile_active), dark_mode: (dark_mode) } },
+                live! { draw_bg: { active: (general_active), dark_mode: (dark_mode) } draw_text: { active: (general_active), dark_mode: (dark_mode) } },
             );
         self.view
             .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_app_btn))
             .apply_over(
                 cx,
-                live! { draw_bg: { active: (app_active), dark_mode: (dark_mode) } draw_text: { active: (app_active), dark_mode: (dark_mode) } },
+                live! { draw_bg: { active: (voice_active), dark_mode: (dark_mode) } draw_text: { active: (voice_active), dark_mode: (dark_mode) } },
             );
         self.view
             .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_btn))
             .apply_over(
                 cx,
-                live! { draw_bg: { active: (runtime_active), dark_mode: (dark_mode) } draw_text: { active: (runtime_active), dark_mode: (dark_mode) } },
+                live! { draw_bg: { active: (system_active), dark_mode: (dark_mode) } draw_text: { active: (system_active), dark_mode: (dark_mode) } },
             );
-        self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_data_btn))
-            .apply_over(
-                cx,
-                live! { draw_bg: { active: (data_active), dark_mode: (dark_mode) } draw_text: { active: (data_active), dark_mode: (dark_mode) } },
-            );
-
-        let show_profile = self.user_settings_tab == 0;
-        let show_app = self.user_settings_tab == 1;
-        let show_runtime = self.user_settings_tab == 2;
-        let show_data = self.user_settings_tab == 3;
 
         self.view
             .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel))
-            .set_visible(cx, show_profile);
+            .set_visible(cx, self.user_settings_tab == 0);
         self.view
             .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel))
-            .set_visible(cx, show_app);
+            .set_visible(cx, self.user_settings_tab == 1);
         self.view
             .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel))
-            .set_visible(cx, show_runtime);
-        self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel))
-            .set_visible(cx, show_data);
+            .set_visible(cx, self.user_settings_tab == 2);
     }
 
     /// Update language options in global settings
@@ -15044,12 +15055,12 @@ impl TTSScreen {
                 draw_bg: { active: (zh_active), dark_mode: (dark_mode) }
                 draw_text: { active: (zh_active), dark_mode: (dark_mode) }
             });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_en_option))
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_en_option))
             .apply_over(cx, live! {
                 draw_bg: { active: (en_active), dark_mode: (dark_mode) }
                 draw_text: { active: (en_active), dark_mode: (dark_mode) }
             });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_options.lang_zh_option))
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_zh_option))
             .apply_over(cx, live! {
                 draw_bg: { active: (zh_active), dark_mode: (dark_mode) }
                 draw_text: { active: (zh_active), dark_mode: (dark_mode) }
@@ -15073,12 +15084,12 @@ impl TTSScreen {
                 draw_bg: { active: (dark_active), dark_mode: (dark_mode) }
                 draw_text: { active: (dark_active), dark_mode: (dark_mode) }
             });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_light_option))
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_light_option))
             .apply_over(cx, live! {
                 draw_bg: { active: (light_active), dark_mode: (dark_mode) }
                 draw_text: { active: (light_active), dark_mode: (dark_mode) }
             });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
             .apply_over(cx, live! {
                 draw_bg: { active: (dark_active), dark_mode: (dark_mode) }
                 draw_text: { active: (dark_active), dark_mode: (dark_mode) }
@@ -15665,31 +15676,16 @@ impl TTSScreen {
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.user_settings_header.user_settings_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card))
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_title))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.app_settings_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_label))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
-        self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-        self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.app_settings_title))
-            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.language_section.language_title))
-            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.app_settings_card.theme_section.theme_title))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card))
@@ -15743,64 +15739,64 @@ impl TTSScreen {
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.workspace_path_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card))
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.privacy_title))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_pick_label))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_pick_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card))
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.devices_header.devices_title))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_header.devices_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_pick_label))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_pick_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_pick_label))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_pick_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card))
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.experiments_title))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.experiments_title))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.backend_pick_label))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row.backend_pick_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_pick_label))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_pick_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.qwen_status_row.qwen_status_label))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.qwen_status_row.qwen_status_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.qwen_status_row.qwen_status_value))
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.qwen_status_row.qwen_status_value))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.input_pick_row.input_device_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_device_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.devices_card.output_pick_row.output_device_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_device_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row.training_backend_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view.redraw(cx);
     }
