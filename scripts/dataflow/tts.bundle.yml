@@ -41,7 +41,7 @@ nodes:
       - segment_complete
       - log
     env:
-      VOICE_NAME: "Doubao"
+      VOICE_NAME: "vivian"
       MOXIN_INFERENCE_BACKEND: "__MOXIN_INFERENCE_BACKEND__"
       MOXIN_ZERO_SHOT_BACKEND: "__MOXIN_ZERO_SHOT_BACKEND__"
       LOG_LEVEL: INFO

@@ -1,293 +1,174 @@
-# Moxin-Voice
+# Moxin Voice
 
-> Standalone AI-powered Text-to-Speech desktop application with voice cloning capabilities
+> AI-powered Text-to-Speech desktop application with voice cloning — built on [OminiX MLX](https://github.com/OminiX-ai/OminiX-MLX)
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
+[![Platform](https://img.shields.io/badge/platform-Apple%20Silicon-lightgrey.svg)](https://developer.apple.com/silicon/)
 
-Moxin Voice is a modern, GPU-accelerated desktop application for text-to-speech synthesis and voice cloning. Built entirely in Rust using the [Makepad](https://github.com/makepad/makepad) UI framework, it provides a beautiful, responsive interface with native performance. Powered by GPT-SoVITS v2 for state-of-the-art voice cloning and synthesis.
-
-## ✨ Features
-
-- **🎨 Beautiful UI** - GPU-accelerated rendering with smooth animations
-- **🌓 Dark Mode** - Seamless dark theme with native Makepad performance
-- **🎙️ Zero-Shot Voice Cloning** - Clone any voice with just 5-10 seconds of audio (Express mode)
-- **🔧 Few-Shot Training** - High-quality voice cloning with 3-10 minutes of audio (Pro mode)
-- **🎵 Text-to-Speech** - Natural-sounding speech synthesis with 14+ preset voices
-- **🎤 Audio Recording** - Built-in audio recording with real-time visualization
-- **🔍 Speech Recognition** - Automatic text recognition from audio (ASR integration)
-- **💾 Audio Export** - Save generated speech as WAV / MP3 files
-- **🚀 Native Performance** - Built with Rust for maximum efficiency
-
-## 🏗️ Architecture
-
-Moxin Voice uses a modular workspace structure focused on TTS functionality:
-
-```
-moxin-voice/
-├── moxin-voice-shell/     # Standalone TTS application entry
-├── apps/moxin-voice/      # TTS application logic
-├── moxin-widgets/         # Shared UI components
-├── moxin-ui/              # Application infrastructure
-├── moxin-dora-bridge/     # Dora dataflow integration
-└── node-hub/              # Python Dora nodes (TTS & ASR)
-    ├── dora-primespeech/  # GPT-SoVITS TTS engine
-    ├── moxin-tts-node/    # GPT-SoVITS MLX TTS engine
-    └── dora-asr/          # Speech recognition
-```
-
-### Key Design Principles
-
-- **Standalone Application** - Focused solely on TTS and voice cloning
-- **Dora Integration** - Uses Dora dataflow for audio processing pipeline
-- **Makepad Native** - Leverages Makepad's GPU-accelerated UI framework
-- **Modular Architecture** - Clean separation between UI, logic, and processing
-
-## 🚀 Quick Start
-
-### macOS Users
-
-**Quick Setup** (5 minutes):
-
-```bash
-# Install system dependencies
-./install_macos_deps.sh
-
-# One-click setup
-cd models/setup-local-models
-./quick_setup_macos.sh
-```
-
-See [QUICKSTART_MACOS.md](QUICKSTART_MACOS.md) for details or [MACOS_SETUP.md](MACOS_SETUP.md) for complete guide.
-
-### Prerequisites
-
-- **Rust** 1.70+ (2021 edition)
-- **Python** 3.8+
-- **Cargo** package manager
-- **Git** for cloning the repository
-- **macOS Users**: See [MACOS_SETUP.md](MACOS_SETUP.md) for detailed setup instructions
-
-### TTS Setup
-
-#### 1. Environment Setup
-
-```bash
-cd models/setup-local-models
-./setup_isolated_env.sh
-```
-
-This creates a conda environment `moxin-voice` with:
-
-- Python 3.12
-- PyTorch 2.2.0, NumPy 1.26.4, Transformers 4.45.0
-
-#### 2. Install All Packages
-
-After the conda environment is created, install all Python and Rust components:
-
-```bash
-conda activate moxin-voice
-./install_all_packages.sh
-```
-
-This installs:
-
-- Shared library: `dora-common`
-- Python nodes: `dora-asr`, `dora-primespeech`
-- Dora CLI
-
-Verify installation:
-
-```bash
-python test_dependencies.py
-```
-
-#### 3. Model Downloads
-
-```bash
-cd models/model-manager
-
-# ASR models (FunASR Paraformer + punctuation)
-python download_models.py --download funasr
-
-# PrimeSpeech TTS (base + voices)
-python download_models.py --download primespeech
-
-# List available voices
-python download_models.py --list-voices
-
-# Download specific voice
-python download_models.py --voice "Luo Xiang"
-```
-
-#### 3. Running the Application
-
-```bash
-cargo run -p moxin-voice-shell
-```
-
-Models are stored in:
-
-| Location                                              | Contents                              |
-| ----------------------------------------------------- | ------------------------------------- |
-| `~/.dora/models/asr/funasr/`                          | FunASR ASR models                     |
-| `~/.dora/models/primespeech/`                         | PrimeSpeech TTS base + voices         |
-| `~/.OminiX/models/qwen3-tts-mlx/<model-name>/`        | Qwen3-TTS model weights               |
-
-Qwen3-TTS voice preview clips are pre-generated and committed to the repository under `node-hub/dora-qwen3-tts-mlx/previews/`. They are automatically bundled into the distributed app — no generation step is required on the user's machine.
-
-> **Maintainers only**: to regenerate previews after a model update, run `bash scripts/generate_qwen_previews.sh` and commit the updated WAV files.
-
-### Build & Run
-
-```bash
-# Clone the repository
-git clone https://github.com/moxin-org/Moxin-Voice.git
-cd Moxin-Voice
-
-# Build in release mode
-cargo build -p moxin-voice-shell --release
-
-# Start the Dora daemon
-dora up
-
-# Run the application
-cargo run -p moxin-voice-shell --release
-```
-
-The application window will open at 1200x800 pixels by default.
-
-### Development Build
-
-```bash
-# Start the Dora daemon
-dora up
-
-# Fast debug build
-cargo build -p moxin-voice-shell
-
-# Run with debug logging
-cargo run -p moxin-voice-shell -- --log-level debug
-```
-
-## 📦 Project Structure
-
-Moxin Voice is organized as a Cargo workspace with 5 core crates:
-
-| Crate               | Type    | Description                               |
-| ------------------- | ------- | ----------------------------------------- |
-| `moxin-voice-shell` | Binary  | Standalone TTS application entry point    |
-| `moxin-voice`       | Library | TTS UI and application logic              |
-| `moxin-widgets`     | Library | Shared UI components (theme, audio, etc.) |
-| `moxin-ui`          | Library | Application infrastructure and widgets    |
-| `moxin-dora-bridge` | Library | Dora dataflow integration bridge          |
-
-### Python Nodes (node-hub/)
-
-| Node               | Type   | Description                     |
-| ------------------ | ------ | ------------------------------- |
-| `dora-primespeech` | Python | GPT-SoVITS TTS synthesis engine |
-| `dora-asr`         | Python | Speech recognition (FunASR)     |
-| `dora-common`      | Python | Shared utilities and logging    |
-
-### Key Documentation
-
-- **[BUILDING.md](moxin-voice-shell/BUILDING.md)** - Detailed build instructions
-- **[CONTEXT_RESUME.md](doc/CONTEXT_RESUME.md)** - Project context and progress
-- **[Implementation Summary](moxin-voice-shell/IMPLEMENTATION_SUMMARY.md)** - Phase 1-4 summary
-
-## 🎯 Current Status
-
-Moxin Voice is a **functional standalone application** with the following capabilities:
-
-### ✅ Implemented
-
-**Phase 1-4 Complete**:
-
-- ✅ Standalone application shell (moxin-voice-shell)
-- ✅ TTS screen with voice selection and text input
-- ✅ Zero-shot voice cloning UI (Express mode)
-- ✅ Few-shot training UI (Pro mode)
-- ✅ Audio recording and playback
-- ✅ Dora dataflow integration
-- ✅ Codebase cleanup (removed unused apps, 24K lines)
-
-### 🚧 In Progress
-
-**Phase 5: Testing & Polish**:
-
-- 🚧 TTS generation testing
-- 🚧 Voice cloning verification
-- 🚧 Few-shot training backend integration
-- 🚧 Performance optimization
-
-## 🎙️ Voice Cloning Modes
-
-### Express Mode (Zero-Shot)
-
-- **Audio Length**: 5-10 seconds
-- **Use Case**: Quick voice cloning
-- **Quality**: Good for most use cases
-- **Process**: Upload/record → Clone immediately
-
-### Pro Mode (Few-Shot)
-
-- **Audio Length**: 3-10 minutes
-- **Use Case**: High-quality professional voices
-- **Quality**: Exceptional fidelity
-- **Process**: Upload/record → Train model → Clone
-
-## 🔧 Technology Stack
-
-- **[Rust](https://www.rust-lang.org/)** - Systems programming language
-- **[Makepad](https://github.com/makepad/makepad)** - GPU-accelerated UI framework
-- **[GPT-SoVITS v2](https://github.com/RVC-Boss/GPT-SoVITS)** - Voice cloning and TTS engine
-- **[Dora](https://github.com/dora-rs/dora)** - Robotics dataflow framework
-- **[CPAL](https://github.com/RustAudio/cpal)** - Cross-platform audio I/O
-- **[Tokio](https://tokio.rs/)** - Async runtime
-- **[Serde](https://serde.rs/)** - Serialization framework
-
-## 🤝 Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Workflow
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Test thoroughly (`cargo test`, `cargo build -p moxin-voice`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-```
-Copyright 2026 Moxin Voice Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-```
-
-## 🙏 Acknowledgments
-
-- **[Makepad](https://github.com/makepad/makepad)** - For the incredible GPU-accelerated UI framework
-- **[GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)** - For the excellent voice cloning technology
-- **[Dora Robotics Framework](https://github.com/dora-rs/dora)** - For the dataflow architecture
-- **Rust Community** - For excellent tooling and libraries
-
-## 📧 Contact
-
-- **Repository**: https://github.com/moxin-org/Moxin-Voice.git
-- **Issues**: https://github.com/moxin-org/Moxin-Voice.git/issues
+Moxin Voice is a modern, GPU-accelerated desktop TTS application built entirely in Rust. It uses the [Makepad](https://github.com/makepad/makepad) UI framework for native performance and the [OminiX MLX](https://github.com/OminiX-ai/OminiX-MLX) inference stack for high-speed, Python-free speech synthesis on Apple Silicon.
 
 ---
 
-_Built with ❤️ using Rust, Makepad, and GPT-SoVITS_
+## ⚡ Powered by OminiX MLX
+
+The inference engine behind Moxin Voice is **[OminiX MLX](https://github.com/OminiX-ai/OminiX-MLX)** — a comprehensive Rust-native ML inference ecosystem for Apple Silicon.
+
+OminiX MLX provides:
+
+- **Pure Rust inference** — no Python runtime required at synthesis time
+- **Metal GPU acceleration** — optimized for M1/M2/M3/M4 chips via Apple's MLX framework
+- **Unified memory** — zero-copy CPU/GPU data sharing
+- **Qwen3-TTS-MLX** — the TTS engine used by Moxin Voice (9 built-in voices, 12 languages, ICL voice cloning, 2.3× real-time on M3 Max)
+
+> Moxin Voice uses OminiX MLX's `dora-qwen3-tts-mlx` node as its sole TTS backend.
+> Source: `node-hub/dora-qwen3-tts-mlx/`
+
+---
+
+## ✨ Features
+
+- **🎙️ Zero-Shot Voice Cloning** — Clone any voice with 5–30 seconds of audio (ICL Express mode)
+- **🎵 Text-to-Speech** — 9 preset voices across Chinese, English, Japanese, and Korean
+- **🔮 Qwen3-TTS-MLX Backend** — 2.3× real-time synthesis via OminiX MLX on Apple Silicon
+- **🎤 Audio Recording** — Built-in real-time recording with waveform visualization
+- **🔍 ASR Integration** — Automatic text transcription for cloning reference audio
+- **💾 Audio Export** — Save generated speech as WAV files
+- **🌓 Dark Mode** — Native dark theme via Makepad GPU rendering
+- **🌐 Bilingual UI** — Chinese and English interface
+
+---
+
+## 🏗️ Architecture
+
+```
+moxin-voice/
+├── moxin-voice-shell/          # Application entry point (binary)
+├── apps/moxin-voice/           # UI + application logic
+│   └── dataflow/tts.yml        # Dora dataflow graph
+├── moxin-widgets/              # Shared Makepad UI components
+├── moxin-ui/                   # Application infrastructure
+├── moxin-dora-bridge/          # Dora dataflow integration bridge
+└── node-hub/
+    ├── dora-qwen3-tts-mlx/     # ★ OminiX MLX Qwen3-TTS Rust node
+    │   └── previews/           # Pre-generated voice preview WAVs
+    └── dora-asr/               # FunASR speech recognition (Python)
+```
+
+The TTS pipeline runs as a [Dora](https://github.com/dora-rs/dora) dataflow: the UI sends text, the `qwen-tts-node` (built from `dora-qwen3-tts-mlx`) synthesizes audio using OminiX MLX, and the audio player receives the stream.
+
+---
+
+## 🚀 Quick Start (macOS)
+
+### Prerequisites
+
+- macOS 14.0+ (Sonoma), Apple Silicon (M1/M2/M3/M4)
+- Rust 1.82+
+- [Dora CLI](https://github.com/dora-rs/dora) (`cargo install dora-cli`)
+
+### 1. Download Qwen3-TTS Models
+
+```bash
+bash scripts/init_qwen3_models.sh
+```
+
+This downloads the two model snapshots into `~/.OminiX/models/qwen3-tts-mlx/`:
+
+| Model | Purpose |
+|-------|---------|
+| `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | Preset voice synthesis |
+| `Qwen3-TTS-12Hz-1.7B-Base` | ICL zero-shot voice cloning |
+
+### 2. Run
+
+```bash
+dora up
+cargo run -p moxin-voice-shell
+```
+
+### First-Time Distribution (macOS .app)
+
+For end-users receiving the distributed `.app`, model download and initialization happen automatically via the in-app bootstrap wizard on first launch.
+
+---
+
+## 🔮 Qwen3-TTS Voice Library
+
+9 built-in preset voices, UI names localized to Chinese or English:
+
+| ID | Language | Character |
+|----|----------|-----------|
+| `vivian` | zh | 薇薇安 — bright, slightly edgy young female |
+| `serena` | zh | 赛琳娜 — warm, gentle young female |
+| `uncle_fu` | zh | 傅叔 — low, mellow seasoned male |
+| `dylan` | zh | 迪伦 — clear Beijing young male |
+| `eric` | zh | 埃里克 — lively Chengdu young male |
+| `ryan` | en | Ryan — dynamic male with rhythmic drive |
+| `aiden` | en | Aiden — sunny American male |
+| `ono_anna` | ja | 小野安奈 — playful Japanese female |
+| `sohee` | ko | 素熙 — warm Korean female |
+
+### Voice Cloning (Express Mode)
+
+Upload or record 5–30 seconds of reference audio. Moxin Voice uses Qwen3-TTS's **In-Context Learning (ICL)** to clone the voice in real time — no training required.
+
+---
+
+## 📦 Build
+
+### Development
+
+```bash
+cargo build -p moxin-voice-shell
+```
+
+### macOS App Bundle
+
+```bash
+bash scripts/build_macos_app.sh --version 0.1.0
+bash scripts/build_macos_dmg.sh
+```
+
+### Distribution Bootstrap (user machine)
+
+```bash
+bash scripts/macos_bootstrap.sh
+```
+
+Downloads FunASR (ASR) and Qwen3-TTS models, sets up the app-private conda env.
+
+---
+
+## 🔧 Technology Stack
+
+| Component | Technology |
+|-----------|-----------|
+| UI framework | [Makepad](https://github.com/makepad/makepad) — GPU-accelerated, pure Rust |
+| TTS inference | [OminiX MLX](https://github.com/OminiX-ai/OminiX-MLX) · Qwen3-TTS-MLX |
+| TTS model | [Qwen3-TTS](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base) (Alibaba) |
+| ML runtime | Apple MLX via `mlx-sys` / `mlx-rs` (OminiX MLX) |
+| Dataflow | [Dora](https://github.com/dora-rs/dora) |
+| Audio I/O | [CPAL](https://github.com/RustAudio/cpal) |
+| ASR | FunASR Paraformer (Python, via dora-asr) |
+| Language | Rust 2021 edition |
+
+---
+
+## 📝 License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
+
+---
+
+## 🙏 Acknowledgments
+
+- **[OminiX MLX](https://github.com/OminiX-ai/OminiX-MLX)** — the core ML inference engine powering all synthesis in this project
+- **[Qwen3-TTS](https://huggingface.co/Qwen)** — the TTS model (Alibaba)
+- **[Makepad](https://github.com/makepad/makepad)** — GPU-accelerated UI framework
+- **[Dora](https://github.com/dora-rs/dora)** — dataflow architecture
+- **[Apple MLX](https://github.com/ml-explore/mlx)** — foundation for OminiX MLX
+
+---
+
+**Repository**: https://github.com/moxin-org/Moxin-Voice

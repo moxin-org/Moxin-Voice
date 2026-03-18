@@ -1,6 +1,7 @@
 //! Local user preferences for moxin-voice.
 //!
 //! Stored at: ~/.dora/primespeech/app_preferences.json
+//! (path kept for backward compatibility with existing installations)
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -29,14 +30,14 @@ impl Default for AppPreferences {
         Self {
             display_name: "User".to_string(),
             avatar_letter: "U".to_string(),
-            default_voice_id: Some("Doubao".to_string()),
+            default_voice_id: Some("vivian".to_string()),
             default_speed: 1.0,
             default_pitch: 0.0,
             default_volume: 100.0,
             history_retention_days: -1,
-            inference_backend: "primespeech_mlx".to_string(),
-            zero_shot_backend: "primespeech_mlx".to_string(),
-            training_backend: "option_a".to_string(),
+            inference_backend: "qwen3_tts_mlx".to_string(),
+            zero_shot_backend: "qwen3_tts_mlx".to_string(),
+            training_backend: "option_c".to_string(), // Qwen3 mode (ICL only)
             preferred_output_device: None,
             preferred_input_device: None,
             debug_logs_enabled: false,

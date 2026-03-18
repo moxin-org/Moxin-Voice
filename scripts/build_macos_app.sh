@@ -105,11 +105,11 @@ run_cargo_build() {
 }
 
 MAKEPAD=apple_bundle MAKEPAD_PACKAGE_DIR=makepad run_cargo_build "$ROOT_DIR" "$PROFILE" -p moxin-voice-shell --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
-run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-primespeech-mlx --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
+# dora-primespeech-mlx build removed (Qwen3-only mode). See doc/REFACTOR_QWEN3_ONLY.md.
 run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen3-tts-mlx --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 
 SHELL_BIN_PATH="$ROOT_DIR/target/$PROFILE/$BIN_NAME"
-TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-tts-node"
+# TTS_BIN_PATH (moxin-tts-node / PrimeSpeech) removed. See doc/REFACTOR_QWEN3_ONLY.md.
 QWEN_TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/qwen-tts-node"
 TRAINER_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-fewshot-trainer"
 MLX_METALLIB_PATH="$ROOT_DIR/target/$PROFILE/mlx.metallib"
@@ -118,10 +118,7 @@ if [[ ! -f "$SHELL_BIN_PATH" ]]; then
   echo "Binary not found: $SHELL_BIN_PATH"
   exit 1
 fi
-if [[ ! -f "$TTS_BIN_PATH" ]]; then
-  echo "Binary not found: $TTS_BIN_PATH"
-  exit 1
-fi
+# moxin-tts-node check removed (PrimeSpeech binary no longer bundled).
 if [[ ! -f "$QWEN_TTS_BIN_PATH" ]]; then
   echo "Binary not found: $QWEN_TTS_BIN_PATH"
   exit 1
@@ -142,7 +139,7 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR" "$SCRIPTS_DIR" "$DATAFLOW_DIR"
 
 cp "$SHELL_BIN_PATH" "$MACOS_DIR/${BIN_NAME}-bin"
-cp "$TTS_BIN_PATH" "$MACOS_DIR/moxin-tts-node"
+# moxin-tts-node (PrimeSpeech) removed. See doc/REFACTOR_QWEN3_ONLY.md.
 cp "$QWEN_TTS_BIN_PATH" "$MACOS_DIR/qwen-tts-node"
 
 # Bundle Qwen3-TTS voice preview WAV files (pre-generated, committed to repo)
@@ -158,7 +155,7 @@ fi
 if [[ -f "$TRAINER_BIN_PATH" ]]; then
   cp "$TRAINER_BIN_PATH" "$MACOS_DIR/moxin-fewshot-trainer"
 fi
-chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/moxin-tts-node" "$MACOS_DIR/qwen-tts-node"
+chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/qwen-tts-node"
 chmod +x "$MACOS_DIR/dora"
 if [[ -f "$MACOS_DIR/moxin-fewshot-trainer" ]]; then
   chmod +x "$MACOS_DIR/moxin-fewshot-trainer"

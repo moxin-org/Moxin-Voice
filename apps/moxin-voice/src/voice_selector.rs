@@ -1,6 +1,6 @@
 //! Voice selector component - displays list of available voices
 
-use crate::voice_data::{get_builtin_voices, LanguageFilter, Voice, VoiceFilter};
+use crate::voice_data::{get_builtin_voices_for_backend, LanguageFilter, Voice, VoiceFilter};
 use crate::voice_persistence;
 use makepad_widgets::*;
 
@@ -886,7 +886,7 @@ impl Widget for VoiceSelector {
 impl VoiceSelector {
     /// Reload all voices (built-in + custom) and apply filters
     fn reload_voices(&mut self) {
-        self.voices = get_builtin_voices();
+        self.voices = get_builtin_voices_for_backend("qwen3_tts_mlx", "zh");
         self.custom_voices = voice_persistence::load_custom_voices();
         self.voices.extend(self.custom_voices.clone());
         self.apply_filters();

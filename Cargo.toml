@@ -6,7 +6,7 @@ members = [
     "moxin-dora-bridge",
     "moxin-ui",
     "apps/moxin-voice",
-    "node-hub/dora-primespeech-mlx",
+    # "node-hub/dora-primespeech-mlx",  # PrimeSpeech MLX — removed (Qwen3-only). See doc/REFACTOR_QWEN3_ONLY.md.
     "node-hub/dora-qwen3-tts-mlx",
 ]
 

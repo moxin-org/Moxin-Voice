@@ -20,6 +20,8 @@ CONDA_ROOT="${MOXIN_CONDA_ROOT:-$HOME/.moxinvoice/conda}"
 CONDA_BIN="${MOXIN_CONDA_BIN:-$CONDA_ROOT/bin/conda}"
 CONDA_ENV_PREFIX="${MOXIN_CONDA_ENV_PREFIX:-$CONDA_ROOT/envs/$ENV_NAME}"
 
+# MODEL_DIR and PRIMESPEECH_DIR kept for reference; not used in Qwen3-only mode.
+# See doc/REFACTOR_QWEN3_ONLY.md to restore PrimeSpeech steps.
 MODEL_DIR="${GPT_SOVITS_MODEL_DIR:-$HOME/.OminiX/models/gpt-sovits-mlx}"
 PRIMESPEECH_DIR="${PRIMESPEECH_MODEL_DIR:-$HOME/.dora/models/primespeech}"
 ASR_MODEL_DIR="${ASR_MODEL_DIR:-$HOME/.dora/models/asr/funasr}"
@@ -30,8 +32,9 @@ QWEN_BASE_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-Base}"
 QWEN_CUSTOM_REPO="${QWEN3_TTS_CUSTOMVOICE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 QWEN_BASE_REPO="${QWEN3_TTS_BASE_REPO:-Qwen/Qwen3-TTS-12Hz-1.7B-Base}"
 
-INFERENCE_BACKEND="${MOXIN_INFERENCE_BACKEND:-primespeech_mlx}"
-ZERO_SHOT_BACKEND="${MOXIN_ZERO_SHOT_BACKEND:-primespeech_mlx}"
+# Qwen3-only: always download both models.
+INFERENCE_BACKEND="qwen3_tts_mlx"
+ZERO_SHOT_BACKEND="qwen3_tts_mlx"
 
 STATE_PATH="${MOXIN_BOOTSTRAP_STATE_PATH:-$HOME/Library/Logs/MoxinVoice/bootstrap_state.txt}"
 TOTAL_STEPS=10
@@ -111,14 +114,9 @@ qwen_model_ready() {
   [[ -f "$model_dir/speech_tokenizer/model.safetensors" ]]
 }
 
-NEED_QWEN_CUSTOM=0
-NEED_QWEN_BASE=0
-if [[ "$INFERENCE_BACKEND" == "qwen3_tts_mlx" ]]; then
-  NEED_QWEN_CUSTOM=1
-fi
-if [[ "$ZERO_SHOT_BACKEND" == "qwen3_tts_mlx" ]]; then
-  NEED_QWEN_BASE=1
-fi
+# Qwen3-only: always download both CustomVoice and Base models.
+NEED_QWEN_CUSTOM=1
+NEED_QWEN_BASE=1
 
 echo "=== Moxin Voice Bootstrap ==="
 echo "Resources: $APP_RESOURCES"
@@ -172,39 +170,17 @@ if [[ -d "$DORA_ASR_SRC" ]]; then
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$DORA_ASR_SRC"
 fi
 
-write_step 6 "Install PrimeSpeech Node" "Installing dora-primespeech and training dependencies"
-if [[ -d "$DORA_PRIMESPEECH_SRC" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$DORA_PRIMESPEECH_SRC"
-fi
-"$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install "datasets<3.0.0" simplejson sortedcontainers tensorboard matplotlib
-
-write_step 7 "Download Base Models" "Downloading ASR and PrimeSpeech model files"
+# Steps 6-8: PrimeSpeech-specific — skipped in Qwen3-only mode.
+# See doc/REFACTOR_QWEN3_ONLY.md to restore:
+#   Step 6: Install dora-primespeech python node
+#   Step 7: Download funasr + primespeech model files
+#   Step 8: Convert/export PrimeSpeech models to MLX layout
+write_step 6 "Skip PrimeSpeech Node" "PrimeSpeech removed — Qwen3-only mode"
+write_step 7 "Download ASR Models" "Downloading FunASR model files"
 if [[ -f "$MODEL_MANAGER_SCRIPT" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env PRIMESPEECH_MODEL_DIR="$PRIMESPEECH_DIR" python "$MODEL_MANAGER_SCRIPT" --download funasr
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env PRIMESPEECH_MODEL_DIR="$PRIMESPEECH_DIR" python "$MODEL_MANAGER_SCRIPT" --download primespeech
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env python "$MODEL_MANAGER_SCRIPT" --download funasr || true
 fi
-
-write_step 8 "Convert Base Models" "Converting PrimeSpeech models into MLX layout"
-if [[ -f "$CONVERT_SCRIPT" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
-    OMINIX_SCRIPTS="$OMINIX_SCRIPTS_DIR" \
-    PRIMESPEECH_MOYOYO_SRC="$PRIMESPEECH_DIR/moyoyo" \
-    GPT_SOVITS_MODEL_DIR="$MODEL_DIR" \
-    python "$CONVERT_SCRIPT"
-fi
-if [[ -f "$EXPORT_VITS_SCRIPT" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
-    OMINIX_EXPORT_VITS_SCRIPT="$OMINIX_EXPORT_VITS_SCRIPT" \
-    PRIMESPEECH_SOVITS_SRC="$PRIMESPEECH_DIR/moyoyo/SoVITS_weights" \
-    GPT_SOVITS_VOICES_DIR="$MODEL_DIR/voices" \
-    python "$EXPORT_VITS_SCRIPT" || true
-fi
-if [[ -f "$EXTRACT_SEM_SCRIPT" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
-    PRIMESPEECH_MOYOYO_SRC="$PRIMESPEECH_DIR/moyoyo" \
-    GPT_SOVITS_VOICES_DIR="$MODEL_DIR/voices" \
-    python "$EXTRACT_SEM_SCRIPT" || true
-fi
+write_step 8 "Skip Model Conversion" "PrimeSpeech model conversion skipped"
 
 write_step 9 "Download Qwen3 Models" "Preparing qwen3-tts-mlx model files if required"
 if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" || "$NEED_QWEN_PY_CUSTOM" == "1" || "$NEED_QWEN_PY_BASE" == "1" ]]; then
@@ -248,8 +224,8 @@ Bootstrap completed.
 
 Important:
 1) Runtime Python/ASR dependencies were installed into app-private conda.
-2) PrimeSpeech and ASR models were downloaded/converted.
-3) If qwen backend is selected, required qwen model snapshots were downloaded.
+2) FunASR model downloaded.
+3) Qwen3-TTS CustomVoice and Base model snapshots downloaded.
 4) You can relaunch the app and start TTS/ASR without manual setup.
 
 MSG

@@ -1,4 +1,7 @@
-//! Voice data definitions for TTS (GPT-SoVITS)
+//! Voice data definitions for TTS (Qwen3-TTS-MLX)
+// NOTE: PrimeSpeech/GPT-SoVITS voice definitions are preserved below (commented out).
+// Restore `get_builtin_voices()` and the old `get_builtin_voices_for_backend()` branch
+// when re-enabling the PrimeSpeech backend.  See doc/REFACTOR_QWEN3_ONLY.md.
 
 use serde::{Deserialize, Serialize};
 
@@ -87,8 +90,9 @@ impl VoiceCategory {
     }
 }
 
-/// Get built-in voices for PrimeSpeech (GPT-SoVITS)
-/// These match the VOICE_CONFIGS in dora-primespeech/config.py
+// --- PrimeSpeech built-in voices (GPT-SoVITS) — commented out for Qwen3-only mode ---
+// Restore by un-commenting and re-enabling the else branch in `get_builtin_voices_for_backend`.
+/*
 pub fn get_builtin_voices() -> Vec<Voice> {
     vec![
         // Chinese voices
@@ -305,6 +309,7 @@ pub fn get_builtin_voices() -> Vec<Voice> {
         },
     ]
 }
+*/ // end commented-out get_builtin_voices
 
 /// Localized (name, description) pairs for each Qwen3 preset speaker.
 /// Returns English strings when `locale` is "en", Chinese otherwise.
@@ -377,12 +382,12 @@ pub fn get_qwen_builtin_voices(locale: &str) -> Vec<Voice> {
 
 /// Select built-in voices by current inference backend.
 /// `locale` is "en" or "zh" and controls display language for Qwen3 voices.
-pub fn get_builtin_voices_for_backend(inference_backend: &str, locale: &str) -> Vec<Voice> {
-    if inference_backend == "qwen3_tts_mlx" {
-        get_qwen_builtin_voices(locale)
-    } else {
-        get_builtin_voices()
-    }
+/// Only the Qwen3-TTS-MLX backend is active. PrimeSpeech branch is preserved
+/// in comments — see doc/REFACTOR_QWEN3_ONLY.md to restore it.
+pub fn get_builtin_voices_for_backend(_inference_backend: &str, locale: &str) -> Vec<Voice> {
+    // Qwen3-only: always return Qwen3 voices regardless of backend string.
+    get_qwen_builtin_voices(locale)
+    // PrimeSpeech restore path (was: else { get_builtin_voices() })
 }
 
 /// TTS generation status

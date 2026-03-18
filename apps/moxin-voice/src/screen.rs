@@ -103,18 +103,9 @@ struct TtsModelOption {
 }
 
 fn get_project_tts_models() -> Vec<TtsModelOption> {
+    // Qwen3-only mode: only one backend available.
+    // PrimeSpeech MLX entry removed. See doc/REFACTOR_QWEN3_ONLY.md to restore.
     vec![
-        TtsModelOption {
-            id: "primespeech_mlx".to_string(),
-            name: "PrimeSpeech MLX".to_string(),
-            description: "GPT-SoVITS v2 MLX inference engine. Supports preset voices, zero-shot clone, and trained voices. Best choice for high-quality voice cloning.".to_string(),
-            tag_labels: vec![
-                "Chinese".to_string(),
-                "English".to_string(),
-                "Voice Clone".to_string(),
-            ],
-            badge: None,
-        },
         TtsModelOption {
             id: "qwen3_tts_mlx".to_string(),
             name: "Qwen3 TTS MLX".to_string(),
@@ -2741,7 +2732,7 @@ live_design! {
                                                     return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "PrimeSpeech (GPT-SoVITS v2)"
+                                            text: "Qwen3 TTS MLX"
                                         }
 
                                         duration = <Label> {
@@ -7034,7 +7025,19 @@ live_design! {
                                     return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
                                 }
                             }
-                            text: "Powered by GPT-SoVITS v2"
+                            text: "Powered by OminiX MLX · Qwen3-TTS-MLX"
+                        }
+
+                        about_ominix = <Label> {
+                            width: Fit, height: Fit
+                            draw_text: {
+                                instance dark_mode: 0.0
+                                text_style: { font_size: 11.0 }
+                                fn get_color(self) -> vec4 {
+                                    return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                }
+                            }
+                            text: "github.com/OminiX-ai/OminiX-MLX"
                         }
                     }
                 }
@@ -7529,12 +7532,11 @@ impl Widget for TTSScreen {
                 let _ = i18n::set_locale("zh");
             }
             self.app_preferences = app_preferences::load_preferences();
-            if self.app_preferences.inference_backend == "qwen3_tts_mlx" && !Self::qwen_custom_ready() {
-                self.app_preferences.inference_backend = "primespeech_mlx".to_string();
-            }
-            if self.app_preferences.zero_shot_backend == "qwen3_tts_mlx" && !Self::qwen_base_ready() {
-                self.app_preferences.zero_shot_backend = "primespeech_mlx".to_string();
-            }
+            // Qwen3-only: always override to qwen3 regardless of stored preference.
+            // PrimeSpeech fallback removed. See doc/REFACTOR_QWEN3_ONLY.md.
+            self.app_preferences.inference_backend = "qwen3_tts_mlx".to_string();
+            self.app_preferences.zero_shot_backend = "qwen3_tts_mlx".to_string();
+            self.app_preferences.training_backend = "option_c".to_string(); // Qwen3 ICL mode
             // Sync selected model with validated inference_backend preference
             {
                 let validated_backend = self.app_preferences.inference_backend.clone();
@@ -8576,80 +8578,8 @@ impl Widget for TTSScreen {
             self.show_toast(cx, self.tr("输出设备已更新", "Output device updated"));
         }
 
-        if let Some(idx) = self
-            .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
-            .changed(&actions)
-        {
-            let target_backend = match idx {
-                1 => "qwen3_tts_mlx",
-                _ => "primespeech_mlx",
-            };
-
-            let zero_shot_ready = match target_backend {
-                "qwen3_tts_mlx" => Self::qwen_base_ready(),
-                _ => true,
-            };
-
-            if !zero_shot_ready {
-                self.view
-                    .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
-                    .set_selected_item(cx, 0);
-                self.start_qwen_model_download(cx, target_backend, false, true);
-                self.show_toast(
-                    cx,
-                    self.tr(
-                        "Qwen zero-shot 模型未就绪，已开始后台下载",
-                        "Qwen zero-shot model not ready. Background download started",
-                    ),
-                );
-                return;
-            }
-
-            self.app_preferences.zero_shot_backend = target_backend.to_string();
-            std::env::set_var(
-                "MOXIN_ZERO_SHOT_BACKEND",
-                self.app_preferences.zero_shot_backend.clone(),
-            );
-            self.persist_app_preferences(cx);
-            self.update_user_settings_page(cx);
-            self.set_generate_button_loading(cx, self.tts_status == TTSStatus::Generating);
-            if self.app_preferences.inference_backend == target_backend
-                && Self::is_qwen_backend(target_backend)
-            {
-                self.stop_dora(cx);
-                self.auto_start_dataflow(cx);
-            }
-            self.show_toast(cx, self.tr("Zero-shot 后端已切换", "Zero-shot backend switched"));
-        }
-        if let Some(idx) = self
-            .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
-            .changed(&actions)
-        {
-            self.app_preferences.training_backend = match idx {
-                1 => "option_b".to_string(),
-                2 => "option_c".to_string(),
-                _ => "option_a".to_string(),
-            };
-            self.runtime_status_training_backend = self.app_preferences.training_backend.clone();
-            std::env::set_var("MOXIN_TRAINING_BACKEND", self.app_preferences.training_backend.clone());
-            // If Qwen3 mode selected and currently in Pro mode, force switch to Express
-            if self.app_preferences.training_backend == "option_c" && self.current_clone_mode == CloneMode::Pro {
-                self.current_clone_mode = CloneMode::Express;
-                self.view.button(ids!(
-                    content_wrapper.main_content.left_column.content_area
-                    .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
-                )).apply_over(cx, live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } });
-                self.view.button(ids!(
-                    content_wrapper.main_content.left_column.content_area
-                    .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
-                )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
-                self.show_toast(cx, self.tr("Qwen3 模式仅支持快速模式，已自动切换", "Qwen3 mode only supports Express mode. Switched automatically."));
-            }
-            self.persist_app_preferences(cx);
-            self.update_user_settings_page(cx);
-        }
+        // zero_shot_backend_dropdown and training_backend_dropdown handlers removed.
+        // Qwen3-only mode: these dropdowns are hidden. See doc/REFACTOR_QWEN3_ONLY.md.
         if let Some(idx) = self
             .view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
@@ -8983,28 +8913,8 @@ impl Widget for TTSScreen {
             )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
         }
 
-        if self.view.button(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
-        )).clicked(&actions) {
-            if self.app_preferences.training_backend == "option_c" {
-                self.show_toast(cx, self.tr(
-                    "Qwen3 模式仅支持快速模式，如需高级模式请切换训练后端",
-                    "Qwen3 mode only supports Express mode. Switch training backend to use Advanced mode.",
-                ));
-            } else {
-                self.current_clone_mode = CloneMode::Pro;
-                // Update advanced_mode_btn active state
-                self.view.button(ids!(
-                    content_wrapper.main_content.left_column.content_area
-                    .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
-                )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
-                self.view.button(ids!(
-                    content_wrapper.main_content.left_column.content_area
-                    .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
-                )).apply_over(cx, live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } });
-            }
-        }
+        // advanced_mode_btn handler removed — Qwen3-only, Pro mode hidden.
+        // See doc/REFACTOR_QWEN3_ONLY.md to restore.
 
         // Handle Voice Clone page buttons
         if self
@@ -10723,56 +10633,15 @@ impl TTSScreen {
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.privacy_card.retention_pick_row.retention_dropdown))
             .set_selected_item(cx, retention_idx);
 
+        // Qwen3-only: hide zero-shot backend picker and training backend picker.
+        // These rows are kept in live_design for easy restoration.
+        // See doc/REFACTOR_QWEN3_ONLY.md.
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
-            .set_labels(
-                cx,
-                if en {
-                    vec![
-                        "PrimeSpeech MLX".to_string(),
-                        "Qwen3 TTS MLX".to_string(),
-                    ]
-                } else {
-                    vec![
-                        "PrimeSpeech MLX".to_string(),
-                        "Qwen3 TTS MLX".to_string(),
-                    ]
-                },
-            );
-        let zero_shot_backend_idx = match self.app_preferences.zero_shot_backend.as_str() {
-            "qwen3_tts_mlx" => 1,
-            _ => 0,
-        };
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row))
+            .set_visible(cx, false);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown))
-            .set_selected_item(cx, zero_shot_backend_idx);
-
-        self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
-            .set_labels(
-                cx,
-                if en {
-                    vec![
-                        "Compatibility (Python)".to_string(),
-                        "MLX Experimental (Rust)".to_string(),
-                        "Qwen3 Mode".to_string(),
-                    ]
-                } else {
-                    vec![
-                        "兼容模式（Python）".to_string(),
-                        "MLX 实验模式（Rust）".to_string(),
-                        "Qwen3 模式".to_string(),
-                    ]
-                },
-            );
-        let backend_idx = match self.app_preferences.training_backend.as_str() {
-            "option_b" => 1,
-            "option_c" => 2,
-            _ => 0,
-        };
-        self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row.training_backend_dropdown))
-            .set_selected_item(cx, backend_idx);
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.backend_pick_row))
+            .set_visible(cx, false);
 
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.data_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
@@ -11223,11 +11092,13 @@ impl TTSScreen {
                 content_wrapper.main_content.left_column.content_area.clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
             ))
             .set_text(cx, self.tr("快速模式", "Quick Mode"));
+        // Qwen3-only: Pro/Advanced mode removed. Hide advanced_mode_btn.
+        // Restore by un-commenting and re-enabling CloneMode::Pro. See doc/REFACTOR_QWEN3_ONLY.md.
         self.view
-            .button(ids!(
-                content_wrapper.main_content.left_column.content_area.clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
+            .view(ids!(
+                content_wrapper.main_content.left_column.content_area.clone_page.clone_header.clone_title_section.mode_selector
             ))
-            .set_text(cx, self.tr("高级模式", "Advanced Mode"));
+            .set_visible(cx, false); // hide entire mode_selector (both tabs)
         self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.clone_page.clone_header.create_task_btn
@@ -11706,7 +11577,10 @@ impl TTSScreen {
             .set_text(cx, self.tr("关于", "About"));
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_engine))
-            .set_text(cx, self.tr("基于 GPT-SoVITS v2", "Powered by GPT-SoVITS v2"));
+            .set_text(cx, self.tr("基于 OminiX MLX · Qwen3-TTS-MLX", "Powered by OminiX MLX · Qwen3-TTS-MLX"));
+        self.view
+            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_ominix))
+            .set_text(cx, "github.com/OminiX-ai/OminiX-MLX");
         self.view
             .button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_en_option))
             .set_text(cx, "English");
@@ -13812,18 +13686,14 @@ impl TTSScreen {
         backend == "qwen3_tts_mlx"
     }
 
-    fn normalize_inference_backend(raw: &str) -> &'static str {
-        if raw == "qwen3_tts_mlx" {
-            "qwen3_tts_mlx"        } else {
-            "primespeech_mlx"
-        }
+    fn normalize_inference_backend(_raw: &str) -> &'static str {
+        // Qwen3-only: always qwen3. See doc/REFACTOR_QWEN3_ONLY.md.
+        "qwen3_tts_mlx"
     }
 
-    fn normalize_zero_shot_backend(raw: &str) -> &'static str {
-        if raw == "qwen3_tts_mlx" {
-            "qwen3_tts_mlx"        } else {
-            "primespeech_mlx"
-        }
+    fn normalize_zero_shot_backend(_raw: &str) -> &'static str {
+        // Qwen3-only: always qwen3. See doc/REFACTOR_QWEN3_ONLY.md.
+        "qwen3_tts_mlx"
     }
 
     fn absolutize_dataflow_paths(template_path: &Path, content: &str) -> String {
@@ -15787,6 +15657,9 @@ impl TTSScreen {
         self.view
             .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_engine))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_ominix))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
         self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.user_settings_header.user_settings_title))
@@ -16224,6 +16097,11 @@ impl TTSScreen {
     }
 
     fn sync_selected_model_ui(&mut self, cx: &mut Cx) {
+        // Qwen3-only: hide model picker row — no backend choice available.
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.input_section.bottom_bar.model_row))
+            .set_visible(cx, false);
+
         if self.model_options.is_empty() {
             self.selected_tts_model_id = None;
             self.view

@@ -1,38 +1,13 @@
 #!/usr/bin/env bash
+# Qwen3-TTS-MLX backend launcher (dev / repo build).
+# PrimeSpeech/primespeech_mlx backend removed; see doc/REFACTOR_QWEN3_ONLY.md to restore.
 set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-backend="${MOXIN_INFERENCE_BACKEND:-primespeech_mlx}"
-zero_shot_backend="${MOXIN_ZERO_SHOT_BACKEND:-primespeech_mlx}"
-
 qwen_root="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
 qwen_custom_dir="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$qwen_root/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 qwen_base_dir="${QWEN3_TTS_BASE_MODEL_DIR:-$qwen_root/Qwen3-TTS-12Hz-1.7B-Base}"
-
-resolve_primespeech_node() {
-  local root_dir
-  root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-  if [[ -n "${MOXIN_PRIMESPEECH_TTS_NODE_BIN:-}" && -x "${MOXIN_PRIMESPEECH_TTS_NODE_BIN}" ]]; then
-    echo "${MOXIN_PRIMESPEECH_TTS_NODE_BIN}"
-    return 0
-  fi
-
-  if [[ -x "$root_dir/target/debug/moxin-tts-node" ]]; then
-    echo "$root_dir/target/debug/moxin-tts-node"
-    return 0
-  fi
-  if [[ -x "$root_dir/target/release/moxin-tts-node" ]]; then
-    echo "$root_dir/target/release/moxin-tts-node"
-    return 0
-  fi
-  if command -v moxin-tts-node >/dev/null 2>&1; then
-    command -v moxin-tts-node
-    return 0
-  fi
-  return 1
-}
 
 resolve_qwen_node() {
   local root_dir
@@ -98,34 +73,29 @@ qwen_model_ready() {
   [[ -f "$model_dir/speech_tokenizer/model.safetensors" ]]
 }
 
-case "$backend" in
-  qwen3_tts_mlx)
-    if ! qwen_model_ready "$qwen_custom_dir"; then
-      echo "ERROR: qwen custom model not ready: $qwen_custom_dir" >&2
-      echo "Run bootstrap/initialization first, or set QWEN3_TTS_CUSTOMVOICE_MODEL_DIR." >&2
-      exit 2
-    fi
+if ! qwen_model_ready "$qwen_custom_dir"; then
+  echo "ERROR: Qwen3 CustomVoice model not ready: $qwen_custom_dir" >&2
+  echo "Run scripts/init_qwen3_models.sh first, or set QWEN3_TTS_CUSTOMVOICE_MODEL_DIR." >&2
+  exit 2
+fi
 
-    if [[ "$zero_shot_backend" == "qwen3_tts_mlx" ]] && ! qwen_model_ready "$qwen_base_dir"; then
-      echo "ERROR: qwen base model not ready for zero-shot backend: $qwen_base_dir" >&2
-      exit 2
-    fi
+if ! qwen_model_ready "$qwen_base_dir"; then
+  echo "ERROR: Qwen3 Base model not ready: $qwen_base_dir" >&2
+  echo "Run scripts/init_qwen3_models.sh first, or set QWEN3_TTS_BASE_MODEL_DIR." >&2
+  exit 2
+fi
 
-    if node_bin="$(resolve_qwen_node)"; then
-      export QWEN3_TTS_MODEL_DIR="$qwen_custom_dir"
-      export QWEN3_TTS_CUSTOMVOICE_MODEL_DIR="$qwen_custom_dir"
-      export QWEN3_TTS_BASE_MODEL_DIR="$qwen_base_dir"
-      export MOXIN_QWEN3_TTS_MODEL_ROOT="$qwen_root"
-      exec "$node_bin" "$@"
-    fi
-    echo "ERROR: qwen3_tts_mlx selected but no qwen node found. Build qwen-tts-node or set MOXIN_QWEN3_TTS_NODE_BIN." >&2
-    exit 127
-    ;;
-  primespeech_mlx|*)
-    if node_bin="$(resolve_primespeech_node)"; then
-      exec "$node_bin" "$@"
-    fi
-    echo "ERROR: primespeech node not found. Build dora-primespeech-mlx first." >&2
-    exit 127
-    ;;
-esac
+if node_bin="$(resolve_qwen_node)"; then
+  export QWEN3_TTS_MODEL_DIR="$qwen_custom_dir"
+  export QWEN3_TTS_CUSTOMVOICE_MODEL_DIR="$qwen_custom_dir"
+  export QWEN3_TTS_BASE_MODEL_DIR="$qwen_base_dir"
+  export MOXIN_QWEN3_TTS_MODEL_ROOT="$qwen_root"
+  exec "$node_bin" "$@"
+fi
+
+echo "ERROR: qwen-tts-node not found. Build with: cargo build -p dora-qwen3-tts-mlx" >&2
+exit 127
+
+# --- PrimeSpeech backend (removed, see doc/REFACTOR_QWEN3_ONLY.md) ---
+# resolve_primespeech_node() { ... }
+# primespeech_mlx|*) exec "$node_bin" ...

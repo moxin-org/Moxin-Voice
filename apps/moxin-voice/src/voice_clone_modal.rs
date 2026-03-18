@@ -15,11 +15,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// Clone mode - Express (zero-shot) or Pro (few-shot training)
+/// Clone mode - Express (zero-shot ICL) or Pro (few-shot training).
+///
+/// Pro mode is currently disabled in the UI (Qwen3-only refactor).
+/// The `Pro` variant and related code are kept for restoration.
+/// See doc/REFACTOR_QWEN3_ONLY.md.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CloneMode {
-    Express,  // Zero-shot cloning (3-10 second audio)
-    Pro,      // Few-shot training (3-10 minute audio)
+    Express,  // Zero-shot ICL cloning (up to 30s reference audio)
+    Pro,      // Few-shot training (3-10 minute audio) — hidden, see above
 }
 
 impl Default for CloneMode {
@@ -3298,6 +3302,12 @@ impl VoiceCloneModal {
 
     // ========== Pro Mode Training Methods ==========
 
+    /// Switch between Express (ICL zero-shot) and Pro (few-shot training) modes.
+    ///
+    /// **Qwen3-only refactor note**: Pro mode is hidden from the UI and its
+    /// mode_selector button handler is removed in screen.rs. This function and
+    /// all CloneMode::Pro branches are kept for easy restoration.
+    /// See doc/REFACTOR_QWEN3_ONLY.md.
     pub fn switch_to_mode(&mut self, cx: &mut Cx, mode: CloneMode) {
         self.clone_mode = mode;
 

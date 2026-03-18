@@ -33,7 +33,9 @@ nodes:
       - control
 
   - id: primespeech-tts
-    # Dev launcher script: resolves backend node by MOXIN_INFERENCE_BACKEND.
+    # Qwen3-only: run_tts_backend.sh now always launches qwen-tts-node.
+    # Node id kept as "primespeech-tts" for compatibility with bridge code that
+    # references this id. See doc/REFACTOR_QWEN3_ONLY.md.
     path: ../../../scripts/run_tts_backend.sh
     inputs:
       text: moxin-prompt-input/control
@@ -43,11 +45,9 @@ nodes:
       - segment_complete
       - log
     env:
-      VOICE_NAME: "Doubao"
+      VOICE_NAME: "vivian"
       MOXIN_INFERENCE_BACKEND: "__MOXIN_INFERENCE_BACKEND__"
       MOXIN_ZERO_SHOT_BACKEND: "__MOXIN_ZERO_SHOT_BACKEND__"
-      # Model directory (defaults to ~/.OminiX/models/gpt-sovits-mlx)
-      # GPT_SOVITS_MODEL_DIR: $HOME/.OminiX/models/gpt-sovits-mlx
       LOG_LEVEL: INFO
 
   - id: moxin-audio-player
