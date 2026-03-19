@@ -22,7 +22,7 @@ CUSTOM_REPO="${QWEN3_TTS_CUSTOMVOICE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-Cus
 BASE_REPO="${QWEN3_TTS_BASE_REPO:-Qwen/Qwen3-TTS-12Hz-1.7B-Base}"
 
 QWEN_ASR_DIR="${QWEN3_ASR_MODEL_PATH:-$HOME/.OminiX/models/qwen3-asr-1.7b}"
-QWEN_ASR_REPO="${QWEN3_ASR_REPO:-OminiX-ai/Qwen3-ASR-1.7B-MLX}"
+QWEN_ASR_REPO="${QWEN3_ASR_REPO:-mlx-community/Qwen3-ASR-1.7B-8bit}"
 
 echo "=== Qwen3 Model Initialization (TTS + ASR) ==="
 echo "TTS model root:   $QWEN_ROOT"

@@ -80,7 +80,7 @@ This downloads all three model snapshots into `~/.OminiX/models/`:
 |-------|---------|
 | `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | Preset voice synthesis |
 | `Qwen3-TTS-12Hz-1.7B-Base` | ICL zero-shot voice cloning |
-| `Qwen3-ASR-1.7B-MLX` | Voice cloning reference audio transcription |
+| `Qwen3-ASR-1.7B-8bit` | Voice cloning reference audio transcription |
 
 `huggingface_hub` is installed automatically if not present.
 
