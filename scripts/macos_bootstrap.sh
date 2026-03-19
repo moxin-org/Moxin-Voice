@@ -25,6 +25,9 @@ CONDA_ENV_PREFIX="${MOXIN_CONDA_ENV_PREFIX:-$CONDA_ROOT/envs/$ENV_NAME}"
 MODEL_DIR="${GPT_SOVITS_MODEL_DIR:-$HOME/.OminiX/models/gpt-sovits-mlx}"
 PRIMESPEECH_DIR="${PRIMESPEECH_MODEL_DIR:-$HOME/.dora/models/primespeech}"
 ASR_MODEL_DIR="${ASR_MODEL_DIR:-$HOME/.dora/models/asr/funasr}"
+QWEN_ASR_ROOT="${QWEN3_ASR_MODEL_ROOT:-$HOME/.OminiX/models}"
+QWEN_ASR_DIR="${QWEN3_ASR_MODEL_PATH:-$QWEN_ASR_ROOT/qwen3-asr-1.7b}"
+QWEN_ASR_REPO="${QWEN3_ASR_REPO:-OminiX-ai/Qwen3-ASR-1.7B-MLX}"
 
 QWEN_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
 QWEN_CUSTOM_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
@@ -165,10 +168,7 @@ if [[ -d "$DORA_COMMON_SRC" ]]; then
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$DORA_COMMON_SRC"
 fi
 
-write_step 5 "Install ASR Node" "Installing dora-asr and ASR dependencies"
-if [[ -d "$DORA_ASR_SRC" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -e "$DORA_ASR_SRC"
-fi
+write_step 5 "Skip Python ASR Node" "dora-asr replaced by Rust dora-qwen3-asr — no Python install needed"
 
 # Steps 6-8: PrimeSpeech-specific — skipped in Qwen3-only mode.
 # See doc/REFACTOR_QWEN3_ONLY.md to restore:
@@ -176,9 +176,15 @@ fi
 #   Step 7: Download funasr + primespeech model files
 #   Step 8: Convert/export PrimeSpeech models to MLX layout
 write_step 6 "Skip PrimeSpeech Node" "PrimeSpeech removed — Qwen3-only mode"
-write_step 7 "Download ASR Models" "Downloading FunASR model files"
-if [[ -f "$MODEL_MANAGER_SCRIPT" ]]; then
-  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env python "$MODEL_MANAGER_SCRIPT" --download funasr || true
+write_step 7 "Download Qwen3 ASR Model" "Downloading qwen3-asr-mlx model files"
+if [[ ! -f "$QWEN_ASR_DIR/config.json" ]]; then
+  echo "Qwen3-ASR model missing; downloading to $QWEN_ASR_DIR ..."
+  mkdir -p "$QWEN_ASR_DIR"
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
+    HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
+    huggingface-cli download "$QWEN_ASR_REPO" --local-dir "$QWEN_ASR_DIR" || true
+else
+  echo "Qwen3-ASR model already present at $QWEN_ASR_DIR"
 fi
 write_step 8 "Skip Model Conversion" "PrimeSpeech model conversion skipped"
 
@@ -223,8 +229,8 @@ cat <<'MSG'
 Bootstrap completed.
 
 Important:
-1) Runtime Python/ASR dependencies were installed into app-private conda.
-2) FunASR model downloaded.
+1) Runtime Python dependencies were installed into app-private conda (TTS only).
+2) Qwen3-ASR model downloaded (Rust native — no Python ASR dependency).
 3) Qwen3-TTS CustomVoice and Base model snapshots downloaded.
 4) You can relaunch the app and start TTS/ASR without manual setup.
 

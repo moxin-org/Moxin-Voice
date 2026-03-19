@@ -1,0 +1,21 @@
+[package]
+name = "dora-qwen3-asr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Qwen3 ASR MLX Dora backend for Moxin Voice"
+
+[dependencies]
+qwen3-asr-mlx = { path = "patches/qwen3-asr-mlx" }
+dora-node-api = "0.4.0"
+arrow = { version = "54.2.1", default-features = false, features = ["ipc"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "5.0"
+
+[[bin]]
+name = "dora-qwen3-asr"
+path = "src/main.rs"

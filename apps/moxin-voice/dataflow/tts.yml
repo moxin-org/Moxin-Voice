@@ -5,19 +5,17 @@ nodes:
     outputs:
       - audio # Audio segment for ASR
 
-  # ASR for voice cloning transcription
+  # ASR for voice cloning transcription (Qwen3-ASR MLX backend)
   - id: asr
-    build: pip install -e ../../../node-hub/dora-asr
-    path: dora-asr
+    build: cargo build --release -p dora-qwen3-asr
+    path: ../../../target/release/dora-qwen3-asr
     inputs:
       audio: moxin-audio-input/audio
     outputs:
       - transcription
-      - status
       - log
     env:
-      USE_GPU: "false"
-      ASR_ENGINE: "funasr"
+      # QWEN3_ASR_MODEL_PATH: ""  # defaults to ~/.OminiX/models/qwen3-asr-1.7b
       LANGUAGE: "zh"
       LOG_LEVEL: "INFO"
 
