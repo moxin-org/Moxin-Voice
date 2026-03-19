@@ -84,7 +84,15 @@ This downloads all three model snapshots into `~/.OminiX/models/`:
 
 `huggingface_hub` is installed automatically if not present.
 
-### 2. Run
+### 2. Build
+
+```bash
+cargo build --release
+```
+
+This builds all binaries including `dora-qwen3-asr` (the ASR Dora node) and `qwen-tts-node`.
+
+### 3. Run
 
 ```bash
 dora up

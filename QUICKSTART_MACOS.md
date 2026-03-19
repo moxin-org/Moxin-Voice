@@ -25,7 +25,15 @@ bash scripts/init_qwen3_models.sh
 
 所有模型存储于 `~/.OminiX/models/`。
 
-## 2. 运行
+## 2. 构建
+
+```bash
+cargo build --release
+```
+
+构建所有二进制，包括 `dora-qwen3-asr`（ASR Dora 节点）和 `qwen-tts-node`。
+
+## 3. 运行
 
 ```bash
 dora up
