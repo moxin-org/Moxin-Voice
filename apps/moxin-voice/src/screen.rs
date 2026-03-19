@@ -915,16 +915,17 @@ live_design! {
         flow: Down
         spacing: 12
         padding: {left: 18, right: 18, top: 16, bottom: 16}
+        margin: {bottom: 6}
         draw_bg: {
             instance dark_mode: 0.0
-            instance border_radius: 12.0
+            instance border_radius: 10.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                sdf.fill(vec4(0., 0., 0., 0.03));
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
                 sdf.fill(bg);
-                sdf.stroke(border, 1.0);
                 return sdf.result;
             }
         }
@@ -1156,31 +1157,36 @@ live_design! {
 
     // Moxin.tts Navigation item button for sidebar
     NavItem = <Button> {
-        width: Fill, height: 44
-        padding: {left: 16, right: 16}
+        width: Fill, height: 40
+        padding: {left: 20, right: 16}
         align: {x: 0.0, y: 0.5}
-        
+
         draw_bg: {
             instance hover: 0.0
             instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 8.0);
+                // Subtle background for hover and active
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 6.0);
                 let normal = vec4(0.0, 0.0, 0.0, 0.0);
-                let hover_color = vec4(1.0, 1.0, 1.0, 0.08);
-                let active_color = (MOXIN_PRIMARY);
+                let hover_color = vec4(1.0, 1.0, 1.0, 0.06);
+                let active_color = vec4(1.0, 1.0, 1.0, 0.10);
                 let bg = mix(normal, hover_color, self.hover);
                 let bg = mix(bg, active_color, self.active);
                 sdf.fill(bg);
+                // Left accent bar when active
+                sdf.rect(0., 10., 3., self.rect_size.y - 20.);
+                let bar_color = mix(vec4(0.0, 0.0, 0.0, 0.0), (MOXIN_PRIMARY_LIGHT), self.active);
+                sdf.fill(bar_color);
                 return sdf.result;
             }
         }
-        
+
         draw_text: {
             instance active: 0.0
-            text_style: { font_size: 14.0 }
+            text_style: <FONT_MEDIUM>{ font_size: 13.5 }
             fn get_color(self) -> vec4 {
-                let normal = vec4(1.0, 1.0, 1.0, 0.7);
+                let normal = vec4(1.0, 1.0, 1.0, 0.55);
                 let active = vec4(1.0, 1.0, 1.0, 1.0);
                 return mix(normal, active, self.active);
             }
@@ -1227,42 +1233,32 @@ live_design! {
                 // Sidebar Header: Logo
                 sidebar_header = <View> {
                     width: Fill, height: Fit
-                    flow: Right
-                    padding: {left: 20, right: 20, top: 20, bottom: 16}
+                    flow: Down
+                    padding: {left: 24, right: 24, top: 28, bottom: 24}
                     align: {x: 0.0, y: 0.5}
-                    
-                    show_bg: true
-                    draw_bg: {
-                        fn pixel(self) -> vec4 {
-                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                            sdf.rect(0.0, self.rect_size.y - 1.0, self.rect_size.x, 1.0);
-                            sdf.fill(vec4(1.0, 1.0, 1.0, 0.1));
-                            return sdf.result;
-                        }
-                    }
 
                     logo_section = <View> {
                         width: Fill, height: Fit
                         flow: Down
-                        align: {x: 0.5, y: 0.5}
+                        align: {x: 0.0, y: 0.5}
 
                         logo_text = <Label> {
                             width: Fit, height: Fit
                             draw_text: {
-                                text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
-                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                                text_style: <FONT_BOLD>{ font_size: 17.0 }
+                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 0.95); }
                             }
                             text: "Moxin Voice"
                         }
 
                         logo_subtitle = <Label> {
                             width: Fit, height: Fit
-                            margin: {top: 3}
+                            margin: {top: 5}
                             draw_text: {
-                                text_style: <FONT_REGULAR>{ font_size: 9.5 }
-                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 0.5); }
+                                text_style: <FONT_REGULAR>{ font_size: 11.0 }
+                                fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 0.35); }
                             }
-                            text: "Powered by OminiX MLX"
+                            text: "OminiX MLX"
                         }
                     }
                 }
@@ -1271,25 +1267,25 @@ live_design! {
                 sidebar_nav = <View> {
                     width: Fill, height: Fill
                     flow: Down
-                    padding: {left: 12, right: 12, top: 16, bottom: 16}
-                    spacing: 4
+                    padding: {left: 12, right: 12, top: 8, bottom: 16}
+                    spacing: 2
 
                     nav_tts = <NavItem> {
-                        text: "📝 Text to Speech"
+                        text: "Text to Speech"
                         draw_bg: { active: 1.0 }
                         draw_text: { active: 1.0 }
                     }
 
                     nav_library = <NavItem> {
-                        text: "🎤 Voice Library"
+                        text: "Voice Library"
                     }
 
                     nav_clone = <NavItem> {
-                        text: "📋 Voice Clone"
+                        text: "Voice Clone"
                     }
 
                     nav_history = <NavItem> {
-                        text: "🕘 History"
+                        text: "History"
                     }
                 }
 
@@ -1297,33 +1293,33 @@ live_design! {
                 sidebar_footer = <View> {
                     width: Fill, height: Fit
                     flow: Right
-                    padding: {left: 16, right: 16, top: 16, bottom: 16}
-                    spacing: 12
+                    padding: {left: 16, right: 14, top: 14, bottom: 14}
+                    spacing: 10
                     align: {y: 0.5}
                     cursor: Hand
-                    
+
                     show_bg: true
                     draw_bg: {
                         instance active: 0.0
                         fn pixel(self) -> vec4 {
                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                            sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 10.0);
-                            let base = vec4(0.0, 0.0, 0.0, 0.0);
-                            let active = vec4(1.0, 1.0, 1.0, 0.14);
-                            sdf.fill(mix(base, active, self.active));
-                            sdf.rect(0.0, 0.0, self.rect_size.x, 1.0);
-                            sdf.fill(vec4(1.0, 1.0, 1.0, 0.12));
+                            // Top separator line only
+                            sdf.rect(16.0, 0.0, self.rect_size.x - 32.0, 1.0);
+                            sdf.fill(vec4(1.0, 1.0, 1.0, 0.07));
+                            // Hover fill
+                            sdf.box(0.0, 1.0, self.rect_size.x, self.rect_size.y - 1.0, 0.0);
+                            sdf.fill(mix(vec4(0.0, 0.0, 0.0, 0.0), vec4(1.0, 1.0, 1.0, 0.06), self.active));
                             return sdf.result;
                         }
                     }
 
                     user_avatar = <RoundedView> {
-                        width: 36, height: 36
+                        width: 32, height: 32
                         align: {x: 0.5, y: 0.5}
                         draw_bg: {
                             fn pixel(self) -> vec4 {
                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, 18.0);
+                                sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, 16.0);
                                 sdf.fill((MOXIN_PRIMARY));
                                 return sdf.result;
                             }
@@ -1402,13 +1398,13 @@ live_design! {
                 width: Fill, height: Fill
                 flow: Down
                 spacing: 0
-                padding: { left: 32, right: 32, top: 12, bottom: 0 }
+                padding: { left: 40, right: 40, top: 28, bottom: 16 }
 
             // Left column - we keep this structure for compatibility but it now contains everything
             left_column = <View> {
                 width: Fill, height: Fill
                 flow: Down
-                spacing: 20
+                spacing: 24
                 align: {y: 0.0}
 
                 // Main content area - Moxin.tts style unified layout
@@ -1456,11 +1452,12 @@ live_design! {
                         show_bg: true
                         draw_bg: {
                             instance dark_mode: 0.0
-                            instance border_radius: 16.0
+                            instance border_radius: 10.0
                             fn pixel(self) -> vec4 {
                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                // Moxin.tts style: white card background
+                                sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                                sdf.fill(vec4(0., 0., 0., 0.03));
+                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
                                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
                                 sdf.fill(bg);
                                 return sdf.result;
@@ -1928,7 +1925,13 @@ live_design! {
                         draw_bg: {
                             instance dark_mode: 0.0
                             fn pixel(self) -> vec4 {
-                                return mix((WHITE), (SLATE_900), self.dark_mode);
+                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                                sdf.fill(vec4(0., 0., 0., 0.03));
+                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
+                                let bg = mix((WHITE), (SLATE_900), self.dark_mode);
+                                sdf.fill(bg);
+                                return sdf.result;
                             }
                         }
 
@@ -2447,7 +2450,7 @@ live_design! {
 
                                     VoicePickerItem = <View> {
                                         width: Fill, height: Fit
-                                        margin: {left: 0, right: 0, top: 8}
+                                        margin: {left: 0, right: 0, top: 0, bottom: 0}
                                         padding: {left: 12, right: 12, top: 10, bottom: 10}
                                         flow: Right
                                         align: {y: 0.5}
@@ -2459,18 +2462,20 @@ live_design! {
                                             instance dark_mode: 0.0
                                             instance hover: 0.0
                                             instance selected: 0.0
-                                            instance border_radius: 10.0
                                             fn pixel(self) -> vec4 {
                                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                // Background
+                                                sdf.rect(0., 0., self.rect_size.x, self.rect_size.y);
                                                 let base = mix((WHITE), (SLATE_800), self.dark_mode);
                                                 let hover_color = mix((SLATE_50), (SLATE_700), self.dark_mode);
                                                 let selected_color = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
-                                                let border = mix((SLATE_200), (SLATE_600), self.dark_mode);
                                                 let color = mix(base, hover_color, self.hover);
                                                 let color = mix(color, selected_color, self.selected);
                                                 sdf.fill(color);
-                                                sdf.stroke(border, 1.0);
+                                                // iOS-style bottom divider (inset after avatar)
+                                                sdf.rect(66., self.rect_size.y - 1.0, self.rect_size.x - 66., 1.0);
+                                                let divider = mix(vec4(0.0, 0.0, 0.0, 0.14), vec4(1.0, 1.0, 1.0, 0.14), self.dark_mode);
+                                                sdf.fill(divider);
                                                 return sdf.result;
                                             }
                                         }
@@ -2659,6 +2664,7 @@ live_design! {
                                 HistoryCard = <RoundedView> {
                                     width: Fill, height: Fit
                                     padding: {left: 12, right: 12, top: 10, bottom: 10}
+                                    margin: {bottom: 6}
                                     flow: Down
                                     spacing: 8
 
@@ -2668,12 +2674,12 @@ live_design! {
                                         instance border_radius: 10.0
                                         fn pixel(self) -> vec4 {
                                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                                            sdf.fill(vec4(0., 0., 0., 0.03));
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
                                             let bg = mix((WHITE), (SLATE_800), self.dark_mode);
                                             let hover_bg = mix(vec4(0.98, 0.98, 0.99, 1.0), (SLATE_700), self.dark_mode);
                                             sdf.fill(mix(bg, hover_bg, self.hover));
-                                            let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
-                                            sdf.stroke(border, 1.0);
                                             return sdf.result;
                                         }
                                     }
@@ -3290,6 +3296,7 @@ live_design! {
                                     VoiceCard = <RoundedView> {
                                         width: Fill, height: Fit
                                         padding: {left: 20, right: 20, top: 16, bottom: 16}
+                                        margin: {bottom: 6}
                                         flow: Right
                                         spacing: 16
                                         align: {y: 0.5}
@@ -3297,15 +3304,15 @@ live_design! {
                                         draw_bg: {
                                             instance dark_mode: 0.0
                                             instance hover: 0.0
-                                            instance border_radius: 12.0
+                                            instance border_radius: 10.0
                                             fn pixel(self) -> vec4 {
                                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                                                sdf.fill(vec4(0., 0., 0., 0.03));
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
                                                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
                                                 let hover_bg = mix(vec4(0.98, 0.98, 0.99, 1.0), (SLATE_700), self.dark_mode);
                                                 sdf.fill(mix(bg, hover_bg, self.hover));
-                                                let border = mix((MOXIN_BORDER_LIGHT), (SLATE_700), self.dark_mode);
-                                                sdf.stroke(border, 1.0);
                                                 return sdf.result;
                                             }
                                         }
@@ -3576,7 +3583,7 @@ live_design! {
                             create_task_btn = <Button> {
                                 width: Fit, height: 44
                                 padding: {left: 24, right: 24}
-                                text: "➕ 创建任务"
+                                text: "创建任务"
 
                                 draw_bg: {
                                     instance hover: 0.0
@@ -3641,21 +3648,22 @@ live_design! {
                                     TaskCard = <RoundedView> {
                                         width: Fill, height: Fit
                                         padding: {left: 20, right: 20, top: 16, bottom: 16}
+                                        margin: {bottom: 6}
                                         flow: Down
                                         spacing: 12
 
                                         draw_bg: {
                                             instance dark_mode: 0.0
                                             instance hover: 0.0
-                                            instance border_radius: 12.0
+                                            instance border_radius: 10.0
                                             fn pixel(self) -> vec4 {
                                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                                                sdf.fill(vec4(0., 0., 0., 0.03));
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
                                                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
                                                 let hover_bg = mix(vec4(0.98, 0.98, 0.99, 1.0), (SLATE_700), self.dark_mode);
                                                 sdf.fill(mix(bg, hover_bg, self.hover));
-                                                let border = mix((MOXIN_BORDER_LIGHT), (SLATE_700), self.dark_mode);
-                                                sdf.stroke(border, 1.0);
                                                 return sdf.result;
                                             }
                                         }
@@ -3991,13 +3999,15 @@ live_design! {
                             flow: Down
                             spacing: 12
                             padding: {left: 20, right: 20, top: 16, bottom: 16}
+                            margin: {bottom: 6}
                             draw_bg: {
-                                instance border_radius: 12.0
+                                instance border_radius: 10.0
                                 fn pixel(self) -> vec4 {
                                     let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                                    sdf.fill(vec4(0., 0., 0., 0.03));
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
                                     sdf.fill((WHITE));
-                                    sdf.stroke(vec4(0.0, 0.0, 0.0, 0.05), 1.0);
                                     return sdf.result;
                                 }
                             }
@@ -4084,13 +4094,15 @@ live_design! {
                             flow: Down
                             spacing: 12
                             padding: {left: 20, right: 20, top: 16, bottom: 16}
+                            margin: {bottom: 6}
                             draw_bg: {
-                                instance border_radius: 12.0
+                                instance border_radius: 10.0
                                 fn pixel(self) -> vec4 {
                                     let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                    sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                                    sdf.fill(vec4(0., 0., 0., 0.03));
+                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
                                     sdf.fill((WHITE));
-                                    sdf.stroke(vec4(0.0, 0.0, 0.0, 0.05), 1.0);
                                     return sdf.result;
                                 }
                             }
@@ -5243,15 +5255,14 @@ live_design! {
                     width: Fill, height: Fill
                     draw_bg: {
                         instance dark_mode: 0.0
-                        instance border_radius: 12.0
+                        instance border_radius: 10.0
                         fn pixel(self) -> vec4 {
                             let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                            // Moxin.tts style: white card
+                            sdf.box(0., 1., self.rect_size.x, self.rect_size.y - 1., 11.0);
+                            sdf.fill(vec4(0., 0., 0., 0.03));
+                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y - 2., 10.0);
                             let bg = mix((WHITE), (SLATE_800), self.dark_mode);
                             sdf.fill(bg);
-                            let border = mix(vec4(0.0, 0.0, 0.0, 0.05), vec4(1.0, 1.0, 1.0, 0.1), self.dark_mode);
-                            sdf.stroke(border, 1.0);
                             return sdf.result;
                         }
                     }
@@ -6352,7 +6363,7 @@ live_design! {
 
                     VoicePickerItem = <View> {
                         width: Fill, height: Fit
-                        margin: {left: 12, right: 12, top: 8}
+                        margin: {left: 0, right: 0, top: 0, bottom: 0}
                         padding: {left: 14, right: 14, top: 12, bottom: 12}
                         flow: Right
                         align: {y: 0.5}
@@ -6364,18 +6375,20 @@ live_design! {
                             instance dark_mode: 0.0
                             instance hover: 0.0
                             instance selected: 0.0
-                            instance border_radius: 12.0
                             fn pixel(self) -> vec4 {
                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                // Background
+                                sdf.rect(0., 0., self.rect_size.x, self.rect_size.y);
                                 let base = mix((WHITE), (SLATE_800), self.dark_mode);
                                 let hover_color = mix((SLATE_50), (SLATE_700), self.dark_mode);
                                 let selected_color = mix((PRIMARY_50), (PRIMARY_900), self.dark_mode);
-                                let border = mix((SLATE_200), (SLATE_600), self.dark_mode);
                                 let color = mix(base, hover_color, self.hover);
                                 let color = mix(color, selected_color, self.selected);
                                 sdf.fill(color);
-                                sdf.stroke(border, 1.0);
+                                // iOS-style bottom divider (inset after avatar)
+                                sdf.rect(78., self.rect_size.y - 1.0, self.rect_size.x - 78., 1.0);
+                                let divider = mix(vec4(0.0, 0.0, 0.0, 0.14), vec4(1.0, 1.0, 1.0, 0.14), self.dark_mode);
+                                sdf.fill(divider);
                                 return sdf.result;
                             }
                         }
@@ -10751,16 +10764,16 @@ impl TTSScreen {
 
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_tts))
-            .set_text(cx, self.tr("📝 文本转语音", "📝 Text to Speech"));
+            .set_text(cx, self.tr("文本转语音", "Text to Speech"));
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_library))
-            .set_text(cx, self.tr("🎤 音色库", "🎤 Voice Library"));
+            .set_text(cx, self.tr("音色库", "Voice Library"));
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_clone))
-            .set_text(cx, self.tr("📋 音色克隆", "📋 Voice Clone"));
+            .set_text(cx, self.tr("音色克隆", "Voice Clone"));
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_history))
-            .set_text(cx, self.tr("🕘 历史", "🕘 History"));
+            .set_text(cx, self.tr("历史", "History"));
         self.view
             .button(ids!(app_layout.sidebar.sidebar_footer.global_settings_btn))
             .set_text(cx, self.tr("⚙", "⚙"));
@@ -11139,7 +11152,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.clone_page.clone_header.create_task_btn
             ))
-            .set_text(cx, self.tr("➕ 创建任务", "➕ Create Task"));
+            .set_text(cx, self.tr("创建任务", "Create Task"));
         self.view
             .label(ids!(
                 content_wrapper.main_content.left_column.content_area.clone_page.clone_empty_state.clone_empty_text

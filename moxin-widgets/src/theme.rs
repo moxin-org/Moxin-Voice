@@ -139,15 +139,15 @@ live_design! {
 
     // --- Moxin.tts Theme Colors (Light Mode) ---
     // Based on the Moxin.tts Electron app design
-    pub MOXIN_BG_PRIMARY = #ffffff         // Main background (white)
+    pub MOXIN_BG_PRIMARY = #f0f0f4         // Main background (light gray, creates contrast with white cards)
     pub MOXIN_BG_SECONDARY = #f5f7fa       // Card/panel background (light gray-blue)
-    pub MOXIN_BG_SIDEBAR = #1a1a2f         // Sidebar dark background (adjusted from #1a1a2e)
+    pub MOXIN_BG_SIDEBAR = #111114         // Sidebar dark background (near-black)
     pub MOXIN_TEXT_PRIMARY = #303133       // Main text (dark gray)
     pub MOXIN_TEXT_SECONDARY = #606266     // Secondary text (medium gray)
     pub MOXIN_TEXT_MUTED = #909399         // Muted text (light gray)
-    pub MOXIN_PRIMARY = #6366f1            // Primary brand color (indigo) - same as INDIGO_500
-    pub MOXIN_PRIMARY_LIGHT = #818cf8      // Light primary (indigo-400)
-    pub MOXIN_PRIMARY_DARK = #4f47e5       // Dark primary (indigo-600, adjusted)
+    pub MOXIN_PRIMARY = #3B6FD4            // Primary accent (quiet blue)
+    pub MOXIN_PRIMARY_LIGHT = #6B9BE8      // Light variant
+    pub MOXIN_PRIMARY_DARK = #2952B3       // Dark variant
     pub MOXIN_SUCCESS = #10b981            // Success green - same as EMERALD_500
     pub MOXIN_WARNING = #f59f0b            // Warning orange (adjusted)
     pub MOXIN_DANGER = #ef4444             // Danger red - same as RED_500
@@ -167,17 +167,17 @@ live_design! {
     pub MOXIN_BORDER_LIGHT_DARK = #3a3a3c  // Light border (darker)
     pub MOXIN_SHADOW_DARK = #0000004d      // Shadow color (rgba(0,0,0,0.3))
 
-    // --- Primary Color Palette (based on Blue) ---
-    pub PRIMARY_50 = #eff6ff
-    pub PRIMARY_100 = #dbebfe       // Adjusted from #dbeafe
-    pub PRIMARY_200 = #bfdbfe
-    pub PRIMARY_300 = #93c5fd
-    pub PRIMARY_400 = #60a5fa
-    pub PRIMARY_500 = #3b82f6
-    pub PRIMARY_600 = #2565fb       // Adjusted to avoid digit+e pattern
-    pub PRIMARY_700 = #1d4fd8       // Adjusted from #1d4ed8
-    pub PRIMARY_800 = #1f40af       // Adjusted from #1e40af
-    pub PRIMARY_900 = #1f3a8a       // Adjusted from #1e3a8a
+    // --- Primary Color Palette (quiet blue, aligned to MOXIN_PRIMARY #3B6FD4) ---
+    pub PRIMARY_50 = #eef3fc
+    pub PRIMARY_100 = #d5e3f7
+    pub PRIMARY_200 = #abc7ef
+    pub PRIMARY_300 = #6B9BE8
+    pub PRIMARY_400 = #5588dc
+    pub PRIMARY_500 = #3B6FD4
+    pub PRIMARY_600 = #2952B3
+    pub PRIMARY_700 = #1f3f8a
+    pub PRIMARY_800 = #162d63
+    pub PRIMARY_900 = #0d1c3d
 
     // --- White ---
     pub WHITE = #ffffff
