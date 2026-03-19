@@ -5,7 +5,7 @@ set -euo pipefail
 
 MODE="${1:-}"
 APP_RESOURCES="${MOXIN_APP_RESOURCES:-}"
-ASR_MODEL_DIR="${ASR_MODEL_DIR:-$HOME/.dora/models/asr/funasr}"
+QWEN_ASR_MODEL_DIR="${QWEN3_ASR_MODEL_PATH:-$HOME/.OminiX/models/qwen3-asr-1.7b}"
 DATAFLOW_PATH="${MOXIN_DATAFLOW_PATH:-}"
 APP_BIN_PATH=""
 
@@ -100,25 +100,28 @@ if [[ ! -x "$CONDA_BIN" ]] && command -v conda >/dev/null 2>&1; then
   CONDA_BIN="$(command -v conda)"
 fi
 
+# dora-asr (Python) replaced by dora-qwen3-asr (Rust). Conda no longer required for ASR.
+# Conda still needed for TTS model download script in bootstrap.
 if [[ ! -x "$CONDA_BIN" ]]; then
-  errors+=("Conda missing (expected: $CONDA_ROOT) — run scripts/macos_bootstrap.sh first")
+  warnings+=("Conda missing (expected: $CONDA_ROOT) — needed for first-run bootstrap only")
 elif [[ ! -x "$CONDA_ENV_PREFIX/bin/python" ]]; then
-  errors+=("Conda env missing: $CONDA_ENV_PREFIX — run scripts/macos_bootstrap.sh first")
-else
-  if [[ "$MODE" != "--quick" ]]; then
-    if ! "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -c "import dora_asr" >/dev/null 2>&1; then
-      errors+=("Python package missing in $CONDA_ENV_PREFIX: dora-asr")
-    fi
-    # dora-primespeech check removed (Qwen3-only mode). See doc/REFACTOR_QWEN3_ONLY.md.
-  fi
+  warnings+=("Conda env missing: $CONDA_ENV_PREFIX — run scripts/macos_bootstrap.sh on first launch")
 fi
 
 check_file "$DATAFLOW_PATH" "Dataflow file"
 check_file "$APP_BIN_PATH" "App runtime binary"
 # moxin-tts-node (PrimeSpeech) check removed. See doc/REFACTOR_QWEN3_ONLY.md.
 
-if [[ ! -d "$ASR_MODEL_DIR" ]]; then
-  warnings+=("ASR model directory not found: $ASR_MODEL_DIR (voice cloning transcription may be unavailable)")
+# Check dora-qwen3-asr binary
+if [[ ! -x "${APP_RESOURCES}/../MacOS/dora-qwen3-asr" ]] && \
+   [[ ! -x "${APP_RESOURCES}/target/debug/dora-qwen3-asr" ]] && \
+   [[ ! -x "${APP_RESOURCES}/target/release/dora-qwen3-asr" ]]; then
+  warnings+=("dora-qwen3-asr binary not found — voice cloning transcription will be unavailable (run: cargo build -p dora-qwen3-asr)")
+fi
+
+# Check Qwen3-ASR model
+if [[ ! -f "$QWEN_ASR_MODEL_DIR/config.json" ]]; then
+  warnings+=("Qwen3-ASR model not found: $QWEN_ASR_MODEL_DIR (run scripts/init_qwen3_models.sh)")
 fi
 
 # Qwen3 node check
@@ -144,7 +147,7 @@ if [[ "$MODE" != "--quick" ]]; then
   echo "Resources:  $APP_RESOURCES"
   echo "Dataflow:   $DATAFLOW_PATH"
   echo "Conda env:  $CONDA_ENV_PREFIX"
-  echo "ASR models: $ASR_MODEL_DIR"
+  echo "ASR model:  $QWEN_ASR_MODEL_DIR"
   echo "Qwen root:  $QWEN_ROOT"
   echo ""
 fi

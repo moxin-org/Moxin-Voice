@@ -1,48 +1,34 @@
 #!/usr/bin/env bash
+# Resolve and exec the dora-qwen3-asr Rust binary.
+# Replaces the old Python dora-asr conda entry point.
+#
+# Search order:
+#   1) App bundle: Contents/MacOS/dora-qwen3-asr  (distribution)
+#   2) Dev release build: <repo>/target/release/dora-qwen3-asr
+#   3) Dev debug build:   <repo>/target/debug/dora-qwen3-asr
+#   4) PATH fallback
 set -euo pipefail
 
-# Resolve dora-asr without relying on daemon PATH inheritance.
-# Priority:
-# 1) App-private conda env prefix
-# 2) App/private conda env name + root
-# 3) legacy miniconda/anaconda env lookup
-# 4) fallback to command lookup
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-env_name="${MOXIN_CONDA_ENV:-}"
-conda_root="${MOXIN_CONDA_ROOT:-$HOME/.moxinvoice/conda}"
-conda_env_prefix="${MOXIN_CONDA_ENV_PREFIX:-}"
-if [[ -z "$conda_env_prefix" && -n "$env_name" ]]; then
-  conda_env_prefix="$conda_root/envs/$env_name"
+# Bundle layout: Contents/Resources/scripts/ -> Contents/MacOS/
+BUNDLE_BIN="$SCRIPT_DIR/../MacOS/dora-qwen3-asr"
+if [[ -x "$BUNDLE_BIN" ]]; then
+  exec "$BUNDLE_BIN" "$@"
 fi
 
-if [[ -n "$conda_env_prefix" && -x "$conda_env_prefix/bin/dora-asr" ]]; then
-  exec "$conda_env_prefix/bin/dora-asr" "$@"
+# Dev repo layout: scripts/ is at <repo>/scripts/
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ -x "$REPO_ROOT/target/release/dora-qwen3-asr" ]]; then
+  exec "$REPO_ROOT/target/release/dora-qwen3-asr" "$@"
+fi
+if [[ -x "$REPO_ROOT/target/debug/dora-qwen3-asr" ]]; then
+  exec "$REPO_ROOT/target/debug/dora-qwen3-asr" "$@"
 fi
 
-if [[ -z "$env_name" ]]; then
-  for candidate in moxin-studio mofa-studio; do
-    if [[ -x "$conda_root/envs/$candidate/bin/dora-asr" || -x "$HOME/miniconda3/envs/$candidate/bin/dora-asr" || -x "$HOME/anaconda3/envs/$candidate/bin/dora-asr" ]]; then
-      env_name="$candidate"
-      break
-    fi
-  done
+if command -v dora-qwen3-asr >/dev/null 2>&1; then
+  exec "$(command -v dora-qwen3-asr)" "$@"
 fi
 
-if [[ -n "$env_name" ]]; then
-  if [[ -x "$conda_root/envs/$env_name/bin/dora-asr" ]]; then
-    exec "$conda_root/envs/$env_name/bin/dora-asr" "$@"
-  fi
-  if [[ -x "$HOME/miniconda3/envs/$env_name/bin/dora-asr" ]]; then
-    exec "$HOME/miniconda3/envs/$env_name/bin/dora-asr" "$@"
-  fi
-  if [[ -x "$HOME/anaconda3/envs/$env_name/bin/dora-asr" ]]; then
-    exec "$HOME/anaconda3/envs/$env_name/bin/dora-asr" "$@"
-  fi
-fi
-
-if command -v dora-asr >/dev/null 2>&1; then
-  exec "$(command -v dora-asr)" "$@"
-fi
-
-echo "ERROR: dora-asr not found in app/private conda env. Run app initialization first." >&2
+echo "ERROR: dora-qwen3-asr not found. Build with: cargo build -p dora-qwen3-asr" >&2
 exit 127

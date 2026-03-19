@@ -107,10 +107,12 @@ run_cargo_build() {
 MAKEPAD=apple_bundle MAKEPAD_PACKAGE_DIR=makepad run_cargo_build "$ROOT_DIR" "$PROFILE" -p moxin-voice-shell --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 # dora-primespeech-mlx build removed (Qwen3-only mode). See doc/REFACTOR_QWEN3_ONLY.md.
 run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen3-tts-mlx --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
+run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen3-asr --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 
 SHELL_BIN_PATH="$ROOT_DIR/target/$PROFILE/$BIN_NAME"
 # TTS_BIN_PATH (moxin-tts-node / PrimeSpeech) removed. See doc/REFACTOR_QWEN3_ONLY.md.
 QWEN_TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/qwen-tts-node"
+QWEN_ASR_BIN_PATH="$ROOT_DIR/target/$PROFILE/dora-qwen3-asr"
 TRAINER_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-fewshot-trainer"
 MLX_METALLIB_PATH="$ROOT_DIR/target/$PROFILE/mlx.metallib"
 DORA_BIN_PATH="$(command -v dora || true)"
@@ -121,6 +123,10 @@ fi
 # moxin-tts-node check removed (PrimeSpeech binary no longer bundled).
 if [[ ! -f "$QWEN_TTS_BIN_PATH" ]]; then
   echo "Binary not found: $QWEN_TTS_BIN_PATH"
+  exit 1
+fi
+if [[ ! -f "$QWEN_ASR_BIN_PATH" ]]; then
+  echo "Binary not found: $QWEN_ASR_BIN_PATH"
   exit 1
 fi
 if [[ -z "$DORA_BIN_PATH" || ! -x "$DORA_BIN_PATH" ]]; then
@@ -141,6 +147,7 @@ mkdir -p "$MACOS_DIR" "$RES_DIR" "$SCRIPTS_DIR" "$DATAFLOW_DIR"
 cp "$SHELL_BIN_PATH" "$MACOS_DIR/${BIN_NAME}-bin"
 # moxin-tts-node (PrimeSpeech) removed. See doc/REFACTOR_QWEN3_ONLY.md.
 cp "$QWEN_TTS_BIN_PATH" "$MACOS_DIR/qwen-tts-node"
+cp "$QWEN_ASR_BIN_PATH" "$MACOS_DIR/dora-qwen3-asr"
 
 # Bundle Qwen3-TTS voice preview WAV files (pre-generated, committed to repo)
 QWEN_PREVIEWS_SRC="$ROOT_DIR/node-hub/dora-qwen3-tts-mlx/previews"
@@ -155,7 +162,7 @@ fi
 if [[ -f "$TRAINER_BIN_PATH" ]]; then
   cp "$TRAINER_BIN_PATH" "$MACOS_DIR/moxin-fewshot-trainer"
 fi
-chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/qwen-tts-node"
+chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/qwen-tts-node" "$MACOS_DIR/dora-qwen3-asr"
 chmod +x "$MACOS_DIR/dora"
 if [[ -f "$MACOS_DIR/moxin-fewshot-trainer" ]]; then
   chmod +x "$MACOS_DIR/moxin-fewshot-trainer"
@@ -163,9 +170,8 @@ fi
 
 cp "$ROOT_DIR/scripts/macos_preflight.sh" "$SCRIPTS_DIR/macos_preflight.sh"
 cp "$ROOT_DIR/scripts/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_bootstrap.sh"
-cp "$ROOT_DIR/scripts/macos_run_dora_asr.sh" "$SCRIPTS_DIR/macos_run_dora_asr.sh"
 cp "$ROOT_DIR/scripts/macos_run_tts_backend.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
-chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_run_dora_asr.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
+chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
 
 cp "$ROOT_DIR/scripts/dataflow/tts.bundle.yml" "$DATAFLOW_DIR/tts.yml"
 
@@ -173,7 +179,7 @@ if [[ "$INCLUDE_PY_SRC" == "true" ]]; then
   PY_DST="$RES_DIR/python-src"
   mkdir -p "$PY_DST/libs" "$PY_DST/node-hub" "$PY_DST/models" "$PY_DST/scripts" "$PY_DST/omx-scripts"
   cp -R "$ROOT_DIR/libs/dora-common" "$PY_DST/libs/dora-common"
-  cp -R "$ROOT_DIR/node-hub/dora-asr" "$PY_DST/node-hub/dora-asr"
+  # dora-asr (Python/FunASR) removed — replaced by dora-qwen3-asr (Rust binary in MacOS/).
   cp -R "$ROOT_DIR/node-hub/dora-primespeech" "$PY_DST/node-hub/dora-primespeech"
   cp -R "$ROOT_DIR/models/model-manager" "$PY_DST/models/model-manager"
   cp "$ROOT_DIR/scripts/convert_all_voices.py" "$PY_DST/scripts/convert_all_voices.py"
@@ -265,16 +271,13 @@ nodes:
       - audio
 
   - id: asr
-    path: "$RES_DIR/scripts/macos_run_dora_asr.sh"
+    path: "$MACOS_DIR/dora-qwen3-asr"
     inputs:
       audio: moxin-audio-input/audio
     outputs:
       - transcription
-      - status
       - log
     env:
-      USE_GPU: "false"
-      ASR_ENGINE: "funasr"
       LANGUAGE: "zh"
       LOG_LEVEL: "INFO"
 

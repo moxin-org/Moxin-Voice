@@ -52,7 +52,7 @@ moxin-voice/
 └── node-hub/
     ├── dora-qwen3-tts-mlx/     # ★ OminiX MLX Qwen3-TTS Rust node
     │   └── previews/           # Pre-generated voice preview WAVs
-    └── dora-asr/               # FunASR speech recognition (Python)
+    └── dora-qwen3-asr/         # ★ OminiX MLX Qwen3-ASR Rust node
 ```
 
 The TTS pipeline runs as a [Dora](https://github.com/dora-rs/dora) dataflow: the UI sends text, the `qwen-tts-node` (built from `dora-qwen3-tts-mlx`) synthesizes audio using OminiX MLX, and the audio player receives the stream.
@@ -136,7 +136,7 @@ bash scripts/build_macos_dmg.sh
 bash scripts/macos_bootstrap.sh
 ```
 
-Downloads FunASR (ASR) and Qwen3-TTS models, sets up the app-private conda env.
+Downloads Qwen3-TTS and Qwen3-ASR models, sets up the app-private conda env (needed for TTS download script only).
 
 ---
 
@@ -150,7 +150,7 @@ Downloads FunASR (ASR) and Qwen3-TTS models, sets up the app-private conda env.
 | ML runtime | Apple MLX via `mlx-sys` / `mlx-rs` (OminiX MLX) |
 | Dataflow | [Dora](https://github.com/dora-rs/dora) |
 | Audio I/O | [CPAL](https://github.com/RustAudio/cpal) |
-| ASR | FunASR Paraformer (Python, via dora-asr) |
+| ASR | [OminiX MLX](https://github.com/OminiX-ai/OminiX-MLX) · Qwen3-ASR-MLX (Rust, Metal GPU) |
 | Language | Rust 2021 edition |
 
 ---
