@@ -55,18 +55,22 @@ python3 "$DOWNLOAD_SCRIPT" \
 
 echo ""
 
-# Download Qwen3-ASR model
+# Download Qwen3-ASR model (uses the same huggingface_hub Python API as TTS download)
 echo "=== Qwen3-ASR Model ==="
 if [[ ! -f "$QWEN_ASR_DIR/config.json" ]]; then
-  if ! command -v huggingface-cli >/dev/null 2>&1; then
-    echo "ERROR: huggingface-cli not found. Install with: pip install huggingface_hub"
-    echo "Skipping ASR model download."
-  else
-    echo "Downloading Qwen3-ASR model to $QWEN_ASR_DIR ..."
-    mkdir -p "$QWEN_ASR_DIR"
-    HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
-      huggingface-cli download "$QWEN_ASR_REPO" --local-dir "$QWEN_ASR_DIR"
-  fi
+  echo "Downloading Qwen3-ASR model to $QWEN_ASR_DIR ..."
+  mkdir -p "$QWEN_ASR_DIR"
+  HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
+  python3 - <<PYEOF
+import sys
+try:
+    from huggingface_hub import snapshot_download
+except ImportError:
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface-hub"])
+    from huggingface_hub import snapshot_download
+snapshot_download("$QWEN_ASR_REPO", local_dir="$QWEN_ASR_DIR", local_dir_use_symlinks=False, resume_download=True)
+PYEOF
 else
   echo "Qwen3-ASR model already present at $QWEN_ASR_DIR"
 fi

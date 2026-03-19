@@ -66,19 +66,23 @@ The TTS pipeline runs as a [Dora](https://github.com/dora-rs/dora) dataflow: the
 - macOS 14.0+ (Sonoma), Apple Silicon (M1/M2/M3/M4)
 - Rust 1.82+
 - [Dora CLI](https://github.com/dora-rs/dora) (`cargo install dora-cli`)
+- Python 3.8+ (for the one-time model download script; not required at runtime)
 
-### 1. Download Qwen3-TTS Models
+### 1. Download Models
 
 ```bash
 bash scripts/init_qwen3_models.sh
 ```
 
-This downloads the two model snapshots into `~/.OminiX/models/qwen3-tts-mlx/`:
+This downloads all three model snapshots into `~/.OminiX/models/`:
 
 | Model | Purpose |
 |-------|---------|
 | `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | Preset voice synthesis |
 | `Qwen3-TTS-12Hz-1.7B-Base` | ICL zero-shot voice cloning |
+| `Qwen3-ASR-1.7B-MLX` | Voice cloning reference audio transcription |
+
+`huggingface_hub` is installed automatically if not present.
 
 ### 2. Run
 

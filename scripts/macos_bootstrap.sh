@@ -189,7 +189,7 @@ fi
 write_step 8 "Skip Model Conversion" "PrimeSpeech model conversion skipped"
 
 write_step 9 "Download Qwen3 Models" "Preparing qwen3-tts-mlx model files if required"
-if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" || "$NEED_QWEN_PY_CUSTOM" == "1" || "$NEED_QWEN_PY_BASE" == "1" ]]; then
+if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" ]]; then
   if [[ ! -f "$QWEN_DOWNLOAD_SCRIPT" ]]; then
     echo "ERROR: missing qwen download script: $QWEN_DOWNLOAD_SCRIPT"
     exit 1
@@ -201,12 +201,6 @@ if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" || "$NEED_QWEN_PY_C
   if [[ "$NEED_QWEN_BASE" == "1" ]] && ! qwen_model_ready "$QWEN_BASE_DIR"; then
     echo "Qwen Base model missing; downloading..."
   fi
-  if [[ "$NEED_QWEN_PY_CUSTOM" == "1" ]] && ! qwen_model_ready "$QWEN_PY_CUSTOM_DIR"; then
-    echo "Qwen Python CustomVoice model missing; downloading..."
-  fi
-  if [[ "$NEED_QWEN_PY_BASE" == "1" ]] && ! qwen_model_ready "$QWEN_PY_BASE_DIR"; then
-    echo "Qwen Python Base model missing; downloading..."
-  fi
 
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
     HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
@@ -214,12 +208,8 @@ if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" || "$NEED_QWEN_PY_C
       --root "$QWEN_ROOT" \
       --custom-repo "$QWEN_CUSTOM_REPO" \
       --base-repo "$QWEN_BASE_REPO" \
-      --py-custom-repo "$QWEN_PY_CUSTOM_REPO" \
-      --py-base-repo "$QWEN_PY_BASE_REPO" \
       $([[ "$NEED_QWEN_CUSTOM" == "1" ]] && echo "--need-custom") \
-      $([[ "$NEED_QWEN_BASE" == "1" ]] && echo "--need-base") \
-      $([[ "$NEED_QWEN_PY_CUSTOM" == "1" ]] && echo "--need-py-custom") \
-      $([[ "$NEED_QWEN_PY_BASE" == "1" ]] && echo "--need-py-base")
+      $([[ "$NEED_QWEN_BASE" == "1" ]] && echo "--need-base")
 fi
 
 write_step 10 "Finalize" "Runtime initialization complete"
