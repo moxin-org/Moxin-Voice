@@ -35,6 +35,8 @@ pub enum VoiceSource {
     Custom,
     /// Few-shot trained model (requires 3-10 min training)
     Trained,
+    /// Built-in ICL voice: reference audio bundled with the app, uses Base model ICL at inference
+    BundledIcl,
 }
 
 /// Voice information
@@ -334,6 +336,10 @@ fn qwen_voice_i18n(id: &str, locale: &str) -> (&'static str, &'static str) {
                       else  { ("小野安奈 (Ono Anna)", "轻快灵动的日本女声") },
         "sohee"    => if en { ("Sohee",     "Warm Korean female voice with rich emotion") }
                       else  { ("素熙 (Sohee)",   "情感丰富的韩国女声") },
+        "baiyang"  => if en { ("Baiyang",   "Custom trained Chinese female voice") }
+                      else  { ("白杨 (Baiyang)", "自定义训练中文女声") },
+        "yangyang" => if en { ("Yangyang",  "Custom trained Chinese male voice") }
+                      else  { ("杨阳 (Yangyang)", "自定义训练中文男声") },
         _          => ("",         ""),
     }
 }
@@ -353,7 +359,7 @@ pub fn get_qwen_builtin_voices(locale: &str) -> Vec<Voice> {
         ("ono_anna", "ja", "ono_anna.wav"),
         ("sohee",    "ko", "sohee.wav"),
     ];
-    specs.iter().map(|(id, lang, wav)| {
+    let mut voices: Vec<Voice> = specs.iter().map(|(id, lang, wav)| {
         let (name, desc) = qwen_voice_i18n(id, locale);
         let cat = match *lang {
             "en" => VoiceCategory::Male,
@@ -377,7 +383,42 @@ pub fn get_qwen_builtin_voices(locale: &str) -> Vec<Voice> {
             sovits_weights: None,
             created_at: None,
         }
-    }).collect()
+    }).collect();
+
+    // BundledIcl voices: reference audio is bundled with the app; inference uses Base model ICL.
+    let (baiyang_name, baiyang_desc) = qwen_voice_i18n("baiyang", locale);
+    voices.push(Voice {
+        id: "baiyang".to_string(),
+        name: baiyang_name.to_string(),
+        description: baiyang_desc.to_string(),
+        category: VoiceCategory::Female,
+        language: "zh".to_string(),
+        preview_audio: Some("baiyang.wav".to_string()),
+        source: VoiceSource::BundledIcl,
+        reference_audio_path: Some("ref.wav".to_string()),
+        prompt_text: Some("璀璨的星河在广袤的天际延伸，五千年文明的灿烂华章在这片热土上绽放。看，这是一个充满希望的时代，我们共同见证着中华民族伟大复兴的光辉历程。让我们携手同行，创造更加辉煌的明天。".to_string()),
+        gpt_weights: None,
+        sovits_weights: None,
+        created_at: None,
+    });
+
+    let (yangyang_name, yangyang_desc) = qwen_voice_i18n("yangyang", locale);
+    voices.push(Voice {
+        id: "yangyang".to_string(),
+        name: yangyang_name.to_string(),
+        description: yangyang_desc.to_string(),
+        category: VoiceCategory::Male,
+        language: "zh".to_string(),
+        preview_audio: Some("yangyang.wav".to_string()),
+        source: VoiceSource::BundledIcl,
+        reference_audio_path: Some("ref.wav".to_string()),
+        prompt_text: Some("璀璨的星河在广袤的天际延伸，五千年文明的灿烂华章在这片热土上绽放。看，这是一个充满希望的时代，我们共同见证着中华民族伟大复兴的光辉历程。让我们携手同行，创造更加辉煌的明天。".to_string()),
+        gpt_weights: None,
+        sovits_weights: None,
+        created_at: None,
+    });
+
+    voices
 }
 
 /// Select built-in voices by current inference backend.

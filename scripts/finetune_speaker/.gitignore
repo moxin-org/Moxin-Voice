@@ -1,0 +1,7 @@
+# Training artifacts
+*/checkpoints_*/
+*/encoded/
+out/
+__pycache__/
+*.pyc
+.DS_Store

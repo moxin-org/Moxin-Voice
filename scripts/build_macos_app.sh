@@ -155,6 +155,13 @@ if [[ -d "$QWEN_PREVIEWS_SRC" ]]; then
   mkdir -p "$RES_DIR/qwen3-previews"
   cp "$QWEN_PREVIEWS_SRC"/*.wav "$RES_DIR/qwen3-previews/"
 fi
+
+# Bundle Qwen3-TTS bundled ICL voice reference audio and transcripts
+QWEN_VOICES_SRC="$ROOT_DIR/node-hub/dora-qwen3-tts-mlx/voices"
+if [[ -d "$QWEN_VOICES_SRC" ]]; then
+  mkdir -p "$RES_DIR/qwen3-voices"
+  cp -r "$QWEN_VOICES_SRC"/. "$RES_DIR/qwen3-voices/"
+fi
 cp "$DORA_BIN_PATH" "$MACOS_DIR/dora"
 if [[ -f "$MLX_METALLIB_PATH" ]]; then
   cp "$MLX_METALLIB_PATH" "$MACOS_DIR/mlx.metallib"

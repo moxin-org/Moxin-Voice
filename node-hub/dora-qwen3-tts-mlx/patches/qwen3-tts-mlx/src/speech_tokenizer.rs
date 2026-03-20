@@ -305,11 +305,33 @@ impl SpeechTokenizerDecoder {
     }
 
     /// Decode 16-codebook codes to waveform samples.
+    /// Automatically chunks long inputs to avoid Metal OOM on large allocations.
     pub fn decode(&mut self, codes: &[[u32; 16]]) -> Result<Vec<f32>> {
+        const CHUNK_FRAMES: usize = 200; // ~16 seconds per chunk at 12.5 Hz
+
         let num_frames = codes.len();
         if num_frames == 0 {
             return Ok(vec![]);
         }
+
+        if num_frames > CHUNK_FRAMES {
+            let mut all_samples = Vec::new();
+            let mut start = 0;
+            while start < num_frames {
+                let end = (start + CHUNK_FRAMES).min(num_frames);
+                tracing::info!("Decoding chunk {}-{} / {}", start, end, num_frames);
+                let chunk_samples = self.decode_chunk(&codes[start..end])?;
+                all_samples.extend_from_slice(&chunk_samples);
+                start = end;
+            }
+            return Ok(all_samples);
+        }
+
+        self.decode_chunk(codes)
+    }
+
+    fn decode_chunk(&mut self, codes: &[[u32; 16]]) -> Result<Vec<f32>> {
+        let num_frames = codes.len();
 
         // Step 1: Dequantize
         let quantized = self.dequantize(codes)?;

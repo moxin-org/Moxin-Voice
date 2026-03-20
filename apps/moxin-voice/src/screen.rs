@@ -9048,7 +9048,8 @@ impl Widget for TTSScreen {
             
             let voice = &filtered_voices[voice_idx];
             let can_preview = match voice.source {
-                crate::voice_data::VoiceSource::Builtin => voice.preview_audio.is_some(),
+                crate::voice_data::VoiceSource::Builtin
+                | crate::voice_data::VoiceSource::BundledIcl => voice.preview_audio.is_some(),
                 crate::voice_data::VoiceSource::Custom | crate::voice_data::VoiceSource::Trained => {
                     voice.reference_audio_path.is_some()
                 }
@@ -9065,7 +9066,7 @@ impl Widget for TTSScreen {
             }
             
             // Check delete button click (only for custom voices)
-            if voice.source != crate::voice_data::VoiceSource::Builtin {
+            if voice.source != crate::voice_data::VoiceSource::Builtin && voice.source != crate::voice_data::VoiceSource::BundledIcl {
                 match event.hits(cx, delete_btn_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
                         // Show confirmation dialog
@@ -9807,13 +9808,16 @@ impl Widget for TTSScreen {
                             };
                             let source = voice.source.clone();
                             let type_text = match source {
-                                crate::voice_data::VoiceSource::Builtin => self.tr("内置", "Built-in"),
+                                crate::voice_data::VoiceSource::Builtin
+                                | crate::voice_data::VoiceSource::BundledIcl => self.tr("内置", "Built-in"),
                                 crate::voice_data::VoiceSource::Custom => self.tr("自定义", "Custom"),
                                 crate::voice_data::VoiceSource::Trained => self.tr("训练", "Trained"),
                             };
-                            let is_custom = source != crate::voice_data::VoiceSource::Builtin;
+                            let is_custom = source != crate::voice_data::VoiceSource::Builtin
+                                && source != crate::voice_data::VoiceSource::BundledIcl;
                             let can_preview = match source {
-                                crate::voice_data::VoiceSource::Builtin => voice.preview_audio.is_some(),
+                                crate::voice_data::VoiceSource::Builtin
+                                | crate::voice_data::VoiceSource::BundledIcl => voice.preview_audio.is_some(),
                                 crate::voice_data::VoiceSource::Custom
                                 | crate::voice_data::VoiceSource::Trained => {
                                     voice.reference_audio_path.is_some()
@@ -12856,6 +12860,16 @@ impl TTSScreen {
                     return;
                 }
             }
+        } else if voice.source == VoiceSource::BundledIcl {
+            // BundledIcl voice: use bundled ref audio as preview
+            let ref_filename = voice.reference_audio_path.as_deref().unwrap_or("ref.wav");
+            match self.resolve_bundled_icl_ref_path(&voice.id, ref_filename) {
+                Some(path) => path,
+                None => {
+                    self.add_log(cx, &format!("[WARN] [tts] Bundled ref audio not found for: {}", voice_id));
+                    return;
+                }
+            }
         } else {
             // Built-in voice: resolve preview audio path by backend
             let preview_file = match &voice.preview_audio {
@@ -12959,6 +12973,45 @@ impl TTSScreen {
             .join("qwen3-tts-mlx")
             .join("previews")
             .join(filename)
+    }
+
+    /// Resolve the absolute path of a bundled ICL voice's reference audio.
+    /// voice_id: e.g. "baiyang", filename: e.g. "ref.wav"
+    fn resolve_bundled_icl_ref_path(&self, voice_id: &str, filename: &str) -> Option<PathBuf> {
+        // 1. App bundle
+        if let Ok(res) = std::env::var("MOXIN_APP_RESOURCES") {
+            let p = PathBuf::from(&res).join("qwen3-voices").join(voice_id).join(filename);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        // 2. Dev: current working directory (project root when using cargo run)
+        if let Ok(cwd) = std::env::current_dir() {
+            let p = cwd
+                .join("node-hub")
+                .join("dora-qwen3-tts-mlx")
+                .join("voices")
+                .join(voice_id)
+                .join(filename);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        // 3. Dev: exe path → target/{debug,release}/../../../ (project root)
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(project_dir) = exe.parent().and_then(|d| d.parent()).and_then(|d| d.parent()) {
+                let p = project_dir
+                    .join("node-hub")
+                    .join("dora-qwen3-tts-mlx")
+                    .join("voices")
+                    .join(voice_id)
+                    .join(filename);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+        }
+        None
     }
 
     fn load_wav_file(&self, path: &PathBuf) -> Result<Vec<f32>, String> {
@@ -14070,6 +14123,34 @@ impl TTSScreen {
                         "[WARN] [tts] Custom voice missing ref audio or prompt text, using default",
                     );
                     format!("VOICE:Doubao|{}", text)
+                }
+            } else if voice.source == crate::voice_data::VoiceSource::BundledIcl {
+                // Bundled ICL voice - reference audio is bundled with the app
+                if let (Some(ref_filename), Some(prompt_text)) =
+                    (&voice.reference_audio_path, &voice.prompt_text)
+                {
+                    let ref_audio_path = self
+                        .resolve_bundled_icl_ref_path(&voice.id, ref_filename)
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
+
+                    if ref_audio_path.is_empty() {
+                        self.add_log(cx, &format!(
+                            "[WARN] [tts] BundledIcl voice '{}' ref audio not found, using default",
+                            voice.id
+                        ));
+                        format!("VOICE:vivian|{}", text)
+                    } else {
+                        self.add_log(cx, &format!(
+                            "[INFO] [tts] BundledIcl voice '{}' ref audio: {}", voice.id, ref_audio_path
+                        ));
+                        format!(
+                            "VOICE:CUSTOM|{}|{}|{}|{}",
+                            ref_audio_path, prompt_text, voice.language, text
+                        )
+                    }
+                } else {
+                    format!("VOICE:vivian|{}", text)
                 }
             } else {
                 // Built-in voice - use simple format
@@ -15821,7 +15902,7 @@ impl TTSScreen {
             .iter()
             .filter(|v| match self.voice_picker_tab {
                 0 => true,
-                1 => v.source != VoiceSource::Builtin,
+                1 => v.source != VoiceSource::Builtin && v.source != VoiceSource::BundledIcl,
                 _ => true,
             })
             .filter(|v| v.matches_language(&self.voice_picker_language_filter))
@@ -16561,7 +16642,7 @@ impl TTSScreen {
         // Check if it's a custom/trained voice (only those can be deleted from disk)
         let is_custom = self.library_voices.iter()
             .find(|v| v.id == voice_id)
-            .map(|v| v.source != crate::voice_data::VoiceSource::Builtin)
+            .map(|v| v.source != crate::voice_data::VoiceSource::Builtin && v.source != crate::voice_data::VoiceSource::BundledIcl)
             .unwrap_or(false);
 
         // Remove from in-memory list
@@ -16620,6 +16701,16 @@ impl TTSScreen {
                 Some(path) => path,
                 None => {
                     self.add_log(cx, &format!("[WARN] [library] No reference audio for custom voice: {}", voice_id));
+                    return;
+                }
+            }
+        } else if voice.source == VoiceSource::BundledIcl {
+            // Use bundled ref audio as preview
+            let ref_filename = voice.reference_audio_path.as_deref().unwrap_or("ref.wav");
+            match self.resolve_bundled_icl_ref_path(&voice.id, ref_filename) {
+                Some(path) => path,
+                None => {
+                    self.add_log(cx, &format!("[WARN] [library] Bundled ref audio not found for: {}", voice_id));
                     return;
                 }
             }
