@@ -50,13 +50,20 @@ Moxin Voice v0.0.3 引入了 `VoiceSource::BundledIcl`——将参考音频随 a
 
 ## 根本原因深度分析
 
-### 1. Base 模型使用 float32，而非 8-bit 量化
+### 1. ICL 使用未量化的 Base 模型，而内置音色使用专门微调且量化的 CustomVoice 模型
 
-CustomVoice 模型（`Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit`）已对 28 层 Transformer 进行 8-bit 量化：
+需要先澄清一个容易混淆的点：**CustomVoice 不是 Base 模型的量化版本**，而是一个独立的模型变体。Qwen3-TTS 官方提供了两个不同的模型：
 
-- 权重从 float32/bfloat16 压缩为 int8
+- `Qwen3-TTS-12Hz-1.7B`（Base）：原始预训练模型，通过 ICL 上下文感知音色
+- `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit`（CustomVoice）：在 Base 基础上专门微调，将 9 个说话人 identity 训练进 `codec_embedding.weight` 表，**同时**做了 8-bit 量化
+
+因此 CustomVoice 相比 Base 模型同时拥有两个优势：专用 speaker embedding（避免长上下文 ICL）+ 8-bit 量化（减少带宽压力）。
+
+CustomVoice 模型已对 28 层 Transformer 进行 8-bit 量化：
+
+- 权重从 bfloat16 压缩为 int8
 - 每层 MLP + Attention 的矩阵乘法在量化后快约 2–3×
-- 内存带宽需求降低约 4×（bfloat16 → int8），对 Apple Silicon 的 unified memory 尤为关键
+- 内存带宽需求降低约 2×（bfloat16 → int8），对 Apple Silicon 的 unified memory 尤为关键
 
 ICL 使用的 Base 模型（`Qwen3-TTS-12Hz-1.7B`）**未量化**，权重为 bfloat16：
 
@@ -155,6 +162,8 @@ BundledIcl 和 Express Mode 的唯一区别在于**参考音频的来源**：
 ## 潜在优化方向
 
 ### 方向 1：量化 Base 模型（收益最大）
+
+注意：此处是将 **ICL 所用的 Base 模型**单独量化，不是说 CustomVoice 已经是量化后的 Base——两者是独立的模型变体。
 
 使用 `mlx-lm` 的 `convert` 工具将 Base 模型量化为 8-bit，预计自回归生成速度提升 2–3×，RTF 从 5–10× 降至约 2–4×。
 
