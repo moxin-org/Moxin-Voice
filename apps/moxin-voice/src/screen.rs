@@ -10440,7 +10440,7 @@ impl TTSScreen {
     fn qwen_base_model_dir() -> PathBuf {
         std::env::var("QWEN3_TTS_BASE_MODEL_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-Base"))
+            .unwrap_or_else(|_| Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-Base-8bit"))
     }
     fn qwen_model_dir_ready(model_dir: &Path) -> bool {
         model_dir.join("config.json").exists()

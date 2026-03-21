@@ -230,3 +230,6 @@ ICL 推理慢的核心原因是**三重叠加效应**：
 在 v0.0.3 中，ICL 方案作为"让参考音频内置于 app bundle"的最简可行路径，质量可接受（与用户熟悉的 Express Mode 完全一致），是当前训练数据不足情况下的合理取舍。
 
 **推荐的近期优化路径**：量化 Base 模型（方向 1）+ ECAPA-TDNN 缓存（方向 2），两者合计可将 RTF 降至约 **2–3×**，实现难度适中，预计可将典型请求等待时间从 20–50s 缩短至 8–15s。
+
+
+python3 -m huggingface_hub.commands.huggingface_cli download mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit --local-dir ~/.OminiX/models/qwen3-tts-mlx/Qwen3-TTS-12Hz-1.7B-Base-8bit --local-dir-use-symlinks False

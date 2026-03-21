@@ -117,7 +117,7 @@ fn resolve_base_model_dir() -> PathBuf {
     if let Ok(v) = std::env::var("QWEN3_TTS_BASE_MODEL_DIR") {
         return PathBuf::from(v);
     }
-    resolve_qwen_root().join("Qwen3-TTS-12Hz-1.7B-Base")
+    resolve_qwen_root().join("Qwen3-TTS-12Hz-1.7B-Base-8bit")
 }
 
 fn model_dir_ready(model_dir: &Path) -> bool {
