@@ -20,6 +20,10 @@ Usage:
         --speaker_name alice \
         --speaker_id 3067 \
         --lr 1e-3 --epochs 20 --batch_size 4
+
+By default this script only trains/saves speaker embedding checkpoints and does
+NOT patch model.safetensors. To patch model weights, pass:
+  --patch_model --allow_patch_quantized
 """
 
 import argparse
@@ -443,6 +447,18 @@ def save_checkpoint(new_spk_emb: mx.array, path: Path):
     print(f"[train] Checkpoint saved → {path}")
 
 
+def is_quantized_model(config: dict) -> bool:
+    """
+    Detect whether model config indicates quantized (8bit/4bit) inference weights.
+    """
+    if "quantization" in config:
+        return True
+    qcfg = config.get("quantization_config")
+    if isinstance(qcfg, dict) and qcfg:
+        return True
+    return False
+
+
 def patch_and_save_safetensors(
     model_dir: Path,
     frozen: dict,
@@ -502,40 +518,55 @@ def patch_and_save_safetensors(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_tokenizer(model_dir: Path):
-    """Load BPE tokenizer from vocab.json + merges.txt."""
+    """Load tokenizer for text->ids. Fail fast on invalid fallback."""
+    errors = []
     try:
         from tokenizers import Tokenizer
         tok_path = model_dir / "tokenizer.json"
         if tok_path.exists():
             return Tokenizer.from_file(str(tok_path))
-    except ImportError:
-        pass
+        errors.append(f"tokenizer.json not found at {tok_path}")
+    except Exception as e:
+        errors.append(f"tokenizers load failed: {e}")
 
-    # Fallback: use transformers tokenizer
+    # Fallback: transformers tokenizer with mistral-regex fix when available.
     try:
         from transformers import AutoTokenizer
-        tok = AutoTokenizer.from_pretrained(str(model_dir))
+        kwargs = {"trust_remote_code": True}
+        try:
+            tok = AutoTokenizer.from_pretrained(str(model_dir), fix_mistral_regex=True, **kwargs)
+        except TypeError:
+            tok = AutoTokenizer.from_pretrained(str(model_dir), **kwargs)
+        probe = tok.encode("测试 tokenizer probe", add_special_tokens=False)
+        if not probe:
+            raise RuntimeError("tokenizer probe produced empty ids")
         return tok
     except Exception as e:
-        print(f"[train] WARNING: could not load tokenizer: {e}")
-        return None
+        errors.append(f"transformers tokenizer load failed: {e}")
+
+    raise RuntimeError(
+        "[train] Failed to load tokenizer from model dir. "
+        + " | ".join(errors)
+    )
 
 
 def tokenize_text(tokenizer, text: str) -> list:
     """Tokenize text to token IDs."""
-    if tokenizer is None:
-        # Simple character-level fallback (not recommended)
-        return [ord(c) % 1000 + 100 for c in text[:50]]
-
     # tokenizers library
     if hasattr(tokenizer, "encode") and callable(tokenizer.encode):
         enc = tokenizer.encode(text)
         if hasattr(enc, "ids"):
-            return enc.ids
+            ids = enc.ids
         else:
-            return list(enc)
+            ids = list(enc)
+        if not ids:
+            raise RuntimeError("tokenizer returned empty ids")
+        return ids
     # transformers
-    return tokenizer.encode(text, add_special_tokens=False)
+    ids = tokenizer.encode(text, add_special_tokens=False)
+    if not ids:
+        raise RuntimeError("tokenizer returned empty ids")
+    return ids
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -642,8 +673,12 @@ def main():
     parser.add_argument("--encoded_dir", required=True)
     parser.add_argument("--text_dir", required=True)
     parser.add_argument("--speaker_name", required=True)
-    parser.add_argument("--speaker_id", type=int, default=3067,
-                        help="New speaker token ID (default: 3067, next after existing 9)")
+    parser.add_argument(
+        "--speaker_id",
+        type=int,
+        required=True,
+        help="Speaker token ID (manual, required)",
+    )
     parser.add_argument("--language", default="chinese",
                         help="Language for lang codec token (default: chinese)")
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -661,6 +696,21 @@ def main():
                              "(0 = disabled). E.g. 37 ≈ 3s. Recommended for single-file "
                              "training: --segment_frames 37")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--patch_model",
+        action="store_true",
+        help="Patch model.safetensors with trained embedding row (disabled by default)",
+    )
+    parser.add_argument(
+        "--allow_patch_quantized",
+        action="store_true",
+        help="Allow patching quantized model.safetensors (DANGEROUS, may corrupt 8bit model)",
+    )
+    parser.add_argument(
+        "--allow_overwrite_existing_id",
+        action="store_true",
+        help="Allow speaker_id that is already used by an existing speaker name",
+    )
     args = parser.parse_args()
 
     mx.random.seed(args.seed)
@@ -679,14 +729,12 @@ def main():
     talker_cfg = config["talker_config"]
 
     existing_spk_ids = list(talker_cfg["spk_id"].values())
+    existing_spk_map = talker_cfg["spk_id"]
     lang_id = talker_cfg["codec_language_id"].get(args.language)
     if lang_id is None:
         available = list(talker_cfg["codec_language_id"].keys())
         print(f"[train] ERROR: language '{args.language}' not in config. Available: {available}")
         sys.exit(1)
-
-    print(f"[train] Speaker: '{args.speaker_name}' → id={args.speaker_id}")
-    print(f"[train] Language: '{args.language}' → codec_id={lang_id}")
 
     # ── Load tokenizer & dataset ─────────────────────────────────────────────
     tokenizer = load_tokenizer(model_dir)
@@ -698,6 +746,28 @@ def main():
 
     # ── Load frozen weights ──────────────────────────────────────────────────
     frozen = load_frozen_weights(model_dir, len(existing_spk_ids))
+    speaker_id = int(args.speaker_id)
+    codec_rows = int(frozen["codec_emb"].shape[0])
+    if speaker_id < 0 or speaker_id > codec_rows:
+        print(
+            f"[train] ERROR: speaker_id={speaker_id} out of range for codec rows={codec_rows}. "
+            f"Use id in [0, {codec_rows}]"
+        )
+        sys.exit(1)
+
+    used_by = [name for name, sid in existing_spk_map.items() if int(sid) == speaker_id]
+    if used_by and not args.allow_overwrite_existing_id:
+        print(
+            f"[train] ERROR: speaker_id={speaker_id} is already used by {used_by}. "
+            "Choose a new id or pass --allow_overwrite_existing_id."
+        )
+        sys.exit(1)
+
+    if used_by:
+        print(f"[train] WARNING: speaker_id={speaker_id} overwrites existing speaker(s): {used_by}")
+    print(f"[train] Speaker: '{args.speaker_name}' → id={speaker_id}")
+    print(f"[train] Language: '{args.language}' → codec_id={lang_id}")
+
     rope_cos, rope_sin = build_rope_freqs(
         frozen["head_dim"],
         base=talker_cfg.get("rope_theta", 1_000_000),
@@ -730,7 +800,7 @@ def main():
             def loss_fn(emb):
                 return compute_loss(
                     text_ids, codec_frames,
-                    args.speaker_id, lang_id,
+                    speaker_id, lang_id,
                     frozen, emb, rope_cos, rope_sin
                 )
 
@@ -771,23 +841,42 @@ def main():
     final_ckpt = ckpt_dir / "spk_emb_final.npz"
     save_checkpoint(new_spk_emb, final_ckpt)
 
-    # ── Patch and save model.safetensors ────────────────────────────────────
     out_model_path = model_dir / "model.safetensors"
-    backup_path = model_dir / "model.safetensors.bak"
-    if not backup_path.exists():
-        import shutil
-        shutil.copy2(str(out_model_path), str(backup_path))
-        print(f"[train] Backup saved → {backup_path}")
+    if args.patch_model:
+        quantized = is_quantized_model(config)
+        if quantized and not args.allow_patch_quantized:
+            print(
+                "[train] ERROR: Refusing to patch quantized model.safetensors.\n"
+                "Pass --allow_patch_quantized to force, but this may produce noisy/broken outputs."
+            )
+            sys.exit(1)
 
-    patch_and_save_safetensors(
-        model_dir, frozen, new_spk_emb, args.speaker_id, out_model_path
-    )
+        # ── Patch and save model.safetensors ────────────────────────────────
+        backup_path = model_dir / "model.safetensors.bak"
+        if not backup_path.exists():
+            import shutil
+            shutil.copy2(str(out_model_path), str(backup_path))
+            print(f"[train] Backup saved → {backup_path}")
+
+        patch_and_save_safetensors(
+            model_dir, frozen, new_spk_emb, speaker_id, out_model_path
+        )
+    else:
+        print("[train] Note: model.safetensors not modified (default safe mode).")
+        print("[train] Skipped patching model.safetensors (use --patch_model to enable).")
 
     print(f"\n[train] ✓ Training complete!")
-    print(f"[train]   New speaker: '{args.speaker_name}' (id={args.speaker_id})")
+    print(f"[train]   New speaker: '{args.speaker_name}' (id={speaker_id})")
     print(f"[train]   Embedding checkpoint: {final_ckpt}")
-    print(f"[train]   Patched model: {out_model_path}")
-    print(f"\n[train] Next step: run register_speaker.py to update config.json")
+    if args.patch_model:
+        print(f"[train]   Patched model: {out_model_path}")
+        print(f"\n[train] Next step: run register_speaker.py to update config.json")
+    else:
+        print("[train]   Model weights unchanged (safe mode).")
+        print(
+            "[train] Next step: if you still want in-model registration, re-run with "
+            "--patch_model (and for quantized models also --allow_patch_quantized)."
+        )
 
 
 if __name__ == "__main__":
