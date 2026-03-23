@@ -79,7 +79,7 @@ This downloads all three model snapshots into `~/.OminiX/models/`:
 | Model | Purpose |
 |-------|---------|
 | `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | Preset voice synthesis |
-| `Qwen3-TTS-12Hz-1.7B-Base` | ICL zero-shot voice cloning |
+| `Qwen3-TTS-12Hz-1.7B-Base-8bit` | ICL zero-shot voice cloning |
 | `Qwen3-ASR-1.7B-8bit` | Voice cloning reference audio transcription |
 
 `huggingface_hub` is installed automatically if not present.
@@ -124,6 +124,7 @@ For end-users receiving the distributed `.app`, model download and initializatio
 ### Voice Cloning (Express Mode)
 
 Upload or record 5–30 seconds of reference audio. Moxin Voice uses Qwen3-TTS's **In-Context Learning (ICL)** to clone the voice in real time — no training required.
+ASR auto-transcription is optional; if ASR is unavailable, users can enter reference text manually.
 
 ---
 

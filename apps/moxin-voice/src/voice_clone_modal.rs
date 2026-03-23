@@ -2069,6 +2069,19 @@ impl Widget for VoiceCloneModal {
 }
 
 impl VoiceCloneModal {
+    fn has_asr_bridge(&self) -> bool {
+        self.shared_dora_state
+            .as_ref()
+            .map(|shared| {
+                let status = shared.status.read();
+                status
+                    .active_bridges
+                    .iter()
+                    .any(|b| b.contains("asr-listener") || b.contains("asr"))
+            })
+            .unwrap_or(false)
+    }
+
     /// Update the drag-over visual highlight on the drop zone for the current mode.
     fn set_drop_zone_highlight(&mut self, cx: &mut Cx, value: f64) {
         match self.clone_mode {
@@ -3203,6 +3216,32 @@ impl VoiceCloneModal {
     }
 
     fn transcribe_audio(&mut self, cx: &mut Cx, audio_path: &PathBuf) {
+        if !self.has_asr_bridge() {
+            self.add_log(
+                cx,
+                "[INFO] ASR unavailable, skipping auto-transcription (manual text input mode).",
+            );
+            self.pending_asr_audio = None;
+            self.asr_sent = false;
+            self.asr_sent_time = None;
+            self.recording_status = RecordingStatus::Completed;
+            self.transcription_animation_start_time = None;
+            if self.clone_mode == CloneMode::Express {
+                self.view
+                    .view(ids!(
+                        modal_container
+                            .modal_wrapper
+                            .modal_content
+                            .body
+                            .prompt_text_container
+                            .transcription_loading_overlay
+                    ))
+                    .set_visible(cx, false);
+            }
+            self.view.redraw(cx);
+            return;
+        }
+
         self.add_log(cx, "[INFO] Preparing ASR transcription via Dora...");
 
         // Load audio file
@@ -3922,8 +3961,8 @@ impl VoiceCloneModalRef {
             inner.view.set_visible(cx, true);
             inner.clear_log(cx);
 
-            // Check if ASR bridge is ready
-            let is_asr_ready = if let Some(ref shared_state) = inner.shared_dora_state {
+            // ASR is optional: if not ready, user can still proceed with manual reference text.
+            let asr_available = if let Some(ref shared_state) = inner.shared_dora_state {
                 let status = shared_state.status.read();
                 // Only check for ASR listener - audio-input is only needed for live recording
                 let has_asr = status
@@ -3947,14 +3986,17 @@ impl VoiceCloneModalRef {
                     if has_audio_input {
                         inner.add_log(
                             cx,
-                            "[INFO] ASR is ready (recording + transcription available)",
+                            "[INFO] ASR ready (recording + transcription available)",
                         );
                     } else {
-                        inner.add_log(cx, "[INFO] ASR is ready (transcription available, live recording disabled)");
+                        inner.add_log(cx, "[INFO] ASR ready (transcription only, live recording disabled)");
                     }
                     true
                 } else {
-                    inner.add_log(cx, "[INFO] Waiting for ASR bridge to initialize...");
+                    inner.add_log(
+                        cx,
+                        "[INFO] ASR not available, auto-transcription disabled (manual text input mode).",
+                    );
                     false
                 }
             } else {
@@ -3962,23 +4004,18 @@ impl VoiceCloneModalRef {
                 false
             };
 
-            // Update ASR readiness state and show/hide loading overlay
-            inner.asr_bridge_ready = is_asr_ready;
+            // Avoid blocking UI with an ASR waiting overlay when ASR is optional.
+            inner.asr_bridge_ready = true;
             inner.loading_animation_start_time = None; // Reset animation timer
             inner.transcription_animation_start_time = None; // Reset animation timer
 
-            // Show/hide loading overlay based on ASR readiness
-            inner.add_log(
-                cx,
-                &format!("[DEBUG] Setting loading overlay visible: {}", !is_asr_ready),
-            );
             inner
                 .view
                 .view(ids!(asr_loading_overlay))
-                .set_visible(cx, !is_asr_ready);
+                .set_visible(cx, false);
 
             // Update loading overlay dark mode
-            if !is_asr_ready {
+            if asr_available {
                 let dark_mode = inner.dark_mode;
                 inner
                     .view

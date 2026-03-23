@@ -176,13 +176,16 @@ write_step 5 "Skip Python ASR Node" "dora-asr replaced by Rust dora-qwen3-asr �
 #   Step 7: Download funasr + primespeech model files
 #   Step 8: Convert/export PrimeSpeech models to MLX layout
 write_step 6 "Skip PrimeSpeech Node" "PrimeSpeech removed — Qwen3-only mode"
-write_step 7 "Download Qwen3 ASR Model" "Downloading qwen3-asr-mlx model files"
+write_step 7 "Optional Qwen3 ASR Model" "Downloading qwen3-asr-mlx model files (optional)"
 if [[ ! -f "$QWEN_ASR_DIR/config.json" ]]; then
   echo "Qwen3-ASR model missing; downloading to $QWEN_ASR_DIR ..."
   mkdir -p "$QWEN_ASR_DIR"
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
     HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
     huggingface-cli download "$QWEN_ASR_REPO" --local-dir "$QWEN_ASR_DIR" || true
+  if [[ ! -f "$QWEN_ASR_DIR/config.json" ]]; then
+    echo "WARN: Qwen3-ASR model download failed; continuing without ASR auto-transcription."
+  fi
 else
   echo "Qwen3-ASR model already present at $QWEN_ASR_DIR"
 fi
@@ -222,6 +225,7 @@ Important:
 1) Runtime Python dependencies were installed into app-private conda (TTS only).
 2) Qwen3-ASR model downloaded (Rust native — no Python ASR dependency).
 3) Qwen3-TTS CustomVoice and Base model snapshots downloaded.
-4) You can relaunch the app and start TTS/ASR without manual setup.
+4) If ASR model is unavailable, voice cloning still works with manual reference text input.
+5) You can relaunch the app and start TTS without manual setup.
 
 MSG
