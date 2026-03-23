@@ -13,9 +13,11 @@ pub mod speech_encoder;
 pub mod speech_tokenizer;
 pub mod talker;
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
 
+use mlx_rs::Array;
 use tracing::info;
 
 use config::{GenerationConfig, Qwen3TtsConfig, SpeechTokenizerConfig};
@@ -45,6 +47,8 @@ pub struct Synthesizer {
     pub speaker_encoder: Option<speaker_encoder::SpeakerEncoder>,
     /// Optional speech encoder for ICL voice cloning (Base model only)
     pub speech_encoder: Option<speech_encoder::SpeechEncoder>,
+    /// Optional in-memory cache for speaker embeddings keyed by caller-provided cache keys.
+    pub speaker_embedding_cache: HashMap<String, Array>,
 }
 
 /// Configuration for synthesis.
@@ -184,7 +188,47 @@ impl Synthesizer {
             sample_rate: st_config.output_sample_rate,
             speaker_encoder: spk_encoder,
             speech_encoder: spch_encoder,
+            speaker_embedding_cache: HashMap::new(),
         })
+    }
+
+    fn get_or_compute_speaker_embedding(
+        &mut self,
+        reference_audio: &[f32],
+        cache_key: Option<&str>,
+    ) -> Result<Array> {
+        if let Some(key) = cache_key {
+            if let Some(cached) = self.speaker_embedding_cache.get(key) {
+                info!("Using cached speaker embedding: key='{}'", key);
+                return Ok(cached.clone());
+            }
+        }
+
+        let spk_encoder = self.speaker_encoder.as_mut().ok_or_else(|| {
+            Error::Model("Voice cloning requires a Base model with speaker encoder".into())
+        })?;
+
+        info!(
+            "Computing speaker embedding from reference audio ({} samples)...",
+            reference_audio.len()
+        );
+        let mel_config = speaker_encoder::SpeakerMelConfig::default();
+        let mel = speaker_encoder::compute_speaker_mel(reference_audio, &mel_config)?;
+        let speaker_embedding = spk_encoder.forward(&mel)?;
+        mlx_rs::transforms::eval(std::iter::once(&speaker_embedding))?;
+
+        info!("Speaker embedding computed: {:?}", speaker_embedding.shape());
+
+        if let Some(key) = cache_key {
+            if self.speaker_embedding_cache.len() >= 64 {
+                self.speaker_embedding_cache.clear();
+            }
+            self.speaker_embedding_cache
+                .insert(key.to_string(), speaker_embedding.clone());
+            info!("Cached speaker embedding: key='{}'", key);
+        }
+
+        Ok(speaker_embedding)
     }
 
     /// Detected model type (Base, CustomVoice, VoiceDesign).
@@ -438,6 +482,25 @@ impl Synthesizer {
         Ok(samples)
     }
 
+    /// Synthesize speech using voice cloning and reuse speaker embedding by cache key.
+    pub fn synthesize_voice_clone_cached(
+        &mut self,
+        text: &str,
+        reference_audio: &[f32],
+        language: &str,
+        speaker_cache_key: &str,
+        opts: &SynthesizeOptions,
+    ) -> Result<Vec<f32>> {
+        let (samples, _timing) = self.synthesize_voice_clone_with_timing_cached(
+            text,
+            reference_audio,
+            language,
+            speaker_cache_key,
+            opts,
+        )?;
+        Ok(samples)
+    }
+
     /// Synthesize speech using voice cloning with timing breakdown.
     pub fn synthesize_voice_clone_with_timing(
         &mut self,
@@ -446,12 +509,42 @@ impl Synthesizer {
         language: &str,
         opts: &SynthesizeOptions,
     ) -> Result<(Vec<f32>, SynthesisTiming)> {
-        let total_start = Instant::now();
+        self.synthesize_voice_clone_with_timing_internal(
+            text,
+            reference_audio,
+            language,
+            None,
+            opts,
+        )
+    }
 
-        // Check that we have a speaker encoder
-        let spk_encoder = self.speaker_encoder.as_mut().ok_or_else(|| {
-            Error::Model("Voice cloning requires a Base model with speaker encoder".into())
-        })?;
+    /// Synthesize speech using voice cloning with timing breakdown and embedding cache key.
+    pub fn synthesize_voice_clone_with_timing_cached(
+        &mut self,
+        text: &str,
+        reference_audio: &[f32],
+        language: &str,
+        speaker_cache_key: &str,
+        opts: &SynthesizeOptions,
+    ) -> Result<(Vec<f32>, SynthesisTiming)> {
+        self.synthesize_voice_clone_with_timing_internal(
+            text,
+            reference_audio,
+            language,
+            Some(speaker_cache_key),
+            opts,
+        )
+    }
+
+    fn synthesize_voice_clone_with_timing_internal(
+        &mut self,
+        text: &str,
+        reference_audio: &[f32],
+        language: &str,
+        speaker_cache_key: Option<&str>,
+        opts: &SynthesizeOptions,
+    ) -> Result<(Vec<f32>, SynthesisTiming)> {
+        let total_start = Instant::now();
 
         let mut gen_config = self.gen_config.clone();
         if let Some(temp) = opts.temperature {
@@ -477,17 +570,8 @@ impl Synthesizer {
             .map_err(|e| Error::Model(format!("Tokenizer error: {e}")))?;
         let text_token_ids: Vec<u32> = encoding.get_ids().to_vec();
 
-        // Compute speaker embedding from reference audio
-        info!("Computing speaker embedding from reference audio ({} samples)...", reference_audio.len());
-        let mel_config = speaker_encoder::SpeakerMelConfig::default();
-        let mel = speaker_encoder::compute_speaker_mel(reference_audio, &mel_config)?;
-        let speaker_embedding = spk_encoder.forward(&mel)?;
-        mlx_rs::transforms::eval(std::iter::once(&speaker_embedding))?;
-
-        info!(
-            "Speaker embedding computed: {:?}",
-            speaker_embedding.shape(),
-        );
+        let speaker_embedding =
+            self.get_or_compute_speaker_embedding(reference_audio, speaker_cache_key)?;
 
         // Build codec prefix for voice clone (think + explicit language)
         let codec_prefix = generate::build_codec_prefix_voice_design(
@@ -563,6 +647,27 @@ impl Synthesizer {
         Ok(samples)
     }
 
+    /// Synthesize speech using ICL voice cloning and reuse speaker embedding by cache key.
+    pub fn synthesize_voice_clone_icl_cached(
+        &mut self,
+        text: &str,
+        reference_audio: &[f32],
+        reference_text: &str,
+        language: &str,
+        speaker_cache_key: &str,
+        opts: &SynthesizeOptions,
+    ) -> Result<Vec<f32>> {
+        let (samples, _timing) = self.synthesize_voice_clone_icl_with_timing_cached(
+            text,
+            reference_audio,
+            reference_text,
+            language,
+            speaker_cache_key,
+            opts,
+        )?;
+        Ok(samples)
+    }
+
     /// Synthesize speech using ICL voice cloning with timing breakdown.
     pub fn synthesize_voice_clone_icl_with_timing(
         &mut self,
@@ -572,16 +677,55 @@ impl Synthesizer {
         language: &str,
         opts: &SynthesizeOptions,
     ) -> Result<(Vec<f32>, SynthesisTiming)> {
+        self.synthesize_voice_clone_icl_with_timing_internal(
+            text,
+            reference_audio,
+            reference_text,
+            language,
+            None,
+            opts,
+        )
+    }
+
+    /// Synthesize speech using ICL voice cloning with timing breakdown and embedding cache key.
+    pub fn synthesize_voice_clone_icl_with_timing_cached(
+        &mut self,
+        text: &str,
+        reference_audio: &[f32],
+        reference_text: &str,
+        language: &str,
+        speaker_cache_key: &str,
+        opts: &SynthesizeOptions,
+    ) -> Result<(Vec<f32>, SynthesisTiming)> {
+        self.synthesize_voice_clone_icl_with_timing_internal(
+            text,
+            reference_audio,
+            reference_text,
+            language,
+            Some(speaker_cache_key),
+            opts,
+        )
+    }
+
+    fn synthesize_voice_clone_icl_with_timing_internal(
+        &mut self,
+        text: &str,
+        reference_audio: &[f32],
+        reference_text: &str,
+        language: &str,
+        speaker_cache_key: Option<&str>,
+        opts: &SynthesizeOptions,
+    ) -> Result<(Vec<f32>, SynthesisTiming)> {
         let total_start = Instant::now();
 
-        // Check that we have both encoders
-        let spk_encoder = self.speaker_encoder.as_mut().ok_or_else(|| {
-            Error::Model("ICL voice cloning requires a Base model with speaker encoder".into())
-        })?;
-        let mel_config = speaker_encoder::SpeakerMelConfig::default();
-        let mel = speaker_encoder::compute_speaker_mel(reference_audio, &mel_config)?;
-        let speaker_embedding = spk_encoder.forward(&mel)?;
-        mlx_rs::transforms::eval(std::iter::once(&speaker_embedding))?;
+        if self.speech_encoder.is_none() {
+            return Err(Error::Model(
+                "ICL voice cloning requires a Base model with speech encoder (Mimi)".into(),
+            ));
+        }
+
+        let speaker_embedding =
+            self.get_or_compute_speaker_embedding(reference_audio, speaker_cache_key)?;
 
         info!(
             "Speaker embedding: {:?}",

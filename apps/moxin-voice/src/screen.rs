@@ -14125,10 +14125,8 @@ impl TTSScreen {
                     format!("VOICE:Doubao|{}", text)
                 }
             } else if voice.source == crate::voice_data::VoiceSource::BundledIcl {
-                // Bundled ICL voice - reference audio is bundled with the app
-                if let (Some(ref_filename), Some(prompt_text)) =
-                    (&voice.reference_audio_path, &voice.prompt_text)
-                {
+                // Bundled ref voice - force x-vector clone path by sending empty prompt_text.
+                if let Some(ref_filename) = &voice.reference_audio_path {
                     let ref_audio_path = self
                         .resolve_bundled_icl_ref_path(&voice.id, ref_filename)
                         .map(|p| p.to_string_lossy().to_string())
@@ -14142,11 +14140,12 @@ impl TTSScreen {
                         format!("VOICE:vivian|{}", text)
                     } else {
                         self.add_log(cx, &format!(
-                            "[INFO] [tts] BundledIcl voice '{}' ref audio: {}", voice.id, ref_audio_path
+                            "[INFO] [tts] BundledIcl voice '{}' ref audio (x-vector mode): {}",
+                            voice.id, ref_audio_path
                         ));
                         format!(
                             "VOICE:CUSTOM|{}|{}|{}|{}",
-                            ref_audio_path, prompt_text, voice.language, text
+                            ref_audio_path, "", voice.language, text
                         )
                     }
                 } else {

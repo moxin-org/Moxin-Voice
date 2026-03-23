@@ -2,8 +2,8 @@
 """
 apply_checkpoint.py — Apply a trained speaker embedding to model.safetensors.
 
-Patches talker.model.codec_embedding.weight by appending the new speaker row,
-without requiring a full retraining run.
+Patches talker.model.codec_embedding.weight at a specific speaker row index
+(`--speaker_id`). Appends only when speaker_id == current row count.
 
 Usage:
     python apply_checkpoint.py \
@@ -72,12 +72,35 @@ def main():
 
     emb_key = "talker.model.codec_embedding.weight"
     old_emb = weights[emb_key]                              # [N, 2048] bfloat16
+    n_rows = int(old_emb.shape[0])
+    if args.speaker_id < 0:
+        print(f"ERROR: speaker_id must be non-negative, got {args.speaker_id}")
+        sys.exit(1)
+    if args.speaker_id > n_rows:
+        print(
+            f"ERROR: speaker_id={args.speaker_id} out of range for embedding rows={n_rows}. "
+            f"Use id in [0, {n_rows}]"
+        )
+        sys.exit(1)
+
     new_row = spk_emb.reshape(1, 2048).astype(mx.bfloat16)
-    weights[emb_key] = mx.concatenate([old_emb, new_row], axis=0)
+    if args.speaker_id == n_rows:
+        updated = mx.concatenate([old_emb, new_row], axis=0)
+        action = "appended"
+    else:
+        before = old_emb[:args.speaker_id, :]
+        after = old_emb[args.speaker_id + 1:, :]
+        updated = mx.concatenate([before, new_row, after], axis=0)
+        action = "updated"
+
+    weights[emb_key] = updated
     mx.eval(weights[emb_key])
 
     old_n, new_n = old_emb.shape[0], weights[emb_key].shape[0]
-    print(f"{emb_key}: [{old_n}, 2048] → [{new_n}, 2048]  (row {args.speaker_id} added)")
+    print(
+        f"{emb_key}: [{old_n}, 2048] → [{new_n}, 2048]  "
+        f"({action} row {args.speaker_id})"
+    )
 
     mx.save_safetensors(str(out_path), weights)
     print(f"\nDone → {out_path}")

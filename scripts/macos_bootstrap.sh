@@ -33,7 +33,7 @@ QWEN_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
 QWEN_CUSTOM_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 QWEN_BASE_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
 QWEN_CUSTOM_REPO="${QWEN3_TTS_CUSTOMVOICE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
-QWEN_BASE_REPO="${QWEN3_TTS_BASE_REPO:-Qwen/Qwen3-TTS-12Hz-1.7B-Base}"
+QWEN_BASE_REPO="${QWEN3_TTS_BASE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
 
 # Qwen3-only: always download both models.
 INFERENCE_BACKEND="qwen3_tts_mlx"

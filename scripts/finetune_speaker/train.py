@@ -451,9 +451,9 @@ def patch_and_save_safetensors(
     out_path: Path,
 ):
     """
-    Write a new model.safetensors where talker.model.codec_embedding.weight
-    is extended from [3072, 2048] to [3073, 2048] with the new speaker row at index new_spk_id.
-    All other tensors are copied unchanged.
+    Write a new model.safetensors where talker.model.codec_embedding.weight is
+    updated at `new_spk_id`. If `new_spk_id` equals current row count, append one
+    row. All other tensors are copied unchanged.
 
     Uses mx.load / mx.save_safetensors to handle bfloat16 and uint32 natively.
     """
@@ -463,11 +463,35 @@ def patch_and_save_safetensors(
     weights = mx.load(str(model_dir / "model.safetensors"))
 
     emb_key = "talker.model.codec_embedding.weight"
-    old_emb = weights[emb_key]                                  # [3072, 2048] bfloat16
+    old_emb = weights[emb_key]                                  # [N, 2048] bfloat16
+    n_rows = int(old_emb.shape[0])
+    if new_spk_id < 0:
+        raise ValueError(f"speaker_id must be non-negative, got {new_spk_id}")
+    if new_spk_id > n_rows:
+        raise ValueError(
+            f"speaker_id={new_spk_id} is out of range for codec embedding with {n_rows} rows. "
+            f"Use an id in [0, {n_rows}]"
+        )
+
     new_row = new_spk_emb.reshape(1, 2048).astype(mx.bfloat16)
-    weights[emb_key] = mx.concatenate([old_emb, new_row], axis=0)
+
+    if new_spk_id == n_rows:
+        # Explicit append mode (rare). Typical speaker IDs should update in-range rows.
+        updated_emb = mx.concatenate([old_emb, new_row], axis=0)
+        action = "appended"
+    else:
+        # In-place replace by slicing to avoid accidental index/ID mismatch.
+        before = old_emb[:new_spk_id, :]
+        after = old_emb[new_spk_id + 1:, :]
+        updated_emb = mx.concatenate([before, new_row, after], axis=0)
+        action = "updated"
+
+    weights[emb_key] = updated_emb
     mx.eval(weights[emb_key])
-    print(f"[train]   {emb_key}: {old_emb.shape} → {weights[emb_key].shape}")
+    print(
+        f"[train]   {emb_key}: {old_emb.shape} → {weights[emb_key].shape} "
+        f"({action} row {new_spk_id})"
+    )
 
     mx.save_safetensors(str(out_path), weights)
     print(f"[train] Saved patched weights → {out_path}")

@@ -18,8 +18,9 @@ use audio_post::apply_runtime_audio_params;
 use dora_node_api::{DoraNode, Event, IntoArrow, Parameter};
 use protocol::TtsRequest;
 use qwen3_tts_mlx::{SynthesizeOptions, Synthesizer};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 #[derive(Debug, Clone, Default)]
 struct TtsParams {
@@ -210,6 +211,7 @@ fn load_wav_mono_f32(path: &str) -> Result<(Vec<f32>, u32)> {
 struct QwenState {
     customvoice: Option<Synthesizer>,
     base: Option<Synthesizer>,
+    ref_audio_cache: HashMap<String, Vec<f32>>,
 }
 
 impl QwenState {
@@ -217,6 +219,7 @@ impl QwenState {
         Self {
             customvoice: None,
             base: None,
+            ref_audio_cache: HashMap::new(),
         }
     }
 
@@ -246,6 +249,94 @@ impl QwenState {
         }
         Ok(self.base.as_mut().unwrap())
     }
+}
+
+fn parse_positive_usize_env(name: &str, default_value: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(default_value)
+}
+
+fn clone_ref_max_sec(xvector_mode: bool) -> usize {
+    if xvector_mode {
+        parse_positive_usize_env("MOXIN_QWEN_XVECTOR_REF_MAX_SEC", 6)
+    } else {
+        parse_positive_usize_env("MOXIN_QWEN_ICL_REF_MAX_SEC", 8)
+    }
+}
+
+fn file_stamp(path: &str) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    let len = meta.len();
+    let modified = meta.modified().ok()?;
+    let ts = modified
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Some(format!("{len}:{ts}"))
+}
+
+fn build_ref_audio_cache_key(ref_wav: &str, xvector_mode: bool, max_sec: usize) -> String {
+    let mode = if xvector_mode { "xvector" } else { "icl" };
+    let stamp = file_stamp(ref_wav).unwrap_or_else(|| "nostamp".to_string());
+    format!("{mode}|{max_sec}|{ref_wav}|{stamp}")
+}
+
+fn trim_reference_audio_in_place(samples_24k: &mut Vec<f32>, max_sec: usize) {
+    let max_samples = max_sec.saturating_mul(24_000);
+    if samples_24k.len() > max_samples {
+        samples_24k.truncate(max_samples);
+    }
+}
+
+fn prepare_reference_audio_for_clone(
+    state: &mut QwenState,
+    ref_wav: &str,
+    xvector_mode: bool,
+) -> Result<(Vec<f32>, String)> {
+    let max_sec = clone_ref_max_sec(xvector_mode);
+    let cache_key = build_ref_audio_cache_key(ref_wav, xvector_mode, max_sec);
+    if let Some(cached) = state.ref_audio_cache.get(&cache_key) {
+        tracing::info!(
+            "Using cached clone reference audio (mode={}, {} samples @24k): {}",
+            if xvector_mode { "xvector" } else { "icl" },
+            cached.len(),
+            ref_wav
+        );
+        return Ok((cached.clone(), cache_key));
+    }
+    let (ref_audio, ref_sr) = load_wav_mono_f32(ref_wav)?;
+    let mut ref_audio_24k = resample_linear(&ref_audio, ref_sr, 24000);
+    let original_len = ref_audio_24k.len();
+    trim_reference_audio_in_place(&mut ref_audio_24k, max_sec);
+    if ref_audio_24k.len() != original_len {
+        tracing::info!(
+            "Clone fast path (mode={}): trimmed reference audio to {} samples (~{:.2}s): {}",
+            if xvector_mode { "xvector" } else { "icl" },
+            ref_audio_24k.len(),
+            ref_audio_24k.len() as f32 / 24_000.0,
+            ref_wav
+        );
+    } else {
+        tracing::info!(
+            "Clone fast path (mode={}): reference audio kept at {} samples (~{:.2}s): {}",
+            if xvector_mode { "xvector" } else { "icl" },
+            ref_audio_24k.len(),
+            ref_audio_24k.len() as f32 / 24_000.0,
+            ref_wav
+        );
+    }
+    // Bound cache size to avoid unbounded growth for many custom voices.
+    if state.ref_audio_cache.len() >= 32 {
+        state.ref_audio_cache.clear();
+    }
+    state
+        .ref_audio_cache
+        .insert(cache_key.clone(), ref_audio_24k.clone());
+    Ok((ref_audio_24k, cache_key))
 }
 
 fn choose_speaker(synth: &Synthesizer, requested: &str, language: &str) -> String {
@@ -310,15 +401,31 @@ fn choose_speaker(synth: &Synthesizer, requested: &str, language: &str) -> Strin
     }
 }
 
+fn resolve_max_new_tokens() -> i32 {
+    std::env::var("MOXIN_QWEN_MAX_NEW_TOKENS")
+        .ok()
+        .and_then(|v| v.parse::<i32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(512)
+}
+
 fn synthesize_qwen(state: &mut QwenState, request: TtsRequest, _params: &TtsParams) -> Result<(Vec<f32>, u32)> {
     match request {
         TtsRequest::Preset { voice, text } => {
             let synth = state.customvoice()?;
             let lang = normalize_language("", &text);
             let speaker = choose_speaker(synth, &voice, &lang);
+            let max_new_tokens = resolve_max_new_tokens();
+            tracing::info!(
+                "Qwen generation config: speaker='{}', language='{}', max_new_tokens={}",
+                speaker,
+                lang,
+                max_new_tokens
+            );
             let options = SynthesizeOptions {
                 speaker: &speaker,
                 language: &lang,
+                max_new_tokens: Some(max_new_tokens),
                 ..Default::default()
             };
             let samples = synth.synthesize(&text, &options)?;
@@ -330,25 +437,40 @@ fn synthesize_qwen(state: &mut QwenState, request: TtsRequest, _params: &TtsPara
             language,
             text,
         } => {
-            let synth = state.base()?;
             let lang = normalize_language(&language, &text);
-            let (ref_audio, ref_sr) = load_wav_mono_f32(&ref_wav)?;
-            let ref_audio_24k = resample_linear(&ref_audio, ref_sr, 24000);
+            let use_xvector = prompt_text.trim().is_empty();
+            let (ref_audio_24k, speaker_cache_key) =
+                prepare_reference_audio_for_clone(state, &ref_wav, use_xvector)?;
+            let synth = state.base()?;
+            let max_new_tokens = resolve_max_new_tokens();
+            tracing::info!(
+                "Qwen clone generation config: language='{}', max_new_tokens={}",
+                lang,
+                max_new_tokens
+            );
 
             let options = SynthesizeOptions {
                 language: &lang,
+                max_new_tokens: Some(max_new_tokens),
                 ..Default::default()
             };
 
             // Prefer ICL when prompt text available; fallback to x-vector mode on hard failure.
-            let samples = if prompt_text.trim().is_empty() {
-                synth.synthesize_voice_clone(&text, &ref_audio_24k, &lang, &options)?
+            let samples = if use_xvector {
+                synth.synthesize_voice_clone_cached(
+                    &text,
+                    &ref_audio_24k,
+                    &lang,
+                    &speaker_cache_key,
+                    &options,
+                )?
             } else {
-                match synth.synthesize_voice_clone_icl(
+                match synth.synthesize_voice_clone_icl_cached(
                     &text,
                     &ref_audio_24k,
                     &prompt_text,
                     &lang,
+                    &speaker_cache_key,
                     &options,
                 ) {
                     Ok(samples) => samples,
@@ -357,7 +479,13 @@ fn synthesize_qwen(state: &mut QwenState, request: TtsRequest, _params: &TtsPara
                             "ICL clone failed, fallback to x-vector mode: {}",
                             err
                         );
-                        synth.synthesize_voice_clone(&text, &ref_audio_24k, &lang, &options)?
+                        synth.synthesize_voice_clone_cached(
+                            &text,
+                            &ref_audio_24k,
+                            &lang,
+                            &speaker_cache_key,
+                            &options,
+                        )?
                     }
                 }
             };

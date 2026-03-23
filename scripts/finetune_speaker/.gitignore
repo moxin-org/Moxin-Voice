@@ -5,3 +5,8 @@ out/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Speaker dataset artifacts (yangyang_new)
+yangyang_new/raw/
+yangyang_new/encoded/
+yangyang_new/checkpoints_yangyang_new/
