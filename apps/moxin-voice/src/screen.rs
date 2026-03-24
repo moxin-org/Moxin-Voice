@@ -1253,7 +1253,7 @@ live_design! {
 
                         logo_subtitle = <Label> {
                             width: Fit, height: Fit
-                            margin: {top: 5}
+                            margin: {top: -6}
                             draw_text: {
                                 text_style: <FONT_REGULAR>{ font_size: 11.0 }
                                 fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 0.35); }
@@ -9104,7 +9104,6 @@ impl Widget for TTSScreen {
                 // 1) Play button tap: preview only, do not close picker.
                 match event.hits(cx, play_btn_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
-                        self.voice_picker_active_voice_id = Some(voice.id.clone());
                         self.preview_voice(cx, voice.id.clone());
                         self.update_voice_picker_controls(cx);
                         handled_play_tap = true;
@@ -9949,10 +9948,7 @@ impl Widget for TTSScreen {
                             let name = Self::single_line_text(&voice.name);
                             let desc = self.localized_voice_description(voice);
                             let initial = name.chars().next().unwrap_or('?').to_string();
-                            let highlighted_voice_id = self
-                                .voice_picker_active_voice_id
-                                .as_ref()
-                                .or(self.selected_voice_id.as_ref());
+                            let highlighted_voice_id = self.selected_voice_id.as_ref();
                             let is_highlighted = highlighted_voice_id == Some(&voice.id);
                             let selected = if is_highlighted { 1.0 } else { 0.0 };
                             let is_playing =
@@ -16103,10 +16099,7 @@ impl TTSScreen {
         let prof_active = if self.voice_picker_trait_filter & 0b01 != 0 { 1.0 } else { 0.0 };
         let character_active = if self.voice_picker_trait_filter & 0b10 != 0 { 1.0 } else { 0.0 };
 
-        let active_voice_id = self
-            .voice_picker_active_voice_id
-            .as_ref()
-            .or(self.selected_voice_id.as_ref());
+        let active_voice_id = self.selected_voice_id.as_ref();
         let active_voice_name = active_voice_id
             .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
             .map(|v| Self::single_line_text(&v.name))
@@ -16657,11 +16650,24 @@ impl TTSScreen {
         if self.selected_voice_id.as_deref() == Some(&voice_id) {
             self.selected_voice_id = None;
         }
+        if self.voice_picker_active_voice_id.as_deref() == Some(&voice_id) {
+            self.voice_picker_active_voice_id = None;
+        }
 
         self.update_library_display(cx);
+        self.reset_voice_lists_after_delete(cx);
         self.sync_selected_voice_ui(cx);
         self.update_voice_picker_controls(cx);
         self.show_toast(cx, self.tr("音色已删除", "Voice deleted successfully"));
+    }
+
+    fn reset_voice_lists_after_delete(&mut self, _cx: &mut Cx) {
+        self.view
+            .portal_list(ids!(content_wrapper.main_content.left_column.content_area.library_page.voice_list))
+            .set_first_id(0);
+        self.view
+            .portal_list(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_list))
+            .set_first_id(0);
     }
 
     /// Preview a voice from the library

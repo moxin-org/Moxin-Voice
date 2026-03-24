@@ -884,6 +884,10 @@ impl Widget for VoiceSelector {
 }
 
 impl VoiceSelector {
+    fn reset_list_position(&mut self, _cx: &mut Cx) {
+        self.view.portal_list(ids!(voice_list)).set_first_id(0);
+    }
+
     /// Reload all voices (built-in + custom) and apply filters
     fn reload_voices(&mut self) {
         self.voices = get_builtin_voices_for_backend("qwen3_tts_mlx", "zh");
@@ -916,24 +920,28 @@ impl VoiceSelector {
         if self.view.button(ids!(filter_bar.category_row.category_filter_group.filter_all_btn)).clicked(actions) {
             self.category_filter = VoiceFilter::All;
             self.apply_filters();
+            self.reset_list_position(cx);
             self.update_category_filter_buttons(cx);
             self.view.redraw(cx);
         }
         if self.view.button(ids!(filter_bar.category_row.category_filter_group.filter_male_btn)).clicked(actions) {
             self.category_filter = VoiceFilter::Male;
             self.apply_filters();
+            self.reset_list_position(cx);
             self.update_category_filter_buttons(cx);
             self.view.redraw(cx);
         }
         if self.view.button(ids!(filter_bar.category_row.category_filter_group.filter_female_btn)).clicked(actions) {
             self.category_filter = VoiceFilter::Female;
             self.apply_filters();
+            self.reset_list_position(cx);
             self.update_category_filter_buttons(cx);
             self.view.redraw(cx);
         }
         if self.view.button(ids!(filter_bar.category_row.category_filter_group.filter_character_btn)).clicked(actions) {
             self.category_filter = VoiceFilter::Character;
             self.apply_filters();
+            self.reset_list_position(cx);
             self.update_category_filter_buttons(cx);
             self.view.redraw(cx);
         }
@@ -942,18 +950,21 @@ impl VoiceSelector {
         if self.view.button(ids!(filter_bar.category_row.language_filter_group.lang_all_btn)).clicked(actions) {
             self.language_filter = LanguageFilter::All;
             self.apply_filters();
+            self.reset_list_position(cx);
             self.update_language_filter_buttons(cx);
             self.view.redraw(cx);
         }
         if self.view.button(ids!(filter_bar.category_row.language_filter_group.lang_zh_btn)).clicked(actions) {
             self.language_filter = LanguageFilter::Chinese;
             self.apply_filters();
+            self.reset_list_position(cx);
             self.update_language_filter_buttons(cx);
             self.view.redraw(cx);
         }
         if self.view.button(ids!(filter_bar.category_row.language_filter_group.lang_en_btn)).clicked(actions) {
             self.language_filter = LanguageFilter::English;
             self.apply_filters();
+            self.reset_list_position(cx);
             self.update_language_filter_buttons(cx);
             self.view.redraw(cx);
         }
@@ -994,6 +1005,7 @@ impl VoiceSelector {
     pub fn set_category_filter(&mut self, cx: &mut Cx, filter: VoiceFilter) {
         self.category_filter = filter;
         self.apply_filters();
+        self.reset_list_position(cx);
         self.view.redraw(cx);
     }
 
@@ -1001,6 +1013,7 @@ impl VoiceSelector {
     pub fn set_language_filter(&mut self, cx: &mut Cx, filter: LanguageFilter) {
         self.language_filter = filter;
         self.apply_filters();
+        self.reset_list_position(cx);
         self.view.redraw(cx);
     }
 
@@ -1008,6 +1021,7 @@ impl VoiceSelector {
     pub fn set_search_query(&mut self, cx: &mut Cx, query: String) {
         self.search_query = query;
         self.apply_filters();
+        self.reset_list_position(cx);
         self.view.redraw(cx);
     }
 
@@ -1070,6 +1084,7 @@ impl VoiceSelectorRef {
     pub fn reload_voices(&self, cx: &mut Cx) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.reload_voices();
+            inner.reset_list_position(cx);
             inner.view.redraw(cx);
         }
     }
@@ -1080,6 +1095,7 @@ impl VoiceSelectorRef {
             inner.custom_voices.push(voice.clone());
             inner.voices.push(voice);
             inner.apply_filters();
+            inner.reset_list_position(cx);
             inner.view.redraw(cx);
         }
     }
@@ -1100,6 +1116,7 @@ impl VoiceSelectorRef {
                 inner.selected_voice_id = inner.filtered_voices.first().map(|v| v.id.clone());
             }
 
+            inner.reset_list_position(cx);
             inner.view.redraw(cx);
         }
 
