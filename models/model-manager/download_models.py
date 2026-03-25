@@ -906,6 +906,41 @@ def download_funasr_models(models_dir: Optional[Path] = None):
         return downloaded > 0
 
 
+def download_qwen3_8b_4bit() -> bool:
+    """Download Qwen3-8B-4bit MLX model for real-time translation on Apple Silicon.
+
+    The model is downloaded from HuggingFace (mlx-community/Qwen3-8B-4bit) and
+    stored at ~/.OminiX/models/qwen3-8b-4bit/.  This is the same path that
+    dora-qwen3-translator expects via QWEN3_TRANSLATOR_MODEL_PATH (or the default).
+    """
+    repo_id = "mlx-community/Qwen3-8B-4bit"
+    dest = Path.home() / ".OminiX" / "models" / "qwen3-8b-4bit"
+
+    print("\n📥 Downloading Qwen3-8B-4bit (MLX) for real-time translation")
+    print(f"   Source : HuggingFace {repo_id}")
+    print(f"   Destination: {dest}")
+    print("   Size   : ~5 GB (4-bit quantised)")
+    print()
+
+    if dest.exists() and any(dest.iterdir()):
+        print(f"   ✅ Already downloaded: {dest}")
+        print("      Remove the directory to re-download.")
+        return True
+
+    dest.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from huggingface_hub import snapshot_download
+        snapshot_download(repo_id=repo_id, local_dir=str(dest))
+        print(f"\n✅ Qwen3-8B-4bit downloaded to: {dest}")
+        return True
+    except Exception as e:
+        print(f"\n❌ Download failed: {e}")
+        print("   Manual alternative:")
+        print(f"     huggingface-cli download {repo_id} --local-dir {dest}")
+        return False
+
+
 def download_g2pw_model(models_dir: Path = None):
     """Download G2PW model for Chinese text-to-phoneme conversion."""
     print("\n📥 Downloading G2PW model for Chinese TTS")
@@ -1699,6 +1734,11 @@ def main():
             else:
                 print("\n⚠️ Some components failed to download. Please check errors above.")
                 sys.exit(1)
+        elif args.download == "qwen3-8b-4bit":
+            # Download Qwen3-8B-4bit model for translation (MLX, Apple Silicon)
+            success = download_qwen3_8b_4bit()
+            if not success:
+                sys.exit(1)
         elif args.download in VOICE_CONFIGS:
             # Download specific voice
             success = download_voice_models(args.download, models_dir)
@@ -1715,6 +1755,7 @@ def main():
             print("   - 'kokoro-mlx' for MLX-optimized Kokoro (Apple Silicon GPU)")
             print("   - 'kokoro-base' for Kokoro base files only")
             print("   - 'kokoro-voices' for all Kokoro voices only")
+            print("   - 'qwen3-8b-4bit' for Qwen3-8B-4bit translation model (MLX/Apple Silicon)")
             print(f"   - Voice name: {', '.join(VOICE_CONFIGS.keys())}")
             print("   - HuggingFace repo ID (e.g., 'organization/model')")
             sys.exit(1)
@@ -1827,6 +1868,10 @@ def main():
         print("  python download_models.py --voice all                 # Download all voices (alternative)")
         print("  python download_models.py --voice \"Luo Xiang\"         # Download specific voice (alternative)")
         print("  python download_models.py --list-voices               # List available voices")
+
+        print("\n  # Qwen3-8B-4bit for real-time translation (Apple Silicon / MLX):")
+        print("  python download_models.py --download qwen3-8b-4bit    # ~5 GB, to ~/.OminiX/models/qwen3-8b-4bit")
+        print("")
 
         print("\n  # Kokoro TTS models:")
         print("  python download_models.py --download kokoro           # CPU backend (hexgrad/Kokoro-82M)")

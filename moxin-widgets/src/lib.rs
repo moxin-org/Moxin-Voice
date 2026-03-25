@@ -81,6 +81,7 @@ pub mod led_gauge;
 pub mod log_panel;
 pub mod participant_panel;
 pub mod theme;
+pub mod translation_overlay;
 pub mod waveform_view;
 
 // Re-export app trait types for convenience
@@ -122,8 +123,10 @@ pub fn live_design(cx: &mut Cx) {
     participant_panel::live_design(cx);
     log_panel::live_design(cx);
     led_gauge::live_design(cx);
+    translation_overlay::live_design(cx);
 }
 
 // Re-export commonly used types
 pub use audio_player::*;
 pub use participant_panel::ParticipantPanel;
+pub use translation_overlay::{TranslationOverlay, TranslationOverlayRef, TranslationStatus};

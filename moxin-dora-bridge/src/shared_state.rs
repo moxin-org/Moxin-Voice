@@ -660,6 +660,10 @@ pub struct SharedDoraState {
     /// Translation update from dora-qwen3-translator
     /// Set on each streaming token batch; `is_complete` signals the final result.
     pub translation: DirtyValue<Option<TranslationUpdate>>,
+
+    /// Whether the translation overlay window should be visible.
+    /// Set by screen.rs when the translation toggle is pressed.
+    pub translation_window_visible: DirtyValue<bool>,
 }
 
 impl SharedDoraState {
@@ -673,6 +677,7 @@ impl SharedDoraState {
             mic: MicState::new(),
             asr_transcription: DirtyValue::default(),
             translation: DirtyValue::default(),
+            translation_window_visible: DirtyValue::new(false),
         })
     }
 
@@ -686,6 +691,7 @@ impl SharedDoraState {
             mic: MicState::new(),
             asr_transcription: DirtyValue::default(),
             translation: DirtyValue::default(),
+            translation_window_visible: DirtyValue::new(false),
         })
     }
 
@@ -698,6 +704,8 @@ impl SharedDoraState {
         self.mic.clear();
         self.asr_transcription.set(None);
         self.translation.set(None);
+        // Note: do NOT reset translation_window_visible here — window visibility
+        // is user-controlled and should persist across dataflow restarts.
     }
 
     /// Add active bridge
@@ -734,6 +742,7 @@ impl Default for SharedDoraState {
             mic: MicState::new(),
             asr_transcription: DirtyValue::default(),
             translation: DirtyValue::default(),
+            translation_window_visible: DirtyValue::new(false),
         }
     }
 }

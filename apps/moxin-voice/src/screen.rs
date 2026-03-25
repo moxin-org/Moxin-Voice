@@ -1425,7 +1425,7 @@ live_design! {
                         width: Fill, height: Fit
                         flow: Right
                         align: {y: 0.5}
-                        
+
                         page_title = <Label> {
                             width: Fit, height: Fit
                             draw_text: {
@@ -1436,6 +1436,90 @@ live_design! {
                                 }
                             }
                             text: "文本转语音"
+                        }
+
+                        // Spacer between title and translation controls
+                        <View> { width: Fill, height: 1 }
+
+                        // Translation controls (right-aligned in header)
+                        translation_controls = <View> {
+                            width: Fit, height: Fit
+                            flow: Right
+                            spacing: 6
+                            align: {y: 0.5}
+                            padding: {right: 4}
+
+                            // Source language label
+                            translation_src_label = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_MEDIUM>{ font_size: 11.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "ZH"
+                            }
+
+                            <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_REGULAR>{ font_size: 11.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((MOXIN_TEXT_MUTED), (MOXIN_TEXT_MUTED_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "→"
+                            }
+
+                            // Target language label
+                            translation_tgt_label = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_MEDIUM>{ font_size: 11.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "EN"
+                            }
+
+                            // Translation toggle button
+                            translation_toggle_btn = <Button> {
+                                width: Fit, height: 28
+                                padding: {left: 10, right: 10, top: 4, bottom: 4}
+                                text: "实时翻译"
+                                draw_bg: {
+                                    instance active: 0.0
+                                    instance dark_mode: 0.0
+                                    instance hover: 0.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, 6.0);
+                                        // Active: MOXIN_PRIMARY; inactive: transparent outline
+                                        let base_light = vec4(0.0, 0.0, 0.0, 0.0);
+                                        let base_dark  = vec4(0.0, 0.0, 0.0, 0.0);
+                                        let active_col = vec4(0.231, 0.435, 0.831, 1.0); // MOXIN_PRIMARY
+                                        let base = mix(mix(base_light, base_dark, self.dark_mode), active_col, self.active);
+                                        let hov  = mix(vec4(0.0,0.0,0.0,0.06), vec4(1.0,1.0,1.0,0.08), self.dark_mode);
+                                        sdf.fill(mix(base, base + hov, self.hover));
+                                        return sdf.result;
+                                    }
+                                }
+                                draw_text: {
+                                    instance active: 0.0
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_MEDIUM>{ font_size: 11.0 }
+                                    fn get_color(self) -> vec4 {
+                                        let inactive = mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
+                                        let act_col  = vec4(1.0, 1.0, 1.0, 1.0);
+                                        return mix(inactive, act_col, self.active);
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -7450,6 +7534,17 @@ pub struct TTSScreen {
     #[rust]
     selected_input_device_idx: usize,
 
+    // ── Translation overlay state ─────────────────────────────────────────────
+    /// Whether the translation overlay window is currently active
+    #[rust]
+    translation_active: bool,
+    /// Source language code, e.g. "zh"
+    #[rust]
+    translation_src_lang: String,
+    /// Target language code, e.g. "en"
+    #[rust]
+    translation_tgt_lang: String,
+
     // Model picker modal
     #[rust]
     model_picker_visible: bool,
@@ -7692,7 +7787,12 @@ impl Widget for TTSScreen {
             self.qwen_model_status_text = self.tr("未就绪", "Not ready").to_string();
             self.dora_start_attempt_at = None;
             self.dora_start_in_flight = false;
-            
+
+            // Translation overlay defaults
+            self.translation_active = false;
+            self.translation_src_lang = "zh".to_string();
+            self.translation_tgt_lang = "en".to_string();
+
             // Add initial log entries
             self.log_entries
                 .push("[INFO] [tts] Moxin TTS initialized".to_string());
@@ -8116,6 +8216,15 @@ impl Widget for TTSScreen {
             self.update_history_display(cx);
             self.switch_page(cx, AppPage::TextToSpeech);
             self.update_sidebar_nav_states(cx);
+        }
+
+        // ── Translation toggle button ─────────────────────────────────────────
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.page_header.translation_controls.translation_toggle_btn))
+            .clicked(&actions)
+        {
+            self.toggle_translation(cx);
         }
 
         // Handle sidebar footer click (navigate to User & Settings page)
@@ -13918,6 +14027,131 @@ impl TTSScreen {
         self.dora_start_attempt_at = None;
 
         self.add_log(cx, "[INFO] [tts] Dataflow stopped");
+    }
+
+    // ── Translation helpers ───────────────────────────────────────────────────
+
+    /// Toggle the translation overlay on/off.
+    ///
+    /// When activating:
+    ///   1. Materialises `translation.yml` with src/tgt lang env placeholders replaced
+    ///   2. Starts a separate Dora dataflow for the translation pipeline
+    ///   3. Sets `SharedDoraState.translation_window_visible = true` so `app.rs` shows the window
+    ///
+    /// When deactivating: stops the translation dataflow and hides the window.
+    fn toggle_translation(&mut self, cx: &mut Cx) {
+        self.translation_active = !self.translation_active;
+
+        // Update button visual state
+        let active_val = if self.translation_active { 1.0_f64 } else { 0.0_f64 };
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.page_header.translation_controls.translation_toggle_btn))
+            .apply_over(cx, live! {
+                draw_bg: { active: (active_val) }
+                draw_text: { active: (active_val) }
+            });
+
+        if self.translation_active {
+            self.start_translation_dataflow(cx);
+        } else {
+            self.stop_translation_dataflow(cx);
+        }
+    }
+
+    /// Start the translation dataflow.
+    fn start_translation_dataflow(&mut self, cx: &mut Cx) {
+        self.add_log(cx, "[INFO] [translate] Starting translation dataflow...");
+
+        // Resolve the dataflow template path
+        let template_path = {
+            // Try relative to project root first, then bundle
+            let candidates = [
+                std::path::PathBuf::from("apps/moxin-voice/dataflow/translation.yml"),
+                dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(".OminiX/dataflows/translation.yml"),
+            ];
+            candidates.into_iter().find(|p| p.exists())
+        };
+
+        let template_path = match template_path {
+            Some(p) => p,
+            None => {
+                self.add_log(cx, "[ERROR] [translate] translation.yml not found");
+                self.translation_active = false;
+                return;
+            }
+        };
+
+        // Read template and substitute language placeholders
+        let template_content = match std::fs::read_to_string(&template_path) {
+            Ok(s) => s,
+            Err(e) => {
+                self.add_log(cx, &format!("[ERROR] [translate] Failed to read template: {}", e));
+                self.translation_active = false;
+                return;
+            }
+        };
+
+        let src_upper = self.translation_src_lang.to_uppercase();
+        let tgt_upper = self.translation_tgt_lang.to_uppercase();
+        let rendered = template_content
+            .replace("__TRANSLATION_SRC_LANG__", &self.translation_src_lang)
+            .replace("__TRANSLATION_TGT_LANG__", &self.translation_tgt_lang);
+
+        // Write rendered dataflow to a temp file
+        let tmp_path = std::env::temp_dir().join("moxin_translation_dataflow.yml");
+        if let Err(e) = std::fs::write(&tmp_path, &rendered) {
+            self.add_log(cx, &format!("[ERROR] [translate] Failed to write tmp dataflow: {}", e));
+            self.translation_active = false;
+            return;
+        }
+
+        // Start dataflow via dora CLI (separate from the TTS dataflow)
+        match std::process::Command::new("dora")
+            .args(["start", &tmp_path.to_string_lossy()])
+            .spawn()
+        {
+            Ok(_) => {
+                self.add_log(
+                    cx,
+                    &format!(
+                        "[INFO] [translate] Translation dataflow started ({} → {})",
+                        src_upper, tgt_upper
+                    ),
+                );
+            }
+            Err(e) => {
+                self.add_log(cx, &format!("[ERROR] [translate] Failed to start dataflow: {}", e));
+                self.translation_active = false;
+                return;
+            }
+        }
+
+        // Show the translation overlay window via SharedDoraState
+        if let Some(dora) = &self.dora {
+            let shared = dora.shared_dora_state();
+            shared.translation_window_visible.set(true);
+        }
+    }
+
+    /// Stop the translation dataflow and hide the overlay window.
+    fn stop_translation_dataflow(&mut self, cx: &mut Cx) {
+        self.add_log(cx, "[INFO] [translate] Stopping translation dataflow...");
+
+        // Hide the overlay window
+        if let Some(dora) = &self.dora {
+            let shared = dora.shared_dora_state();
+            shared.translation_window_visible.set(false);
+            shared.translation.set(None);
+        }
+
+        // Stop dora translation dataflow by its yml tag (best-effort)
+        let _ = std::process::Command::new("dora")
+            .args(["stop", "--name", "moxin-translation-listener"])
+            .spawn();
+
+        self.add_log(cx, "[INFO] [translate] Translation dataflow stopped");
     }
 
     fn generate_speech(&mut self, cx: &mut Cx) {
