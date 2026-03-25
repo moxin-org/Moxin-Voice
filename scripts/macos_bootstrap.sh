@@ -155,10 +155,14 @@ if [[ ! -x "$CONDA_ENV_PREFIX/bin/python" ]]; then
 fi
 
 
-write_step 2 "Install Git LFS" "Installing git and git-lfs in private runtime"
-echo "Installing Git + Git LFS into app-private conda ..."
-"$CONDA_BIN" install -p "$CONDA_ENV_PREFIX" -y -c conda-forge git git-lfs
-"$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" git lfs install --skip-repo
+write_step 2 "Install Git LFS" "Checking or installing git-lfs in private runtime"
+if "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" git lfs version >/dev/null 2>&1; then
+  echo "git-lfs already present, skipping conda install."
+else
+  echo "Installing git-lfs into app-private conda ..."
+  "$CONDA_BIN" install -p "$CONDA_ENV_PREFIX" -y -c conda-forge git git-lfs
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" git lfs install --skip-repo
+fi
 
 write_step 3 "Install Base Python" "Upgrading pip/setuptools/wheel"
 "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install --upgrade pip setuptools wheel
@@ -180,6 +184,8 @@ write_step 7 "Optional Qwen3 ASR Model" "Downloading qwen3-asr-mlx model files (
 if [[ ! -f "$QWEN_ASR_DIR/config.json" ]]; then
   echo "Qwen3-ASR model missing; downloading to $QWEN_ASR_DIR ..."
   mkdir -p "$QWEN_ASR_DIR"
+  # Install hf_transfer for faster downloads (best-effort; fall back gracefully if unavailable)
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -q hf_transfer || true
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
     HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
     huggingface-cli download "$QWEN_ASR_REPO" --local-dir "$QWEN_ASR_DIR" || true
@@ -204,6 +210,11 @@ if [[ "$NEED_QWEN_CUSTOM" == "1" || "$NEED_QWEN_BASE" == "1" ]]; then
   if [[ "$NEED_QWEN_BASE" == "1" ]] && ! qwen_model_ready "$QWEN_BASE_DIR"; then
     echo "Qwen Base model missing; downloading..."
   fi
+
+  # Install hf_transfer before download — required when HF_HUB_ENABLE_HF_TRANSFER=1.
+  # Without this, huggingface_hub raises ImportError and the download fails,
+  # causing bootstrap to exit at step 9 and the app to re-trigger bootstrap every launch.
+  "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" python -m pip install -q hf_transfer || true
 
   "$CONDA_BIN" run -p "$CONDA_ENV_PREFIX" env \
     HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}" \
