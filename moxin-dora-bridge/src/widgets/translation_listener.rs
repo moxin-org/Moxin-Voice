@@ -10,7 +10,7 @@ use crate::shared_state::SharedDoraState;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use dora_node_api::{
     dora_core::config::{DataId, NodeId},
-    DoraNode, Event,
+    DoraNode, Event, Parameter,
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -127,8 +127,14 @@ impl TranslationListenerBridge {
                             let session_status = metadata
                                 .parameters
                                 .iter()
-                                .find(|(k, _)| k == "session_status")
-                                .map(|(_, v)| v.as_str())
+                                .find(|(k, _)| k.as_str() == "session_status")
+                                .and_then(|(_, v)| {
+                                    if let Parameter::String(s) = v {
+                                        Some(s.as_str())
+                                    } else {
+                                        None
+                                    }
+                                })
                                 .unwrap_or("complete");
 
                             let is_complete = session_status == "complete";

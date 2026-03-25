@@ -247,6 +247,7 @@ struct CpalMicCapture {
     is_recording: bool,
     sample_rate: u32,
     vad_threshold: f32, // Energy threshold for simple VAD
+    device_name: Option<String>,
 }
 
 impl CpalMicCapture {
@@ -256,7 +257,19 @@ impl CpalMicCapture {
             audio_buffer: Arc::new(parking_lot::Mutex::new(Vec::new())),
             is_recording: false,
             sample_rate: 16000,
-            vad_threshold: 0.01, // Simple energy-based VAD threshold
+            vad_threshold: 0.01,
+            device_name: None,
+        })
+    }
+
+    fn with_device(device_name: Option<String>) -> Result<Self, String> {
+        Ok(Self {
+            stream: None,
+            audio_buffer: Arc::new(parking_lot::Mutex::new(Vec::new())),
+            is_recording: false,
+            sample_rate: 16000,
+            vad_threshold: 0.01,
+            device_name,
         })
     }
 
@@ -268,9 +281,18 @@ impl CpalMicCapture {
         }
 
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or("No input device available")?;
+        let device = if let Some(ref name) = self.device_name {
+            use cpal::traits::HostTrait;
+            host.input_devices()
+                .ok()
+                .and_then(|mut devs| devs.find(|d| d.name().map(|n| n == *name).unwrap_or(false)))
+                .or_else(|| host.default_input_device())
+                .ok_or_else(|| format!("Input device '{}' not found", name))?
+        } else {
+            use cpal::traits::HostTrait;
+            host.default_input_device()
+                .ok_or("No input device available")?
+        };
 
         // Try to get a config close to 16kHz mono
         let config = cpal::StreamConfig {
@@ -465,7 +487,10 @@ impl AecInputBridge {
         }
 
         // 2. CPAL mic capture (no echo cancellation, fallback)
-        let mut cpal_capture = match CpalMicCapture::new() {
+        let device_name = shared_state
+            .as_ref()
+            .and_then(|ss| ss.translation_input_device.read().clone());
+        let mut cpal_capture = match CpalMicCapture::with_device(device_name) {
             Ok(cap) => cap,
             Err(e) => {
                 error!("Failed to init CPAL capture: {}", e);

@@ -40,7 +40,7 @@ use dora_node_api::{DoraNode, Event, IntoArrow, Metadata};
 use mlx_rs::ops::indexing::{IndexOp, NewAxis};
 use mlx_rs::transforms::eval;
 use mlx_lm_utils::tokenizer::{
-    load_model_chat_template_from_file, ApplyChatTemplateArgs, Conversation, Role, Tokenizer,
+    load_model_chat_template_from_file, ApplyChatTemplateArgs, Conversation, Tokenizer,
 };
 use qwen3_mlx::{load_model, Generate, KVCache};
 use std::collections::BTreeMap;
@@ -290,22 +290,9 @@ fn main() -> Result<()> {
                 let _ = send_source(&mut node, &text_to_translate);
 
                 // Build chat messages: system + user (the source text)
-                let conversations: Vec<Conversation<Role, &str>> = vec![
-                    Conversation { role: Role::User, content: text_to_translate.as_str() },
-                ];
-
-                let args = ApplyChatTemplateArgs {
-                    conversations: vec![conversations.into()],
-                    documents: None,
-                    model_id: &model_id,
-                    chat_template_id: None,
-                    add_generation_prompt: None,
-                    continue_final_message: None,
-                };
-
-                let system_conversations: Vec<Conversation<Role, &str>> = vec![
-                    Conversation { role: Role::System, content: system_prompt.as_str() },
-                    Conversation { role: Role::User, content: text_to_translate.as_str() },
+                let system_conversations: Vec<Conversation<&str, &str>> = vec![
+                    Conversation { role: "system", content: system_prompt.as_str() },
+                    Conversation { role: "user", content: text_to_translate.as_str() },
                 ];
 
                 let args_with_system = ApplyChatTemplateArgs {

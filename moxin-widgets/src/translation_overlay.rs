@@ -129,8 +129,9 @@ live_design! {
 }
 
 /// Translation display status
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum TranslationStatus {
+    #[default]
     Listening,
     Translating,
     Complete,
@@ -165,7 +166,7 @@ impl TranslationOverlay {
     pub fn set_lang_pair(&mut self, cx: &mut Cx, src: &str, tgt: &str) {
         self.lang_pair = format!("{} → {}", src.to_uppercase(), tgt.to_uppercase());
         self.view
-            .label(id!(toolbar.lang_label))
+            .label(ids!(toolbar.lang_label))
             .set_text(cx, &self.lang_pair);
     }
 
@@ -182,10 +183,10 @@ impl TranslationOverlay {
         is_complete: bool,
     ) {
         self.view
-            .label(id!(source_area.source_label))
+            .label(ids!(source_area.source_label))
             .set_text(cx, source_text);
         self.view
-            .label(id!(translation_scroll.translation_label))
+            .label(ids!(translation_scroll.translation_label))
             .set_text(cx, translation);
 
         self.status = if is_complete {
@@ -200,10 +201,10 @@ impl TranslationOverlay {
     /// Clear all text and reset to listening state.
     pub fn clear(&mut self, cx: &mut Cx) {
         self.view
-            .label(id!(source_area.source_label))
+            .label(ids!(source_area.source_label))
             .set_text(cx, "");
         self.view
-            .label(id!(translation_scroll.translation_label))
+            .label(ids!(translation_scroll.translation_label))
             .set_text(cx, "");
         self.status = TranslationStatus::Listening;
         self.update_status_label(cx);
@@ -216,7 +217,7 @@ impl TranslationOverlay {
             TranslationStatus::Translating => ("● TRANSLATING", vec4(0.231, 0.510, 0.831, 1.0)), // blue
             TranslationStatus::Complete => ("✓ DONE", vec4(0.098, 0.725, 0.506, 1.0)),           // green
         };
-        let label = self.view.label(id!(toolbar.status_label));
+        let label = self.view.label(ids!(toolbar.status_label));
         label.set_text(cx, text);
         label.apply_over(cx, live! { draw_text: { color: (color) } });
     }

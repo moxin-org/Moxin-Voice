@@ -54,7 +54,7 @@
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::data::{AudioData, ChatMessage, LogEntry, TranslationUpdate};
 
@@ -664,24 +664,42 @@ pub struct SharedDoraState {
     /// Whether the translation overlay window should be visible.
     /// Set by screen.rs when the translation toggle is pressed.
     pub translation_window_visible: DirtyValue<bool>,
+
+    /// Selected audio input device name for translation microphone capture.
+    /// None = system default. Set by the 更改 button in the translation settings page.
+    pub translation_input_device: DirtyValue<Option<String>>,
+
+    /// Whether the translation overlay should be full-screen (true) or compact (false).
+    pub translation_overlay_fullscreen: DirtyValue<bool>,
 }
 
+/// Global singleton — all crates share the same SharedDoraState instance.
+/// This ensures app.rs timer and TTSScreen DoraIntegration read/write the same state.
+static GLOBAL_DORA_STATE: OnceLock<Arc<SharedDoraState>> = OnceLock::new();
+
 impl SharedDoraState {
-    /// Create new shared state with default capacities
+    /// Returns the process-wide singleton SharedDoraState.
+    /// All callers (app.rs, DoraIntegration, bridges) share the same Arc.
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            chat: ChatState::new(500),   // 500 max chat messages
-            audio: AudioState::new(100), // 100 max pending audio chunks
-            logs: DirtyVec::new(1000),   // 1000 max log entries
-            status: DirtyValue::default(),
-            mic: MicState::new(),
-            asr_transcription: DirtyValue::default(),
-            translation: DirtyValue::default(),
-            translation_window_visible: DirtyValue::new(false),
-        })
+        GLOBAL_DORA_STATE
+            .get_or_init(|| {
+                Arc::new(Self {
+                    chat: ChatState::new(500),
+                    audio: AudioState::new(100),
+                    logs: DirtyVec::new(1000),
+                    status: DirtyValue::default(),
+                    mic: MicState::new(),
+                    asr_transcription: DirtyValue::default(),
+                    translation: DirtyValue::default(),
+                    translation_window_visible: DirtyValue::new(false),
+                    translation_input_device: DirtyValue::new(None),
+                    translation_overlay_fullscreen: DirtyValue::new(false),
+                })
+            })
+            .clone()
     }
 
-    /// Create with custom capacities
+    /// Create with custom capacities (does NOT use the singleton).
     pub fn with_capacities(max_chat: usize, max_audio_chunks: usize, max_logs: usize) -> Arc<Self> {
         Arc::new(Self {
             chat: ChatState::new(max_chat),
@@ -692,6 +710,8 @@ impl SharedDoraState {
             asr_transcription: DirtyValue::default(),
             translation: DirtyValue::default(),
             translation_window_visible: DirtyValue::new(false),
+            translation_input_device: DirtyValue::new(None),
+            translation_overlay_fullscreen: DirtyValue::new(false),
         })
     }
 
@@ -743,6 +763,8 @@ impl Default for SharedDoraState {
             asr_transcription: DirtyValue::default(),
             translation: DirtyValue::default(),
             translation_window_visible: DirtyValue::new(false),
+            translation_input_device: DirtyValue::new(None),
+            translation_overlay_fullscreen: DirtyValue::new(false),
         }
     }
 }

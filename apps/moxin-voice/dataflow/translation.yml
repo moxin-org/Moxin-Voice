@@ -1,18 +1,27 @@
 nodes:
-  # Audio input — reuse existing dynamic node
-  - id: moxin-audio-input
+  # Live microphone capture — uses AecInputBridge (dynamic node).
+  # Device name is read from SharedDoraState.translation_input_device at connect time
+  # (set by the 更改 button in the translation settings page; empty = system default).
+  - id: moxin-mic-input
     path: dynamic
     outputs:
       - audio
+      - audio_segment
+      - is_speaking
+      - speech_started
+      - speech_ended
+      - question_ended
+      - log
+      - status
 
-  # ASR — reuse existing dora-qwen3-asr node
-  # Input language is configured per-session via LANGUAGE env var.
-  # The translation pipeline accepts: zh, en, fr, ja, ko, de, es, ru, ar
+  # ASR — dora-qwen3-asr binary.
+  # Path placeholder is replaced with the absolute binary path at dataflow start.
+  # Pre-build: cargo build --release -p dora-qwen3-asr
   - id: asr
-    build: cargo build --release -p dora-qwen3-asr
-    path: ../../../target/release/dora-qwen3-asr
+    path: __ASR_BIN_PATH__
     inputs:
-      audio: moxin-audio-input/audio
+      # Feed VAD-segmented speech to ASR for better signal/noise ratio.
+      audio: moxin-mic-input/audio_segment
     outputs:
       - transcription
       - log
@@ -20,25 +29,21 @@ nodes:
       LANGUAGE: "__TRANSLATION_SRC_LANG__"   # replaced at dataflow start
       LOG_LEVEL: INFO
 
-  # Translator — new dora-qwen3-translator node
-  # Receives ASR transcription, outputs translated text (streaming, token-level).
-  # Also passes source text through for dual display in the overlay.
+  # Translator — dora-qwen3-translator binary.
+  # Path placeholder is replaced with the absolute binary path at dataflow start.
+  # Pre-build: cargo build --release -p dora-qwen3-translator
   - id: translator
-    build: cargo build --release -p dora-qwen3-translator
-    path: ../../../target/release/dora-qwen3-translator
+    path: __TRANSLATOR_BIN_PATH__
     inputs:
       text: asr/transcription
     outputs:
       - source_text    # pass-through of the original ASR text
-      - translation    # translated text (may be streamed token-by-token)
+      - translation    # translated text (streamed token-by-token)
       - log
     env:
-      SRC_LANG: "__TRANSLATION_SRC_LANG__"   # e.g. "zh", "en", "fr"
-      TGT_LANG: "__TRANSLATION_TGT_LANG__"   # e.g. "en", "fr", "zh"
-      # Model path defaults to ~/.OminiX/models/qwen3-8b-4bit
-      # Override with QWEN3_TRANSLATOR_MODEL_PATH if needed
+      SRC_LANG: "__TRANSLATION_SRC_LANG__"
+      TGT_LANG: "__TRANSLATION_TGT_LANG__"
       QWEN3_TRANSLATOR_MODEL_PATH: ""
-      # Translation quality: 0 = greedy (best for translation), >0 = sampling
       TEMPERATURE: "0.0"
       MAX_TOKENS: "256"
       LOG_LEVEL: INFO

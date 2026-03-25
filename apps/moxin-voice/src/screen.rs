@@ -17,6 +17,7 @@ use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use crate::task_persistence;
 use hound::WavReader;
 use makepad_widgets::*;
+use std::sync::Arc;
 use std::fs::OpenOptions;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8009,6 +8010,9 @@ pub struct TTSScreen {
     dora: Option<DoraIntegration>,
 
     #[rust]
+    translation_dora: Option<DoraIntegration>,
+
+    #[rust]
     update_timer: Timer,
 
     #[rust]
@@ -8233,6 +8237,18 @@ pub struct TTSScreen {
     /// Timer for polling metrics (CPU/MEM) while running
     #[rust]
     translation_metrics_timer: Timer,
+    /// Last translation entry mirrored into the in-app log (for de-dup without consuming dirty state)
+    #[rust]
+    translation_last_logged_fingerprint: Option<String>,
+    /// Available CPAL audio input device names (populated lazily on first 更改 click)
+    #[rust]
+    translation_audio_devices: Vec<String>,
+    /// Index into translation_audio_devices (0 = system default)
+    #[rust]
+    translation_device_idx: usize,
+    /// Whether the overlay is in fullscreen mode
+    #[rust]
+    translation_overlay_fullscreen: bool,
 
     // Model picker modal
     #[rust]
@@ -8483,6 +8499,10 @@ impl Widget for TTSScreen {
             self.translation_tgt_lang = "en".to_string();
             self.translation_log_lines = Vec::new();
             self.translation_metrics_timer = Timer::default();
+            self.translation_last_logged_fingerprint = None;
+            self.translation_audio_devices = Vec::new();
+            self.translation_device_idx = 0;
+            self.translation_overlay_fullscreen = false;
 
             // Add initial log entries
             self.log_entries
@@ -8546,6 +8566,10 @@ impl Widget for TTSScreen {
             }
         }
 
+        if self.translation_dora.is_none() {
+            self.translation_dora = Some(DoraIntegration::new());
+        }
+
         // Pass SharedDoraState to voice clone modal
         if let Some(ref dora) = self.dora {
             let shared_state = dora.shared_dora_state().clone();
@@ -8569,6 +8593,7 @@ impl Widget for TTSScreen {
             self.poll_runtime_initialization(cx);
             self.poll_qwen_model_download(cx);
             self.poll_dora_events(cx);
+            self.poll_translation_dora_events(cx);
             self.maybe_retry_dataflow_start(cx);
 
             // Two-phase wait after backend switch: first bridges drop, then come back to 4
@@ -8937,6 +8962,39 @@ impl Widget for TTSScreen {
             .clicked(&actions)
         {
             self.stop_translation_dataflow(cx);
+        }
+
+        // 更改 input source — cycle through available CPAL audio input devices
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_btn))
+            .clicked(&actions)
+        {
+            self.cycle_translation_input_device(cx);
+        }
+
+        // Overlay style: compact / fullscreen
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact))
+            .clicked(&actions)
+        {
+            self.translation_overlay_fullscreen = false;
+            self.update_translation_overlay_style_buttons(cx);
+            if let Some(shared) = self.translation_shared_state() {
+                shared.translation_overlay_fullscreen.set(false);
+            }
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full))
+            .clicked(&actions)
+        {
+            self.translation_overlay_fullscreen = true;
+            self.update_translation_overlay_style_buttons(cx);
+            if let Some(shared) = self.translation_shared_state() {
+                shared.translation_overlay_fullscreen.set(true);
+            }
         }
 
         // Source language buttons
@@ -14647,6 +14705,41 @@ impl TTSScreen {
         }
     }
 
+    fn poll_translation_dora_events(&mut self, cx: &mut Cx) {
+        let events = self
+            .translation_dora
+            .as_ref()
+            .map(|d| d.poll_events())
+            .unwrap_or_default();
+
+        for event in events {
+            match event {
+                crate::dora_integration::DoraEvent::DataflowStarted { dataflow_id } => {
+                    self.add_translation_log(
+                        cx,
+                        &format!("[INFO] 翻译数据流已启动: {}", dataflow_id),
+                    );
+                }
+                crate::dora_integration::DoraEvent::DataflowStopped => {
+                    self.add_translation_log(cx, "[WARN] 翻译数据流已停止");
+                    self.translation_running = false;
+                    self.show_translation_running_panel(cx, false);
+                    cx.stop_timer(self.translation_metrics_timer);
+                }
+                crate::dora_integration::DoraEvent::Error { message } => {
+                    self.add_translation_log(cx, &format!("[ERROR] 翻译数据流错误: {}", message));
+                    self.translation_running = false;
+                    self.show_translation_running_panel(cx, false);
+                    cx.stop_timer(self.translation_metrics_timer);
+                    if let Some(shared) = self.translation_shared_state() {
+                        shared.translation_window_visible.set(false);
+                    }
+                }
+                crate::dora_integration::DoraEvent::AsrTranscription { .. } => {}
+            }
+        }
+    }
+
     fn is_qwen_backend(backend: &str) -> bool {
         backend == "qwen3_tts_mlx"
     }
@@ -14841,9 +14934,27 @@ impl TTSScreen {
 
         let src_upper = self.translation_src_lang.to_uppercase();
         let tgt_upper = self.translation_tgt_lang.to_uppercase();
+
+        // Resolve absolute binary paths for dev (target/release or target/debug)
+        // and DMG distribution (binary sibling to current_exe).
+        let asr_path = Self::resolve_dora_binary("dora-qwen3-asr")
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                self.add_translation_log(cx, "[WARN] dora-qwen3-asr binary not found — run: cargo build --release -p dora-qwen3-asr");
+                String::new()
+            });
+        let translator_path = Self::resolve_dora_binary("dora-qwen3-translator")
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                self.add_translation_log(cx, "[WARN] dora-qwen3-translator binary not found — run: cargo build --release -p dora-qwen3-translator");
+                String::new()
+            });
+
         let rendered = template_content
             .replace("__TRANSLATION_SRC_LANG__", &self.translation_src_lang)
-            .replace("__TRANSLATION_TGT_LANG__", &self.translation_tgt_lang);
+            .replace("__TRANSLATION_TGT_LANG__", &self.translation_tgt_lang)
+            .replace("__ASR_BIN_PATH__", &asr_path)
+            .replace("__TRANSLATOR_BIN_PATH__", &translator_path);
 
         // Write rendered dataflow to a temp file
         let tmp_path = std::env::temp_dir().join("moxin_translation_dataflow.yml");
@@ -14852,27 +14963,33 @@ impl TTSScreen {
             return;
         }
 
-        // Start dataflow via dora CLI
-        match std::process::Command::new("dora")
-            .args(["start", &tmp_path.to_string_lossy()])
-            .spawn()
-        {
-            Ok(_) => {
-                self.add_translation_log(
-                    cx,
-                    &format!("[INFO] 数据流已启动 ({} → {})", src_upper, tgt_upper),
-                );
-            }
-            Err(e) => {
-                self.add_translation_log(cx, &format!("[ERROR] 启动失败: {}", e));
-                return;
-            }
+        if self.translation_dora.is_none() {
+            self.translation_dora = Some(DoraIntegration::new());
         }
 
+        let started = self
+            .translation_dora
+            .as_ref()
+            .map(|d| d.start_dataflow(tmp_path))
+            .unwrap_or(false);
+        if !started {
+            self.add_translation_log(cx, "[ERROR] 启动失败：未能提交翻译数据流启动命令");
+            return;
+        }
+        self.add_translation_log(
+            cx,
+            &format!("[INFO] 数据流启动命令已提交 ({} → {})", src_upper, tgt_upper),
+        );
+
         // Show the translation overlay window via SharedDoraState
-        if let Some(dora) = &self.dora {
-            let shared = dora.shared_dora_state();
+        if let Some(shared) = self.translation_shared_state() {
+            // Force a visibility dirty edge even if state was previously true
+            // (e.g. user manually closed the OS window while state remained true).
+            shared.translation_window_visible.set(false);
             shared.translation_window_visible.set(true);
+            shared
+                .translation_overlay_fullscreen
+                .set(self.translation_overlay_fullscreen);
         }
 
         // Switch to running view
@@ -14888,19 +15005,18 @@ impl TTSScreen {
         self.add_translation_log(cx, "[INFO] 正在停止翻译...");
 
         // Hide the overlay window
-        if let Some(dora) = &self.dora {
-            let shared = dora.shared_dora_state();
+        if let Some(shared) = self.translation_shared_state() {
             shared.translation_window_visible.set(false);
             shared.translation.set(None);
         }
 
-        // Stop dora translation dataflow by its yml tag (best-effort)
-        let _ = std::process::Command::new("dora")
-            .args(["stop", "--name", "moxin-translation-listener"])
-            .spawn();
+        if let Some(dora) = &self.translation_dora {
+            let _ = dora.stop_dataflow();
+        }
 
         self.translation_running = false;
         self.show_translation_running_panel(cx, false);
+        self.translation_last_logged_fingerprint = None;
 
         // Stop metrics timer
         cx.stop_timer(self.translation_metrics_timer);
@@ -14935,26 +15051,32 @@ impl TTSScreen {
             .set_text(cx, &mem_display);
 
         // Update VAD status from shared state
-        if let Some(dora) = &self.dora {
-            let shared = dora.shared_dora_state();
+        if let Some(shared) = self.translation_shared_state() {
             let translation_snapshot = shared.translation.read();
             if let Some(update) = translation_snapshot {
                 let vad_text = if update.is_complete { "句完成" } else { "识别中" };
                 self.view
                     .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.metrics_row.metrics_vad.translation_vad_label))
                     .set_text(cx, vad_text);
-            }
-            // Mirror newly arrived translation chunks to the log
-            if let Some(new_update) = shared.translation.read_if_dirty() {
-                if let Some(update) = new_update {
-                    if !update.source_text.is_empty() {
-                        let msg = if update.is_complete {
-                            format!("[翻译完成] {} → {}", update.source_text, update.translation)
-                        } else {
-                            format!("[识别中] {}", update.source_text)
-                        };
-                        self.add_translation_log(cx, &msg);
-                    }
+                // Mirror newly arrived translation chunks to the log WITHOUT consuming dirty flag.
+                let fingerprint = format!(
+                    "{}|{}|{}",
+                    update.source_text, update.translation, update.is_complete
+                );
+                let should_log = self
+                    .translation_last_logged_fingerprint
+                    .as_ref()
+                    .map(|last| last != &fingerprint)
+                    .unwrap_or(true);
+
+                if should_log && !update.source_text.is_empty() {
+                    let msg = if update.is_complete {
+                        format!("[翻译完成] {} → {}", update.source_text, update.translation)
+                    } else {
+                        format!("[识别中] {}", update.source_text)
+                    };
+                    self.add_translation_log(cx, &msg);
+                    self.translation_last_logged_fingerprint = Some(fingerprint);
                 }
             }
         }
@@ -15035,6 +15157,96 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { active: (ja_tgt) } draw_text: { active: (ja_tgt) } });
         self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_fr))
             .apply_over(cx, live! { draw_bg: { active: (fr_tgt) } draw_text: { active: (fr_tgt) } });
+    }
+
+    /// Update the active state of the 紧凑/全屏 overlay style buttons.
+    fn update_translation_overlay_style_buttons(&mut self, cx: &mut Cx) {
+        let full = if self.translation_overlay_fullscreen { 1.0_f64 } else { 0.0 };
+        let compact = 1.0 - full;
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact))
+            .apply_over(cx, live! { draw_bg: { active: (compact) } draw_text: { active: (compact) } });
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full))
+            .apply_over(cx, live! { draw_bg: { active: (full) } draw_text: { active: (full) } });
+    }
+
+    /// Cycle to the next available CPAL audio input device.
+    /// Enumerates devices on first call. Updates the source label and SharedDoraState.
+    fn cycle_translation_input_device(&mut self, cx: &mut Cx) {
+        use cpal::traits::{DeviceTrait, HostTrait};
+
+        // Enumerate on first use
+        if self.translation_audio_devices.is_empty() {
+            let host = cpal::default_host();
+            let mut names: Vec<String> = vec!["系统默认麦克风".to_string()];
+            if let Ok(devs) = host.input_devices() {
+                for d in devs {
+                    if let Ok(name) = d.name() {
+                        if !names.contains(&name) {
+                            names.push(name);
+                        }
+                    }
+                }
+            }
+            self.translation_audio_devices = names;
+            self.translation_device_idx = 0;
+        }
+
+        // Advance to next device
+        self.translation_device_idx =
+            (self.translation_device_idx + 1) % self.translation_audio_devices.len();
+
+        let selected = self.translation_audio_devices[self.translation_device_idx].clone();
+
+        // Update the source label
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label))
+            .set_text(cx, &selected);
+
+        // Write device name to SharedDoraState (None = system default)
+        let device_for_bridge = if self.translation_device_idx == 0 {
+            None
+        } else {
+            Some(selected)
+        };
+        if let Some(shared) = self.translation_shared_state() {
+            shared.translation_input_device.set(device_for_bridge);
+        }
+    }
+
+    fn translation_shared_state(&self) -> Option<Arc<moxin_dora_bridge::SharedDoraState>> {
+        self.translation_dora
+            .as_ref()
+            .map(|dora| dora.shared_dora_state().clone())
+    }
+
+    /// Resolve the absolute path of a Dora node binary.
+    /// Search order (ensures correct path in both dev and DMG app bundle):
+    ///   1. Same directory as the current executable (app bundle / installed)
+    ///   2. target/release/ relative to CWD  (dev, release build)
+    ///   3. target/debug/  relative to CWD  (dev, debug build)
+    fn resolve_dora_binary(name: &str) -> Option<std::path::PathBuf> {
+        // 1. App bundle: binary lives beside the main executable
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let candidate = dir.join(name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+        // 2. dev release build
+        let release = std::path::PathBuf::from("target/release").join(name);
+        if release.exists() {
+            return release.canonicalize().ok().or(Some(release));
+        }
+        // 3. dev debug build
+        let debug = std::path::PathBuf::from("target/debug").join(name);
+        if debug.exists() {
+            return debug.canonicalize().ok().or(Some(debug));
+        }
+        None
     }
 
     fn generate_speech(&mut self, cx: &mut Cx) {
@@ -18176,6 +18388,13 @@ impl TTSScreen {
 }
 
 impl TTSScreenRef {
+    pub fn translation_shared_dora_state(
+        &self,
+    ) -> Option<Arc<moxin_dora_bridge::SharedDoraState>> {
+        self.borrow()
+            .and_then(|inner| inner.translation_shared_state())
+    }
+
     pub fn update_dark_mode(&self, cx: &mut Cx, dark_mode: f64) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.dark_mode = dark_mode;
