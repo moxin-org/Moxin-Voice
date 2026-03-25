@@ -22,6 +22,8 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5.0"
+minijinja = "2.12"
+minijinja-contrib = { version = "2.12", features = ["pycompat"] }
 
 [[bin]]
 name = "dora-qwen3-translator"

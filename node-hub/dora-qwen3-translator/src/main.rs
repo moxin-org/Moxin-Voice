@@ -36,7 +36,9 @@
 
 use anyhow::{anyhow, Result};
 use arrow::array::{Array, StringArray};
-use dora_node_api::{DoraNode, Event, IntoArrow, Metadata};
+use dora_node_api::{DoraNode, Event, IntoArrow};
+use minijinja::{context, Environment};
+use minijinja_contrib::pycompat::unknown_method_callback;
 use mlx_rs::ops::indexing::{IndexOp, NewAxis};
 use mlx_rs::transforms::eval;
 use mlx_lm_utils::tokenizer::{
@@ -170,6 +172,98 @@ fn build_system_prompt(src_lang: &str, tgt_lang: &str) -> String {
     )
 }
 
+fn supports_enable_thinking(chat_template: &str) -> bool {
+    chat_template.contains("enable_thinking")
+}
+
+fn render_prompt_with_enable_thinking(
+    chat_template: &str,
+    system_prompt: &str,
+    user_text: &str,
+    enable_thinking: bool,
+) -> Result<String> {
+    let mut env = Environment::new();
+    env.set_unknown_method_callback(unknown_method_callback);
+    env.add_template_owned("chat".to_string(), chat_template.to_string())
+        .map_err(|e| anyhow!("Failed to compile chat_template: {e}"))?;
+    let template = env
+        .get_template("chat")
+        .map_err(|e| anyhow!("Failed to load compiled chat_template: {e}"))?;
+
+    let messages = vec![
+        Conversation {
+            role: "system",
+            content: system_prompt,
+        },
+        Conversation {
+            role: "user",
+            content: user_text,
+        },
+    ];
+
+    let rendered = template
+        .render(context! {
+            messages => messages,
+            add_generation_prompt => true,
+            enable_thinking => enable_thinking,
+        })
+        .map_err(|e| anyhow!("Failed to render chat_template: {e}"))?;
+    Ok(rendered)
+}
+
+fn build_prompt_token_ids(
+    tokenizer: &mut Tokenizer,
+    chat_template: &str,
+    model_id: &str,
+    system_prompt: &str,
+    user_text: &str,
+    force_disable_thinking: bool,
+) -> Result<Vec<u32>> {
+    // Qwen3 template supports a real switch: enable_thinking=false
+    if force_disable_thinking && supports_enable_thinking(chat_template) {
+        match render_prompt_with_enable_thinking(chat_template, system_prompt, user_text, false) {
+            Ok(rendered) => {
+                let encoding = tokenizer
+                    .encode(rendered.as_str(), false)
+                    .map_err(|e| anyhow!("Tokenization failed (manual template render): {e:?}"))?;
+                return Ok(encoding.get_ids().to_vec());
+            }
+            Err(e) => {
+                tracing::warn!("No-think template render failed, fallback to default template path: {e}");
+            }
+        }
+    }
+
+    // Fallback to existing path for non-Qwen3 or templates without the switch.
+    let conversations: Vec<Conversation<&str, &str>> = vec![
+        Conversation {
+            role: "system",
+            content: system_prompt,
+        },
+        Conversation {
+            role: "user",
+            content: user_text,
+        },
+    ];
+    let args = ApplyChatTemplateArgs {
+        conversations: vec![conversations.into()],
+        documents: None,
+        model_id,
+        chat_template_id: None,
+        add_generation_prompt: Some(true),
+        continue_final_message: None,
+    };
+    let encodings = tokenizer
+        .apply_chat_template_and_encode(chat_template.to_string(), args)
+        .map_err(|e| anyhow!("Tokenization failed: {e:?}"))?;
+
+    let prompt_ids = encodings
+        .iter()
+        .flat_map(|enc| enc.get_ids().iter().copied())
+        .collect::<Vec<u32>>();
+    Ok(prompt_ids)
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
@@ -231,6 +325,12 @@ fn main() -> Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("qwen3")
         .to_string();
+    let force_disable_thinking = model_id.to_lowercase().contains("qwen3");
+    tracing::info!(
+        "Prompt mode: {}, template_switch_supported={}",
+        if force_disable_thinking { "qwen3-no-think" } else { "default" },
+        supports_enable_thinking(&chat_template)
+    );
 
     // ── Text buffer for incomplete sentences ─────────────────────────────────
     let mut pending_text = String::new();
@@ -289,38 +389,22 @@ fn main() -> Result<()> {
                 // Pass original text through so the overlay can show it
                 let _ = send_source(&mut node, &text_to_translate);
 
-                // Build chat messages: system + user (the source text)
-                let system_conversations: Vec<Conversation<&str, &str>> = vec![
-                    Conversation { role: "system", content: system_prompt.as_str() },
-                    Conversation { role: "user", content: text_to_translate.as_str() },
-                ];
-
-                let args_with_system = ApplyChatTemplateArgs {
-                    conversations: vec![system_conversations.into()],
-                    documents: None,
-                    model_id: &model_id,
-                    chat_template_id: None,
-                    add_generation_prompt: None,
-                    continue_final_message: None,
-                };
-
-                let encodings = match tokenizer.apply_chat_template_and_encode(
-                    chat_template.clone(),
-                    args_with_system,
+                let prompt_ids = match build_prompt_token_ids(
+                    &mut tokenizer,
+                    &chat_template,
+                    &model_id,
+                    &system_prompt,
+                    &text_to_translate,
+                    force_disable_thinking,
                 ) {
-                    Ok(e) => e,
+                    Ok(ids) => ids,
                     Err(e) => {
-                        let msg = format!("Tokenization failed: {e:?}");
+                        let msg = format!("{e}");
                         tracing::error!("{}", msg);
                         let _ = send_log(&mut node, &msg);
                         continue;
                     }
                 };
-
-                let prompt_ids: Vec<u32> = encodings
-                    .iter()
-                    .flat_map(|enc| enc.get_ids().iter().copied())
-                    .collect();
 
                 let prompt_len = prompt_ids.len();
                 let prompt_tokens = mlx_rs::Array::from(&prompt_ids[..]).index(NewAxis);
