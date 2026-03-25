@@ -118,11 +118,11 @@ pub mod widgets;
 // Re-exports
 pub use bridge::{BridgeState, DoraBridge};
 pub use controller::{DataflowController, DataflowState};
-pub use data::{AudioData, ChatMessage, ControlCommand, DoraData, LogEntry};
+pub use data::{AudioData, ChatMessage, ControlCommand, DoraData, LogEntry, TranslationUpdate};
 pub use dispatcher::{DynamicNodeDispatcher, WidgetBinding};
 pub use error::{BridgeError, BridgeResult};
 pub use shared_state::{SharedDoraState, DoraStatus, ChatState, AudioState, DirtyVec, DirtyValue, MicState};
-pub use widgets::AecControlCommand;
+pub use widgets::{AecControlCommand, TranslationListenerBridge};
 pub use parser::{DataflowParser, EnvRequirement, LogSource, ParsedDataflow, ParsedNode};
 
 /// Prefix for Moxin built-in dynamic nodes in dataflow YAML
@@ -147,6 +147,8 @@ pub enum MoxinNodeType {
     AsrListener,
     /// Audio input widget - sends audio to ASR (for voice cloning)
     AudioInput,
+    /// Translation listener widget - receives source_text + translation from translator node
+    TranslationListener,
 }
 
 impl MoxinNodeType {
@@ -161,6 +163,7 @@ impl MoxinNodeType {
             MoxinNodeType::ParticipantPanel => "moxin-participant-panel",
             MoxinNodeType::AsrListener => "moxin-asr-listener",
             MoxinNodeType::AudioInput => "moxin-audio-input",
+            MoxinNodeType::TranslationListener => "moxin-translation-listener",
         }
     }
 
@@ -175,6 +178,7 @@ impl MoxinNodeType {
             "moxin-participant-panel" => Some(MoxinNodeType::ParticipantPanel),
             "moxin-asr-listener" => Some(MoxinNodeType::AsrListener),
             "moxin-audio-input" => Some(MoxinNodeType::AudioInput),
+            "moxin-translation-listener" => Some(MoxinNodeType::TranslationListener),
             _ => None,
         }
     }

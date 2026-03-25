@@ -16,6 +16,7 @@ mod audio_input;
 mod audio_player;
 mod prompt_input;
 mod system_log;
+mod translation_listener;
 
 pub use aec_input::{AecControlCommand, AecInputBridge};
 pub use asr_listener::AsrListenerBridge;
@@ -23,3 +24,4 @@ pub use audio_input::AudioInputBridge;
 pub use audio_player::AudioPlayerBridge;
 pub use prompt_input::PromptInputBridge;
 pub use system_log::SystemLogBridge;
+pub use translation_listener::TranslationListenerBridge;

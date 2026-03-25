@@ -56,7 +56,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::data::{AudioData, ChatMessage, LogEntry};
+use crate::data::{AudioData, ChatMessage, LogEntry, TranslationUpdate};
 
 /// Thread-safe vector with dirty tracking and maximum size enforcement.
 ///
@@ -656,6 +656,10 @@ pub struct SharedDoraState {
 
     /// ASR transcription result (language, text)
     pub asr_transcription: DirtyValue<Option<(String, String)>>,
+
+    /// Translation update from dora-qwen3-translator
+    /// Set on each streaming token batch; `is_complete` signals the final result.
+    pub translation: DirtyValue<Option<TranslationUpdate>>,
 }
 
 impl SharedDoraState {
@@ -668,6 +672,7 @@ impl SharedDoraState {
             status: DirtyValue::default(),
             mic: MicState::new(),
             asr_transcription: DirtyValue::default(),
+            translation: DirtyValue::default(),
         })
     }
 
@@ -680,6 +685,7 @@ impl SharedDoraState {
             status: DirtyValue::default(),
             mic: MicState::new(),
             asr_transcription: DirtyValue::default(),
+            translation: DirtyValue::default(),
         })
     }
 
@@ -691,6 +697,7 @@ impl SharedDoraState {
         self.status.set(DoraStatus::default());
         self.mic.clear();
         self.asr_transcription.set(None);
+        self.translation.set(None);
     }
 
     /// Add active bridge
@@ -726,6 +733,7 @@ impl Default for SharedDoraState {
             status: DirtyValue::default(),
             mic: MicState::new(),
             asr_transcription: DirtyValue::default(),
+            translation: DirtyValue::default(),
         }
     }
 }
