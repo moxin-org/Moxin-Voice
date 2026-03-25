@@ -1,0 +1,17 @@
+[package]
+name = "moxin-init"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "First-run model download and environment initialization for Moxin Voice"
+
+[dependencies]
+anyhow = { workspace = true }
+dirs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+
+[[bin]]
+name = "moxin-init"
+path = "src/main.rs"
