@@ -10,6 +10,7 @@ description = "Qwen3 LLM translation Dora node for Moxin Voice (Apple Silicon / 
 qwen3-mlx = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "qwen3-mlx" }
 mlx-lm-utils = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-lm-utils" }
 mlx-rs = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-rs" }
+mlx-sys = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-sys" }
 
 # Dora
 dora-node-api = "0.4.0"
