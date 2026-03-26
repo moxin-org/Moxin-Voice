@@ -10,6 +10,7 @@ members = [
     # "node-hub/dora-primespeech-mlx",  # PrimeSpeech MLX — removed (Qwen3-only). See doc/REFACTOR_QWEN3_ONLY.md.
     "node-hub/dora-qwen3-tts-mlx",
     "node-hub/dora-qwen3-asr",
+    "node-hub/dora-qwen3-translator",
 ]
 
 [workspace.package]
@@ -55,3 +56,4 @@ mlx-rs = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a
 mlx-rs-core = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/mlx-rs-core" }
 mlx-sys = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/mlx-rs/mlx-sys" }
 mlx-lm-utils = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/mlx-rs/mlx-lm-utils" }
+qwen3-mlx = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/qwen3-mlx" }

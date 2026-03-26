@@ -11,7 +11,7 @@ use crate::parser::MoxinNodeSpec;
 use crate::shared_state::SharedDoraState;
 use crate::widgets::{
     AecInputBridge, AsrListenerBridge, AudioInputBridge, AudioPlayerBridge, PromptInputBridge,
-    SystemLogBridge,
+    SystemLogBridge, TranslationListenerBridge,
 };
 use crate::MoxinNodeType;
 use parking_lot::RwLock;
@@ -131,6 +131,12 @@ impl DynamicNodeDispatcher {
                         .clone()
                         .expect("AudioInputBridge requires shared state"),
                 )),
+                MoxinNodeType::TranslationListener => {
+                    Box::new(TranslationListenerBridge::with_shared_state(
+                        &node_spec.id,
+                        shared_state.clone(),
+                    ))
+                }
             };
 
             self.bindings.push(WidgetBinding {

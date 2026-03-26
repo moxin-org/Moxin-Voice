@@ -401,6 +401,27 @@ impl EventMetadata {
     }
 }
 
+/// Translation update from the translator node.
+///
+/// Emitted by `TranslationListenerBridge` on every translation chunk.
+/// When `is_complete` is false, the translation text is a partial streaming token batch.
+/// When `is_complete` is true, the translation text is the final, complete translation.
+#[derive(Debug, Clone, Default)]
+pub struct TranslationUpdate {
+    /// Original ASR transcription (source language)
+    pub source_text: String,
+    /// Translated text — partial token batch if streaming, full text if complete
+    pub translation: String,
+    /// True when the translator has finished the full translation
+    pub is_complete: bool,
+    /// Previous completed sentence (source). Carried in every update so the UI
+    /// never loses a completed sentence even if `DirtyValue` overwrites the
+    /// `is_complete=true` state before the 50ms UI poll reads it.
+    pub prev_source_text: String,
+    /// Previous completed sentence (translation).
+    pub prev_translation: String,
+}
+
 /// Get current unix timestamp in milliseconds
 pub fn current_timestamp() -> u64 {
     SystemTime::now()

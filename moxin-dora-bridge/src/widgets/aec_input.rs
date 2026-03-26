@@ -45,6 +45,8 @@ struct VadState {
     speech_end_threshold: usize,
     min_segment_size: usize,
     max_segment_size: usize,
+    start_rms_threshold: f32,
+    end_rms_threshold: f32,
     question_end_silence_ms: f64,
     last_speech_end_time: Option<Instant>,
     question_end_sent: bool,
@@ -59,20 +61,48 @@ impl Default for VadState {
             .and_then(|s| s.parse().ok())
             .unwrap_or(10); // Default 10 frames (~100ms)
 
+        let speech_start_threshold = std::env::var("SPEECH_START_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(3);
+
         let question_end_silence_ms = std::env::var("QUESTION_END_SILENCE_MS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(1000.0); // Default 1000ms
+
+        let min_segment_ms = std::env::var("MIN_SEGMENT_MS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(300); // Default 300ms
+        let min_segment_size = min_segment_ms.saturating_mul(16); // 16kHz mono
+
+        let max_segment_ms = std::env::var("MAX_SEGMENT_MS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(8000); // Default 8s
+        let max_segment_size = max_segment_ms.saturating_mul(16); // 16kHz mono
+
+        let start_rms_threshold = std::env::var("START_RMS_THRESHOLD")
+            .ok()
+            .and_then(|s| s.parse::<f32>().ok())
+            .unwrap_or(0.015);
+        let end_rms_threshold = std::env::var("END_RMS_THRESHOLD")
+            .ok()
+            .and_then(|s| s.parse::<f32>().ok())
+            .unwrap_or(0.009);
 
         Self {
             is_speaking: false,
             speech_buffer: Vec::new(),
             audio_segment_buffer: Vec::new(),
             silence_count: 0,
-            speech_start_threshold: 3,      // Frames of speech to start
+            speech_start_threshold,         // From env or default 3
             speech_end_threshold,           // From env or default 10 frames (~100ms)
-            min_segment_size: 4800,         // 0.3s at 16kHz
-            max_segment_size: 160000,       // 10s at 16kHz
+            min_segment_size,              // Configurable (default 300ms) at 16kHz
+            max_segment_size,               // Configurable (default 8s) at 16kHz
+            start_rms_threshold,            // Start gate (higher)
+            end_rms_threshold,              // End gate (lower, hysteresis)
             question_end_silence_ms,        // From env or default 1000ms
             last_speech_end_time: None,
             question_end_sent: false,
@@ -247,6 +277,7 @@ struct CpalMicCapture {
     is_recording: bool,
     sample_rate: u32,
     vad_threshold: f32, // Energy threshold for simple VAD
+    device_name: Option<String>,
 }
 
 impl CpalMicCapture {
@@ -256,7 +287,19 @@ impl CpalMicCapture {
             audio_buffer: Arc::new(parking_lot::Mutex::new(Vec::new())),
             is_recording: false,
             sample_rate: 16000,
-            vad_threshold: 0.01, // Simple energy-based VAD threshold
+            vad_threshold: 0.01,
+            device_name: None,
+        })
+    }
+
+    fn with_device(device_name: Option<String>) -> Result<Self, String> {
+        Ok(Self {
+            stream: None,
+            audio_buffer: Arc::new(parking_lot::Mutex::new(Vec::new())),
+            is_recording: false,
+            sample_rate: 16000,
+            vad_threshold: 0.01,
+            device_name,
         })
     }
 
@@ -268,9 +311,18 @@ impl CpalMicCapture {
         }
 
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or("No input device available")?;
+        let device = if let Some(ref name) = self.device_name {
+            use cpal::traits::HostTrait;
+            host.input_devices()
+                .ok()
+                .and_then(|mut devs| devs.find(|d| d.name().map(|n| n == *name).unwrap_or(false)))
+                .or_else(|| host.default_input_device())
+                .ok_or_else(|| format!("Input device '{}' not found", name))?
+        } else {
+            use cpal::traits::HostTrait;
+            host.default_input_device()
+                .ok_or("No input device available")?
+        };
 
         // Try to get a config close to 16kHz mono
         let config = cpal::StreamConfig {
@@ -465,7 +517,10 @@ impl AecInputBridge {
         }
 
         // 2. CPAL mic capture (no echo cancellation, fallback)
-        let mut cpal_capture = match CpalMicCapture::new() {
+        let device_name = shared_state
+            .as_ref()
+            .and_then(|ss| ss.translation_input_device.read().clone());
+        let mut cpal_capture = match CpalMicCapture::with_device(device_name) {
             Ok(cap) => cap,
             Err(e) => {
                 error!("Failed to init CPAL capture: {}", e);
@@ -525,16 +580,23 @@ impl AecInputBridge {
         );
         let speech_end_ms = vad_state.speech_end_threshold * 10; // ~10ms per frame
         let total_silence_ms = speech_end_ms as f64 + vad_state.question_end_silence_ms;
+        let max_segment_ms = vad_state.max_segment_size / 16;
+        let min_segment_ms = vad_state.min_segment_size / 16;
         let _ = Self::send_log(
             &mut node,
             &node_id,
             "INFO",
             &format!(
-                "Silence detection: speech_end={}ms ({} frames) + question_end={}ms = total ~{}ms",
+                "Endpoint config: start_frames={}, end_frames={} (~{}ms), min_segment={}ms, question_end={}ms (total~{}ms), max_segment={}ms, rms(start/end)={:.4}/{:.4}",
+                vad_state.speech_start_threshold,
                 speech_end_ms,
                 vad_state.speech_end_threshold,
+                min_segment_ms,
                 vad_state.question_end_silence_ms,
-                total_silence_ms
+                total_silence_ms,
+                max_segment_ms,
+                vad_state.start_rms_threshold,
+                vad_state.end_rms_threshold
             ),
         );
 
@@ -765,8 +827,16 @@ impl AecInputBridge {
                     warn!("Failed to send audio: {}", e);
                 }
 
-                // VAD processing
-                let vad_result = vad_results.iter().any(|&v| v);
+                // VAD processing with conservative hysteresis:
+                // - Start: require BOTH native VAD and RMS >= start threshold (stricter)
+                // - Continue/end: rely on native VAD + end frames to avoid lag from
+                //   ambient-noise RMS tail holding the segment open.
+                let vad_raw = vad_results.iter().any(|&v| v);
+                let vad_result = if vad_state.is_speaking {
+                    vad_raw
+                } else {
+                    vad_raw && rms >= vad_state.start_rms_threshold
+                };
                 let num_chunks = vad_results.len();
 
                 let mut speech_started = false;

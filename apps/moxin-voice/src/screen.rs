@@ -17,6 +17,7 @@ use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use crate::task_persistence;
 use hound::WavReader;
 use makepad_widgets::*;
+use std::sync::Arc;
 use std::fs::OpenOptions;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,7 @@ pub enum AppPage {
     VoiceClone,
     TaskDetail,
     UserSettings,
+    Translation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1287,6 +1289,10 @@ live_design! {
                     nav_history = <NavItem> {
                         text: "History"
                     }
+
+                    nav_translation = <NavItem> {
+                        text: "实时翻译"
+                    }
                 }
 
                 // Sidebar Footer: User Info
@@ -1425,7 +1431,7 @@ live_design! {
                         width: Fill, height: Fit
                         flow: Right
                         align: {y: 0.5}
-                        
+
                         page_title = <Label> {
                             width: Fit, height: Fit
                             draw_text: {
@@ -1437,6 +1443,7 @@ live_design! {
                             }
                             text: "文本转语音"
                         }
+
                     }
 
                     // Cards container - horizontal layout
@@ -5190,6 +5197,767 @@ live_design! {
                         } // End settings_scroll
                     } // End user_settings_page
 
+                    // ============ 实时翻译 Page ============
+                    translation_page = <View> {
+                        width: Fill, height: Fill
+                        flow: Down
+                        spacing: 0
+                        visible: false
+
+                        // Page header
+                        page_header = <View> {
+                            width: Fill, height: Fit
+                            flow: Right
+                            align: {y: 0.5}
+                            padding: {bottom: 16}
+
+                            page_title = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 18.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "实时翻译"
+                            }
+
+                            <View> { width: Fill, height: 1 }
+
+                            // Status badge (hidden when not running)
+                            translation_status_badge = <View> {
+                                width: Fit, height: Fit
+                                flow: Right
+                                spacing: 6
+                                align: {y: 0.5}
+                                padding: {left: 10, right: 10, top: 4, bottom: 4}
+                                visible: false
+                                show_bg: true
+                                draw_bg: {
+                                    instance border_radius: 12.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        sdf.fill(vec4(0.098, 0.725, 0.506, 0.15));
+                                        return sdf.result;
+                                    }
+                                }
+
+                                translation_status_dot = <View> {
+                                    width: 8, height: 8
+                                    show_bg: true
+                                    draw_bg: {
+                                        instance border_radius: 4.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.circle(4.0, 4.0, 3.5);
+                                            sdf.fill(vec4(0.098, 0.725, 0.506, 1.0));
+                                            return sdf.result;
+                                        }
+                                    }
+                                }
+
+                                translation_status_text = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        text_style: <FONT_MEDIUM>{ font_size: 11.0 }
+                                        fn get_color(self) -> vec4 { return vec4(0.098, 0.725, 0.506, 1.0); }
+                                    }
+                                    text: "运行中"
+                                }
+                            }
+                        }
+
+                        // Body: Settings panel and Running panel stacked via Overlay
+                        translation_body = <View> {
+                            width: Fill, height: Fill
+                            flow: Overlay
+
+                            // ── 设置面板（启动前）─────────────────────────────
+                            translation_settings_panel = <View> {
+                                width: Fill, height: Fill
+                                flow: Down
+                                spacing: 12
+                                visible: true
+
+                                // ── 设置卡片组 ──────────────────────────────────
+                                settings_card = <RoundedView> {
+                                    width: Fill, height: Fit
+                                    flow: Down
+                                    spacing: 0
+                                    padding: 0
+                                    show_bg: true
+                                    draw_bg: {
+                                        instance dark_mode: 0.0
+                                        instance border_radius: 10.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                            let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                            sdf.fill(bg);
+                                            sdf.stroke(border, 1.0);
+                                            return sdf.result;
+                                        }
+                                    }
+
+                                    // 输入源
+                                    setting_row_source = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 12
+
+                                        <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "输入源"
+                                        }
+
+                                        translation_source_label = <Label> {
+                                            width: Fill, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_REGULAR>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "系统默认麦克风"
+                                        }
+
+                                        translation_source_btn = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 10, right: 10}
+                                            text: "更改"
+                                            draw_bg: {
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    sdf.fill(vec4(0.231, 0.435, 0.831, 0.12));
+                                                    sdf.stroke(vec4(0.231, 0.435, 0.831, 0.35), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 { return vec4(0.231, 0.435, 0.831, 1.0); }
+                                            }
+                                        }
+                                    }
+
+                                    // 分隔线
+                                    <View> {
+                                        width: Fill, height: 1
+                                        margin: {left: 16, right: 16}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            fn pixel(self) -> vec4 {
+                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                            }
+                                        }
+                                    }
+
+                                    // 输入语言
+                                    setting_row_src_lang = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 8
+
+                                        <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "输入语言"
+                                        }
+
+                                        src_lang_zh = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "中文"
+                                            draw_bg: {
+                                                instance active: 1.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 1.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+
+                                        src_lang_en = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "英语"
+                                            draw_bg: {
+                                                instance active: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+
+                                        src_lang_ja = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "日语"
+                                            draw_bg: {
+                                                instance active: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+
+                                        src_lang_fr = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "法语"
+                                            draw_bg: {
+                                                instance active: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 分隔线
+                                    <View> {
+                                        width: Fill, height: 1
+                                        margin: {left: 16, right: 16}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            fn pixel(self) -> vec4 {
+                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                            }
+                                        }
+                                    }
+
+                                    // 目标语言
+                                    setting_row_tgt_lang = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 8
+
+                                        <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "目标语言"
+                                        }
+
+                                        tgt_lang_en = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "英语"
+                                            draw_bg: {
+                                                instance active: 1.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 1.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+
+                                        tgt_lang_zh = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "中文"
+                                            draw_bg: {
+                                                instance active: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+
+                                        tgt_lang_ja = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "日语"
+                                            draw_bg: {
+                                                instance active: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+
+                                        tgt_lang_fr = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "法语"
+                                            draw_bg: {
+                                                instance active: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 分隔线
+                                    <View> {
+                                        width: Fill, height: 1
+                                        margin: {left: 16, right: 16}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            fn pixel(self) -> vec4 {
+                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                            }
+                                        }
+                                    }
+
+                                    // 浮窗样式
+                                    setting_row_overlay = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 8
+
+                                        <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "浮窗样式"
+                                        }
+
+                                        overlay_style_compact = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "紧凑"
+                                            draw_bg: {
+                                                instance active: 1.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 1.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+
+                                        overlay_style_full = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "全屏"
+                                            draw_bg: {
+                                                instance active: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+                                    }
+                                } // End settings_card
+
+                                // Spacer
+                                <View> { width: Fill, height: Fill }
+
+                                // 启动按钮
+                                translation_start_btn = <Button> {
+                                    width: Fill, height: 48
+                                    text: "启动实时翻译"
+                                    draw_bg: {
+                                        instance border_radius: 10.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            sdf.fill(vec4(0.231, 0.435, 0.831, 1.0));
+                                            return sdf.result;
+                                        }
+                                    }
+                                    draw_text: {
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                        fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                                    }
+                                }
+                            } // End translation_settings_panel
+
+                            // ── 运行面板（启动后）─────────────────────────────
+                            translation_running_panel = <View> {
+                                width: Fill, height: Fill
+                                flow: Down
+                                spacing: 12
+                                visible: false
+
+                                // 实时数据行
+                                metrics_row = <View> {
+                                    width: Fill, height: Fit
+                                    flow: Right
+                                    spacing: 10
+
+                                    metrics_cpu = <RoundedView> {
+                                        width: Fill, height: 56
+                                        flow: Down
+                                        spacing: 4
+                                        align: {x: 0.0, y: 0.5}
+                                        padding: {left: 14, right: 14, top: 10, bottom: 10}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            instance border_radius: 8.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
+                                                sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
+                                                return sdf.result;
+                                            }
+                                        }
+
+                                        <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_REGULAR>{ font_size: 10.0 }
+                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
+                                            }
+                                            text: "CPU"
+                                        }
+                                        translation_cpu_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
+                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode); }
+                                            }
+                                            text: "—"
+                                        }
+                                    }
+
+                                    metrics_mem = <RoundedView> {
+                                        width: Fill, height: 56
+                                        flow: Down
+                                        spacing: 4
+                                        align: {x: 0.0, y: 0.5}
+                                        padding: {left: 14, right: 14, top: 10, bottom: 10}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            instance border_radius: 8.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
+                                                sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
+                                                return sdf.result;
+                                            }
+                                        }
+
+                                        <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_REGULAR>{ font_size: 10.0 }
+                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
+                                            }
+                                            text: "内存"
+                                        }
+                                        translation_mem_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
+                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode); }
+                                            }
+                                            text: "—"
+                                        }
+                                    }
+
+                                    metrics_vad = <RoundedView> {
+                                        width: Fill, height: 56
+                                        flow: Down
+                                        spacing: 4
+                                        align: {x: 0.0, y: 0.5}
+                                        padding: {left: 14, right: 14, top: 10, bottom: 10}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            instance border_radius: 8.0
+                                            fn pixel(self) -> vec4 {
+                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
+                                                sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
+                                                return sdf.result;
+                                            }
+                                        }
+
+                                        <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_REGULAR>{ font_size: 10.0 }
+                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
+                                            }
+                                            text: "VAD"
+                                        }
+                                        translation_vad_label = <Label> {
+                                            width: Fit, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
+                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode); }
+                                            }
+                                            text: "静默"
+                                        }
+                                    }
+                                } // End metrics_row
+
+                                // 日志区域
+                                translation_log_card = <RoundedView> {
+                                    width: Fill, height: Fill
+                                    flow: Down
+                                    spacing: 0
+                                    show_bg: true
+                                    draw_bg: {
+                                        instance dark_mode: 0.0
+                                        instance border_radius: 10.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
+                                            sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
+                                            return sdf.result;
+                                        }
+                                    }
+
+                                    // 日志头
+                                    <View> {
+                                        width: Fill, height: 36
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 14, right: 14}
+
+                                        <Label> {
+                                            width: Fill, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
+                                            }
+                                            text: "运行日志"
+                                        }
+                                    }
+
+                                    <View> {
+                                        width: Fill, height: 1
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            fn pixel(self) -> vec4 { return mix((SLATE_100), (SLATE_700), self.dark_mode); }
+                                        }
+                                    }
+
+                                    translation_log_scroll = <ScrollYView> {
+                                        width: Fill, height: Fill
+                                        flow: Down
+                                        padding: {left: 14, right: 14, top: 10, bottom: 10}
+                                        spacing: 2
+
+                                        translation_log_label = <Label> {
+                                            width: Fill, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_REGULAR>{ font_size: 11.5 }
+                                                wrap: Word
+                                                fn get_color(self) -> vec4 { return mix(vec4(0.3,0.35,0.42,1.0), vec4(0.65,0.7,0.78,1.0), self.dark_mode); }
+                                            }
+                                            text: ""
+                                        }
+                                    }
+                                } // End translation_log_card
+
+                                // 停止按钮
+                                translation_stop_btn = <Button> {
+                                    width: Fill, height: 44
+                                    text: "停止翻译"
+                                    draw_bg: {
+                                        instance border_radius: 10.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            sdf.fill(vec4(0.85, 0.25, 0.25, 1.0));
+                                            return sdf.result;
+                                        }
+                                    }
+                                    draw_text: {
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                        fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                                    }
+                                }
+                            } // End translation_running_panel
+                        } // End translation_body
+                    } // End translation_page
+
                 } // End content_area
             } // End left_column
 
@@ -7242,6 +8010,9 @@ pub struct TTSScreen {
     dora: Option<DoraIntegration>,
 
     #[rust]
+    translation_dora: Option<DoraIntegration>,
+
+    #[rust]
     update_timer: Timer,
 
     #[rust]
@@ -7449,6 +8220,35 @@ pub struct TTSScreen {
     selected_output_device_idx: usize,
     #[rust]
     selected_input_device_idx: usize,
+
+    // ── Translation page state ────────────────────────────────────────────────
+    /// Whether the translation dataflow is currently running
+    #[rust]
+    translation_running: bool,
+    /// Source language code, e.g. "zh"
+    #[rust]
+    translation_src_lang: String,
+    /// Target language code, e.g. "en"
+    #[rust]
+    translation_tgt_lang: String,
+    /// Log lines displayed in the running panel
+    #[rust]
+    translation_log_lines: Vec<String>,
+    /// Timer for polling metrics (CPU/MEM) while running
+    #[rust]
+    translation_metrics_timer: Timer,
+    /// Last translation entry mirrored into the in-app log (for de-dup without consuming dirty state)
+    #[rust]
+    translation_last_logged_fingerprint: Option<String>,
+    /// Available CPAL audio input device names (populated lazily on first 更改 click)
+    #[rust]
+    translation_audio_devices: Vec<String>,
+    /// Index into translation_audio_devices (0 = system default)
+    #[rust]
+    translation_device_idx: usize,
+    /// Whether the overlay is in fullscreen mode
+    #[rust]
+    translation_overlay_fullscreen: bool,
 
     // Model picker modal
     #[rust]
@@ -7692,7 +8492,18 @@ impl Widget for TTSScreen {
             self.qwen_model_status_text = self.tr("未就绪", "Not ready").to_string();
             self.dora_start_attempt_at = None;
             self.dora_start_in_flight = false;
-            
+
+            // Translation page defaults
+            self.translation_running = false;
+            self.translation_src_lang = "zh".to_string();
+            self.translation_tgt_lang = "en".to_string();
+            self.translation_log_lines = Vec::new();
+            self.translation_metrics_timer = Timer::default();
+            self.translation_last_logged_fingerprint = None;
+            self.translation_audio_devices = Vec::new();
+            self.translation_device_idx = 0;
+            self.translation_overlay_fullscreen = false;
+
             // Add initial log entries
             self.log_entries
                 .push("[INFO] [tts] Moxin TTS initialized".to_string());
@@ -7755,6 +8566,10 @@ impl Widget for TTSScreen {
             }
         }
 
+        if self.translation_dora.is_none() {
+            self.translation_dora = Some(DoraIntegration::new());
+        }
+
         // Pass SharedDoraState to voice clone modal
         if let Some(ref dora) = self.dora {
             let shared_state = dora.shared_dora_state().clone();
@@ -7768,11 +8583,17 @@ impl Widget for TTSScreen {
             self.hide_toast(cx);
         }
 
+        // Translation metrics polling (1s)
+        if self.translation_metrics_timer.is_event(event).is_some() && self.translation_running {
+            self.poll_translation_metrics(cx);
+        }
+
         // Poll for audio and logs
         if self.update_timer.is_event(event).is_some() {
             self.poll_runtime_initialization(cx);
             self.poll_qwen_model_download(cx);
             self.poll_dora_events(cx);
+            self.poll_translation_dora_events(cx);
             self.maybe_retry_dataflow_start(cx);
 
             // Two-phase wait after backend switch: first bridges drop, then come back to 4
@@ -8116,6 +8937,100 @@ impl Widget for TTSScreen {
             self.update_history_display(cx);
             self.switch_page(cx, AppPage::TextToSpeech);
             self.update_sidebar_nav_states(cx);
+        }
+
+        // ── Translation page navigation ───────────────────────────────────────
+        if self
+            .view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_translation))
+            .clicked(&actions)
+        {
+            self.switch_page(cx, AppPage::Translation);
+        }
+
+        // ── Translation page: start / stop / settings buttons ────────────────
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_start_btn))
+            .clicked(&actions)
+        {
+            self.start_translation_dataflow(cx);
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_stop_btn))
+            .clicked(&actions)
+        {
+            self.stop_translation_dataflow(cx);
+        }
+
+        // 更改 input source — cycle through available CPAL audio input devices
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_btn))
+            .clicked(&actions)
+        {
+            self.cycle_translation_input_device(cx);
+        }
+
+        // Overlay style: compact / fullscreen
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact))
+            .clicked(&actions)
+        {
+            self.translation_overlay_fullscreen = false;
+            self.update_translation_overlay_style_buttons(cx);
+            if let Some(shared) = self.translation_shared_state() {
+                shared.translation_overlay_fullscreen.set(false);
+            }
+        }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full))
+            .clicked(&actions)
+        {
+            self.translation_overlay_fullscreen = true;
+            self.update_translation_overlay_style_buttons(cx);
+            if let Some(shared) = self.translation_shared_state() {
+                shared.translation_overlay_fullscreen.set(true);
+            }
+        }
+
+        // Source language buttons
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_zh)).clicked(&actions) {
+            self.translation_src_lang = "zh".to_string();
+            self.update_translation_lang_buttons(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_en)).clicked(&actions) {
+            self.translation_src_lang = "en".to_string();
+            self.update_translation_lang_buttons(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_ja)).clicked(&actions) {
+            self.translation_src_lang = "ja".to_string();
+            self.update_translation_lang_buttons(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_fr)).clicked(&actions) {
+            self.translation_src_lang = "fr".to_string();
+            self.update_translation_lang_buttons(cx);
+        }
+
+        // Target language buttons
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_en)).clicked(&actions) {
+            self.translation_tgt_lang = "en".to_string();
+            self.update_translation_lang_buttons(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_zh)).clicked(&actions) {
+            self.translation_tgt_lang = "zh".to_string();
+            self.update_translation_lang_buttons(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_ja)).clicked(&actions) {
+            self.translation_tgt_lang = "ja".to_string();
+            self.update_translation_lang_buttons(cx);
+        }
+        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_fr)).clicked(&actions) {
+            self.translation_tgt_lang = "fr".to_string();
+            self.update_translation_lang_buttons(cx);
         }
 
         // Handle sidebar footer click (navigate to User & Settings page)
@@ -11761,6 +12676,7 @@ impl TTSScreen {
         } else {
             0.0
         };
+        let translation_active = if self.current_page == AppPage::Translation { 1.0 } else { 0.0 };
 
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_tts))
@@ -11799,6 +12715,15 @@ impl TTSScreen {
                 },
             );
         self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_translation))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (translation_active) }
+                    draw_text: { active: (translation_active) }
+                },
+            );
+        self.view
             .view(ids!(app_layout.sidebar.sidebar_footer))
             .apply_over(cx, live! { draw_bg: { active: (user_settings_active) } });
     }
@@ -11820,6 +12745,7 @@ impl TTSScreen {
         let show_clone = page == AppPage::VoiceClone;
         let show_detail = page == AppPage::TaskDetail;
         let show_user_settings = page == AppPage::UserSettings;
+        let show_translation = page == AppPage::Translation;
 
         self.view
             .view(ids!(
@@ -11869,6 +12795,15 @@ impl TTSScreen {
                     .user_settings_page
             ))
             .set_visible(cx, show_user_settings);
+        self.view
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+            ))
+            .set_visible(cx, show_translation);
 
         // Show audio player bar only after first successful generation on TTS page
         self.view
@@ -13770,6 +14705,41 @@ impl TTSScreen {
         }
     }
 
+    fn poll_translation_dora_events(&mut self, cx: &mut Cx) {
+        let events = self
+            .translation_dora
+            .as_ref()
+            .map(|d| d.poll_events())
+            .unwrap_or_default();
+
+        for event in events {
+            match event {
+                crate::dora_integration::DoraEvent::DataflowStarted { dataflow_id } => {
+                    self.add_translation_log(
+                        cx,
+                        &format!("[INFO] 翻译数据流已启动: {}", dataflow_id),
+                    );
+                }
+                crate::dora_integration::DoraEvent::DataflowStopped => {
+                    self.add_translation_log(cx, "[WARN] 翻译数据流已停止");
+                    self.translation_running = false;
+                    self.show_translation_running_panel(cx, false);
+                    cx.stop_timer(self.translation_metrics_timer);
+                }
+                crate::dora_integration::DoraEvent::Error { message } => {
+                    self.add_translation_log(cx, &format!("[ERROR] 翻译数据流错误: {}", message));
+                    self.translation_running = false;
+                    self.show_translation_running_panel(cx, false);
+                    cx.stop_timer(self.translation_metrics_timer);
+                    if let Some(shared) = self.translation_shared_state() {
+                        shared.translation_window_visible.set(false);
+                    }
+                }
+                crate::dora_integration::DoraEvent::AsrTranscription { .. } => {}
+            }
+        }
+    }
+
     fn is_qwen_backend(backend: &str) -> bool {
         backend == "qwen3_tts_mlx"
     }
@@ -13918,6 +14888,414 @@ impl TTSScreen {
         self.dora_start_attempt_at = None;
 
         self.add_log(cx, "[INFO] [tts] Dataflow stopped");
+    }
+
+    // ── Translation helpers ───────────────────────────────────────────────────
+
+    /// Toggle the translation overlay on/off.
+    ///
+    /// When activating:
+    ///   1. Materialises `translation.yml` with src/tgt lang env placeholders replaced
+    ///   2. Starts a separate Dora dataflow for the translation pipeline
+    ///   3. Sets `SharedDoraState.translation_window_visible = true` so `app.rs` shows the window
+    ///
+    /// When deactivating: stops the translation dataflow and hides the window.
+    /// Start the translation dataflow and switch the translation page to running view.
+    fn start_translation_dataflow(&mut self, cx: &mut Cx) {
+        self.add_translation_log(cx, "[INFO] 正在启动翻译数据流...");
+
+        // Resolve the dataflow template path
+        let template_path = {
+            let candidates = [
+                std::path::PathBuf::from("apps/moxin-voice/dataflow/translation.yml"),
+                dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(".OminiX/dataflows/translation.yml"),
+            ];
+            candidates.into_iter().find(|p| p.exists())
+        };
+
+        let template_path = match template_path {
+            Some(p) => p,
+            None => {
+                self.add_translation_log(cx, "[ERROR] translation.yml 未找到");
+                return;
+            }
+        };
+
+        // Read template and substitute language placeholders
+        let template_content = match std::fs::read_to_string(&template_path) {
+            Ok(s) => s,
+            Err(e) => {
+                self.add_translation_log(cx, &format!("[ERROR] 读取模板失败: {}", e));
+                return;
+            }
+        };
+
+        let src_upper = self.translation_src_lang.to_uppercase();
+        let tgt_upper = self.translation_tgt_lang.to_uppercase();
+
+        // Endpoint detection policy (language-aware):
+        // - start/end frame hysteresis
+        // - minimum segment duration gate
+        // - start/end RMS hysteresis
+        let (
+            speech_start_frames,
+            speech_end_frames,
+            speech_end_ms,
+            question_end_silence_ms,
+            min_segment_ms,
+            start_rms_threshold,
+            end_rms_threshold,
+        ) = match self.translation_src_lang.as_str() {
+            // Chinese: lower endpoint/min-segment latency while preserving stability.
+            "zh" => (5_i32, 10_i32, 420_i32, 1200_i32, 420_i32, 0.018_f32, 0.010_f32),
+            "en" => (4_i32, 10_i32, 300_i32, 900_i32, 300_i32, 0.015_f32, 0.009_f32),
+            "fr" => (4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32),
+            _ => (4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32),
+        };
+        let max_segment_ms = 8000_i32;
+
+        // Resolve absolute binary paths for dev (target/release or target/debug)
+        // and DMG distribution (binary sibling to current_exe).
+        let asr_path = Self::resolve_dora_binary("dora-qwen3-asr")
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                self.add_translation_log(cx, "[WARN] dora-qwen3-asr binary not found — run: cargo build --release -p dora-qwen3-asr");
+                String::new()
+            });
+        let translator_path = Self::resolve_dora_binary("dora-qwen3-translator")
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                self.add_translation_log(cx, "[WARN] dora-qwen3-translator binary not found — run: cargo build --release -p dora-qwen3-translator");
+                String::new()
+            });
+
+        let rendered = template_content
+            .replace("__TRANSLATION_SRC_LANG__", &self.translation_src_lang)
+            .replace("__TRANSLATION_TGT_LANG__", &self.translation_tgt_lang)
+            .replace("__ASR_BIN_PATH__", &asr_path)
+            .replace("__TRANSLATOR_BIN_PATH__", &translator_path)
+            .replace("__SPEECH_START_FRAMES__", &speech_start_frames.to_string())
+            .replace("__SPEECH_END_FRAMES__", &speech_end_frames.to_string())
+            .replace("__SPEECH_END_MS__", &speech_end_ms.to_string())
+            .replace(
+                "__QUESTION_END_SILENCE_MS__",
+                &question_end_silence_ms.to_string(),
+            )
+            .replace("__MIN_SEGMENT_MS__", &min_segment_ms.to_string())
+            .replace("__MAX_SEGMENT_MS__", &max_segment_ms.to_string())
+            .replace(
+                "__START_RMS_THRESHOLD__",
+                &format!("{:.4}", start_rms_threshold),
+            )
+            .replace("__END_RMS_THRESHOLD__", &format!("{:.4}", end_rms_threshold));
+
+        // Write rendered dataflow to a temp file
+        let tmp_path = std::env::temp_dir().join("moxin_translation_dataflow.yml");
+        if let Err(e) = std::fs::write(&tmp_path, &rendered) {
+            self.add_translation_log(cx, &format!("[ERROR] 写入临时文件失败: {}", e));
+            return;
+        }
+
+        if self.translation_dora.is_none() {
+            self.translation_dora = Some(DoraIntegration::new());
+        }
+
+        let started = self
+            .translation_dora
+            .as_ref()
+            .map(|d| d.start_dataflow(tmp_path))
+            .unwrap_or(false);
+        if !started {
+            self.add_translation_log(cx, "[ERROR] 启动失败：未能提交翻译数据流启动命令");
+            return;
+        }
+        self.add_translation_log(
+            cx,
+            &format!("[INFO] 数据流启动命令已提交 ({} → {})", src_upper, tgt_upper),
+        );
+        self.add_translation_log(
+            cx,
+            &format!(
+                "[INFO] VAD 策略: start={}f, end={}ms ({}f), min_segment={}ms, question_end={}ms, max_segment={}ms, rms(start/end)={:.4}/{:.4}",
+                speech_start_frames,
+                speech_end_ms,
+                speech_end_frames,
+                min_segment_ms,
+                question_end_silence_ms,
+                max_segment_ms,
+                start_rms_threshold,
+                end_rms_threshold
+            ),
+        );
+
+        // Show the translation overlay window via SharedDoraState
+        if let Some(shared) = self.translation_shared_state() {
+            // Force a visibility dirty edge even if state was previously true
+            // (e.g. user manually closed the OS window while state remained true).
+            shared.translation_window_visible.set(false);
+            shared.translation_window_visible.set(true);
+            shared
+                .translation_overlay_fullscreen
+                .set(self.translation_overlay_fullscreen);
+        }
+
+        // Switch to running view
+        self.translation_running = true;
+        self.show_translation_running_panel(cx, true);
+
+        // Start metrics polling timer (1s interval)
+        self.translation_metrics_timer = cx.start_interval(1.0);
+    }
+
+    /// Stop the translation dataflow and return to settings view.
+    fn stop_translation_dataflow(&mut self, cx: &mut Cx) {
+        self.add_translation_log(cx, "[INFO] 正在停止翻译...");
+
+        // Hide the overlay window
+        if let Some(shared) = self.translation_shared_state() {
+            shared.translation_window_visible.set(false);
+            shared.translation.set(None);
+        }
+
+        if let Some(dora) = &self.translation_dora {
+            let _ = dora.stop_dataflow();
+        }
+
+        self.translation_running = false;
+        self.show_translation_running_panel(cx, false);
+        self.translation_last_logged_fingerprint = None;
+
+        // Stop metrics timer
+        cx.stop_timer(self.translation_metrics_timer);
+    }
+
+    /// Poll CPU / memory usage and update the metrics cards.
+    fn poll_translation_metrics(&mut self, cx: &mut Cx) {
+        // Read memory from /proc/meminfo (macOS: vm_stat; simplest cross-platform: ps)
+        let mem_str = std::process::Command::new("sh")
+            .args(["-c", "ps -o rss= -p $PPID 2>/dev/null | awk '{printf \"%.0f MB\", $1/1024}'"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| "—".to_string());
+        let mem_str = mem_str.trim().to_string();
+        let mem_display = if mem_str.is_empty() { "—".to_string() } else { mem_str };
+
+        let cpu_str = std::process::Command::new("sh")
+            .args(["-c", "ps -o %cpu= -p $PPID 2>/dev/null | awk '{printf \"%.1f%%\", $1}'"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| "—".to_string());
+        let cpu_str = cpu_str.trim().to_string();
+        let cpu_display = if cpu_str.is_empty() { "—".to_string() } else { cpu_str };
+
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.metrics_row.metrics_cpu.translation_cpu_label))
+            .set_text(cx, &cpu_display);
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.metrics_row.metrics_mem.translation_mem_label))
+            .set_text(cx, &mem_display);
+
+        // Update VAD status from shared state
+        if let Some(shared) = self.translation_shared_state() {
+            let translation_snapshot = shared.translation.read();
+            if let Some(update) = translation_snapshot {
+                let vad_text = if update.is_complete { "句完成" } else { "识别中" };
+                self.view
+                    .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.metrics_row.metrics_vad.translation_vad_label))
+                    .set_text(cx, vad_text);
+                // Mirror newly arrived translation chunks to the log WITHOUT consuming dirty flag.
+                let fingerprint = format!(
+                    "{}|{}|{}",
+                    update.source_text, update.translation, update.is_complete
+                );
+                let should_log = self
+                    .translation_last_logged_fingerprint
+                    .as_ref()
+                    .map(|last| last != &fingerprint)
+                    .unwrap_or(true);
+
+                if should_log && !update.source_text.is_empty() {
+                    let msg = if update.is_complete {
+                        format!("[翻译完成] {} → {}", update.source_text, update.translation)
+                    } else {
+                        format!("[识别中] {}", update.source_text)
+                    };
+                    self.add_translation_log(cx, &msg);
+                    self.translation_last_logged_fingerprint = Some(fingerprint);
+                }
+            }
+        }
+    }
+
+    /// Toggle which panel is visible in the translation page body.
+    fn show_translation_running_panel(&mut self, cx: &mut Cx, running: bool) {
+        // Status badge in page header
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.page_header.translation_status_badge))
+            .set_visible(cx, running);
+
+        // Settings panel ↔ running panel
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel))
+            .set_visible(cx, !running);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel))
+            .set_visible(cx, running);
+
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page))
+            .redraw(cx);
+    }
+
+    /// Append a line to the translation page log and refresh the label.
+    fn add_translation_log(&mut self, cx: &mut Cx, line: &str) {
+        let ts = {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let hh = (now / 3600) % 24;
+            let mm = (now / 60) % 60;
+            let ss = now % 60;
+            format!("{:02}:{:02}:{:02}", hh, mm, ss)
+        };
+        self.translation_log_lines.push(format!("[{}] {}", ts, line));
+        // Keep at most 200 lines
+        if self.translation_log_lines.len() > 200 {
+            self.translation_log_lines.drain(..self.translation_log_lines.len() - 200);
+        }
+        let text = self.translation_log_lines.join("\n");
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_scroll.translation_log_label))
+            .set_text(cx, &text);
+    }
+
+    /// Update the language toggle button visual states after a selection change.
+    fn update_translation_lang_buttons(&mut self, cx: &mut Cx) {
+        let src = self.translation_src_lang.clone();
+        let tgt = self.translation_tgt_lang.clone();
+
+        // src buttons
+        let zh_src = if src == "zh" { 1.0_f64 } else { 0.0 };
+        let en_src = if src == "en" { 1.0_f64 } else { 0.0 };
+        let ja_src = if src == "ja" { 1.0_f64 } else { 0.0 };
+        let fr_src = if src == "fr" { 1.0_f64 } else { 0.0 };
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_zh))
+            .apply_over(cx, live! { draw_bg: { active: (zh_src) } draw_text: { active: (zh_src) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_en))
+            .apply_over(cx, live! { draw_bg: { active: (en_src) } draw_text: { active: (en_src) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_ja))
+            .apply_over(cx, live! { draw_bg: { active: (ja_src) } draw_text: { active: (ja_src) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_fr))
+            .apply_over(cx, live! { draw_bg: { active: (fr_src) } draw_text: { active: (fr_src) } });
+
+        // tgt buttons
+        let en_tgt = if tgt == "en" { 1.0_f64 } else { 0.0 };
+        let zh_tgt = if tgt == "zh" { 1.0_f64 } else { 0.0 };
+        let ja_tgt = if tgt == "ja" { 1.0_f64 } else { 0.0 };
+        let fr_tgt = if tgt == "fr" { 1.0_f64 } else { 0.0 };
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_en))
+            .apply_over(cx, live! { draw_bg: { active: (en_tgt) } draw_text: { active: (en_tgt) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_zh))
+            .apply_over(cx, live! { draw_bg: { active: (zh_tgt) } draw_text: { active: (zh_tgt) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_ja))
+            .apply_over(cx, live! { draw_bg: { active: (ja_tgt) } draw_text: { active: (ja_tgt) } });
+        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_fr))
+            .apply_over(cx, live! { draw_bg: { active: (fr_tgt) } draw_text: { active: (fr_tgt) } });
+    }
+
+    /// Update the active state of the 紧凑/全屏 overlay style buttons.
+    fn update_translation_overlay_style_buttons(&mut self, cx: &mut Cx) {
+        let full = if self.translation_overlay_fullscreen { 1.0_f64 } else { 0.0 };
+        let compact = 1.0 - full;
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact))
+            .apply_over(cx, live! { draw_bg: { active: (compact) } draw_text: { active: (compact) } });
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full))
+            .apply_over(cx, live! { draw_bg: { active: (full) } draw_text: { active: (full) } });
+    }
+
+    /// Cycle to the next available CPAL audio input device.
+    /// Enumerates devices on first call. Updates the source label and SharedDoraState.
+    fn cycle_translation_input_device(&mut self, cx: &mut Cx) {
+        use cpal::traits::{DeviceTrait, HostTrait};
+
+        // Enumerate on first use
+        if self.translation_audio_devices.is_empty() {
+            let host = cpal::default_host();
+            let mut names: Vec<String> = vec!["系统默认麦克风".to_string()];
+            if let Ok(devs) = host.input_devices() {
+                for d in devs {
+                    if let Ok(name) = d.name() {
+                        if !names.contains(&name) {
+                            names.push(name);
+                        }
+                    }
+                }
+            }
+            self.translation_audio_devices = names;
+            self.translation_device_idx = 0;
+        }
+
+        // Advance to next device
+        self.translation_device_idx =
+            (self.translation_device_idx + 1) % self.translation_audio_devices.len();
+
+        let selected = self.translation_audio_devices[self.translation_device_idx].clone();
+
+        // Update the source label
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label))
+            .set_text(cx, &selected);
+
+        // Write device name to SharedDoraState (None = system default)
+        let device_for_bridge = if self.translation_device_idx == 0 {
+            None
+        } else {
+            Some(selected)
+        };
+        if let Some(shared) = self.translation_shared_state() {
+            shared.translation_input_device.set(device_for_bridge);
+        }
+    }
+
+    fn translation_shared_state(&self) -> Option<Arc<moxin_dora_bridge::SharedDoraState>> {
+        self.translation_dora
+            .as_ref()
+            .map(|dora| dora.shared_dora_state().clone())
+    }
+
+    /// Resolve the absolute path of a Dora node binary.
+    /// Search order (ensures correct path in both dev and DMG app bundle):
+    ///   1. Same directory as the current executable (app bundle / installed)
+    ///   2. target/release/ relative to CWD  (dev, release build)
+    ///   3. target/debug/  relative to CWD  (dev, debug build)
+    fn resolve_dora_binary(name: &str) -> Option<std::path::PathBuf> {
+        // 1. App bundle: binary lives beside the main executable
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let candidate = dir.join(name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+        // 2. dev release build
+        let release = std::path::PathBuf::from("target/release").join(name);
+        if release.exists() {
+            return release.canonicalize().ok().or(Some(release));
+        }
+        // 3. dev debug build
+        let debug = std::path::PathBuf::from("target/debug").join(name);
+        if debug.exists() {
+            return debug.canonicalize().ok().or(Some(debug));
+        }
+        None
     }
 
     fn generate_speech(&mut self, cx: &mut Cx) {
@@ -17059,6 +18437,13 @@ impl TTSScreen {
 }
 
 impl TTSScreenRef {
+    pub fn translation_shared_dora_state(
+        &self,
+    ) -> Option<Arc<moxin_dora_bridge::SharedDoraState>> {
+        self.borrow()
+            .and_then(|inner| inner.translation_shared_state())
+    }
+
     pub fn update_dark_mode(&self, cx: &mut Cx, dark_mode: f64) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.dark_mode = dark_mode;
