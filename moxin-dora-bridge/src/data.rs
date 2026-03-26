@@ -414,6 +414,12 @@ pub struct TranslationUpdate {
     pub translation: String,
     /// True when the translator has finished the full translation
     pub is_complete: bool,
+    /// Previous completed sentence (source). Carried in every update so the UI
+    /// never loses a completed sentence even if `DirtyValue` overwrites the
+    /// `is_complete=true` state before the 50ms UI poll reads it.
+    pub prev_source_text: String,
+    /// Previous completed sentence (translation).
+    pub prev_translation: String,
 }
 
 /// Get current unix timestamp in milliseconds

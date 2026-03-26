@@ -107,6 +107,9 @@ pub struct App {
 
     #[rust]
     translation_window_id: Option<WindowId>,
+
+    #[rust]
+    translation_overlay_visible: bool,
 }
 
 impl LiveRegister for App {
@@ -179,6 +182,7 @@ impl MatchEvent for App {
 
         // Poll SharedDoraState every 50 ms for translation updates
         self.poll_timer = cx.start_interval(0.05);
+        self.translation_overlay_visible = false;
 
         ::log::info!("Moxin Voice initialization complete");
     }
@@ -200,6 +204,7 @@ impl MatchEvent for App {
         // ── Translation window visibility ─────────────────────────────────────
         if let Some(visible) = dora_state.translation_window_visible.read_if_dirty() {
             let window_visible: bool = visible;
+            self.translation_overlay_visible = window_visible;
             ::log::info!("[translation_ui] set_visible={}", window_visible);
             if let Some(window_id) = self.translation_window_id {
                 if window_visible {
@@ -217,6 +222,24 @@ impl MatchEvent for App {
                 } else {
                     cx.push_unique_platform_op(CxOsOp::MinimizeWindow(window_id));
                 }
+            }
+
+            // Initialize overlay state immediately on show/hide.
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if window_visible {
+                // Not ready yet until translation bridges are connected.
+                if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                    overlay.set_warming_up(cx);
+                } else {
+                    self.translation_ui
+                        .label(ids!(body.translation_overlay.toolbar.status_label))
+                        .set_text(cx, "● WARMING UP");
+                    self.translation_ui
+                        .label(ids!(body.translation_overlay.translation_scroll.translation_label))
+                        .set_text(cx, "Warming up translation models…");
+                }
+            } else if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.clear(cx);
             }
         }
 
@@ -255,6 +278,8 @@ impl MatchEvent for App {
                             &update.source_text,
                             &update.translation,
                             update.is_complete,
+                            &update.prev_source_text,
+                            &update.prev_translation,
                         );
                     }
                     None => {
@@ -301,6 +326,49 @@ impl MatchEvent for App {
                 };
             };
             self.translation_ui.redraw(cx);
+        }
+
+        // ── Translation overlay status heartbeat (warming/listening) ──────────
+        if self.translation_overlay_visible {
+            let status_snapshot = dora_state.status.read();
+            let bridges_ready = status_snapshot
+                .active_bridges
+                .iter()
+                .any(|b| b == "moxin-mic-input")
+                && status_snapshot
+                    .active_bridges
+                    .iter()
+                    .any(|b| b == "moxin-translation-listener");
+
+            // If no active translation update, keep status informative.
+            let translation_snapshot = dora_state.translation.read();
+            if translation_snapshot.is_none() {
+                let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+                let mut applied_via_widget = false;
+                if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                    applied_via_widget = true;
+                    if bridges_ready {
+                        overlay.set_listening(cx);
+                    } else {
+                        overlay.set_warming_up(cx);
+                    }
+                };
+                if !applied_via_widget {
+                    self.translation_ui
+                        .label(ids!(body.translation_overlay.toolbar.status_label))
+                        .set_text(cx, if bridges_ready { "● LISTENING" } else { "● WARMING UP" });
+                    self.translation_ui
+                        .label(ids!(body.translation_overlay.translation_scroll.translation_label))
+                        .set_text(
+                            cx,
+                            if bridges_ready {
+                                "Listening…"
+                            } else {
+                                "Warming up translation models…"
+                            },
+                        );
+                }
+            }
         }
     }
 

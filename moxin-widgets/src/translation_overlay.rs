@@ -132,7 +132,9 @@ live_design! {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum TranslationStatus {
     #[default]
+    WarmingUp,
     Listening,
+    Transcribing,
     Translating,
     Complete,
 }
@@ -149,6 +151,20 @@ pub struct TranslationOverlay {
     /// Current display status
     #[rust]
     status: TranslationStatus,
+
+    /// Previous completed sentence (source/translation)
+    #[rust]
+    prev_source: String,
+    #[rust]
+    prev_translation: String,
+
+    /// Current sentence under processing
+    #[rust]
+    current_source: String,
+    #[rust]
+    current_translation: String,
+    #[rust]
+    current_is_complete: bool,
 }
 
 impl Widget for TranslationOverlay {
@@ -162,6 +178,22 @@ impl Widget for TranslationOverlay {
 }
 
 impl TranslationOverlay {
+    fn compose_two_lines(prev: &str, current: &str) -> String {
+        let prev = prev.trim();
+        let current = current.trim();
+        if prev.is_empty() {
+            return current.to_string();
+        }
+        if current.is_empty() {
+            return prev.to_string();
+        }
+        format!("{prev}\n{current}")
+    }
+
+    const PLACEHOLDER_WARMING: &'static str = "Warming up translation models…";
+    const PLACEHOLDER_LISTENING: &'static str = "Listening…";
+    const PLACEHOLDER_TRANSCRIBING: &'static str = "Transcribing and preparing translation…";
+
     /// Set the language pair label, e.g. "ZH → EN"
     pub fn set_lang_pair(&mut self, cx: &mut Cx, src: &str, tgt: &str) {
         self.lang_pair = format!("{} → {}", src.to_uppercase(), tgt.to_uppercase());
@@ -181,39 +213,104 @@ impl TranslationOverlay {
         source_text: &str,
         translation: &str,
         is_complete: bool,
+        prev_source: &str,
+        prev_trans: &str,
     ) {
+        // Always sync prev from the authoritative listener-side tracking.
+        // This ensures we never lose a completed sentence due to DirtyValue overwrite.
+        if !prev_source.is_empty() {
+            self.prev_source = prev_source.to_string();
+            self.prev_translation = prev_trans.to_string();
+        }
+
+        if source_text != self.current_source {
+            self.current_source = source_text.to_string();
+            self.current_translation.clear();
+            self.current_is_complete = false;
+        }
+        self.current_translation = translation.to_string();
+        self.current_is_complete = is_complete;
+
+        let source_display = Self::compose_two_lines(&self.prev_source, &self.current_source);
         self.view
             .label(ids!(source_area.source_label))
-            .set_text(cx, source_text);
-        self.view
-            .label(ids!(translation_scroll.translation_label))
-            .set_text(cx, translation);
+            .set_text(cx, &source_display);
 
-        self.status = if is_complete {
-            TranslationStatus::Complete
+        let translation_display =
+            Self::compose_two_lines(&self.prev_translation, &self.current_translation);
+        let translation_label = self.view.label(ids!(translation_scroll.translation_label));
+        if !is_complete && translation_display.trim().is_empty() {
+            translation_label.set_text(cx, Self::PLACEHOLDER_TRANSCRIBING);
+            let placeholder_color = vec4(0.584, 0.647, 0.761, 1.0);
+            translation_label.apply_over(cx, live! { draw_text: { color: (placeholder_color) } });
+            self.status = TranslationStatus::Transcribing;
         } else {
-            TranslationStatus::Translating
-        };
+            let display_text = if !is_complete && self.current_translation.trim().is_empty() {
+                // Keep previous completed sentence visible while current sentence is pending.
+                Self::compose_two_lines(&self.prev_translation, Self::PLACEHOLDER_TRANSCRIBING)
+            } else {
+                translation_display
+            };
+            translation_label.set_text(cx, &display_text);
+            let display_color = if is_complete {
+                vec4(1.0, 1.0, 1.0, 1.0) // final/confirmed
+            } else {
+                vec4(0.780, 0.820, 0.900, 1.0) // tentative during streaming
+            };
+            translation_label.apply_over(cx, live! { draw_text: { color: (display_color) } });
+            self.status = if is_complete {
+                TranslationStatus::Complete
+            } else {
+                TranslationStatus::Translating
+            };
+        }
+        self.update_status_label(cx);
+        self.view.redraw(cx);
+    }
+
+    /// Show warm-up state before dataflow/models are ready.
+    pub fn set_warming_up(&mut self, cx: &mut Cx) {
+        self.status = TranslationStatus::WarmingUp;
+        self.view
+            .label(ids!(source_area.source_label))
+            .set_text(cx, "");
+        let translation_label = self.view.label(ids!(translation_scroll.translation_label));
+        translation_label.set_text(cx, Self::PLACEHOLDER_WARMING);
+        let placeholder_color = vec4(0.584, 0.647, 0.761, 1.0);
+        translation_label.apply_over(cx, live! { draw_text: { color: (placeholder_color) } });
+        self.update_status_label(cx);
+        self.view.redraw(cx);
+    }
+
+    /// Show ready state when listening for user speech.
+    pub fn set_listening(&mut self, cx: &mut Cx) {
+        self.status = TranslationStatus::Listening;
+        self.view
+            .label(ids!(source_area.source_label))
+            .set_text(cx, "");
+        let translation_label = self.view.label(ids!(translation_scroll.translation_label));
+        translation_label.set_text(cx, Self::PLACEHOLDER_LISTENING);
+        let placeholder_color = vec4(0.584, 0.647, 0.761, 1.0);
+        translation_label.apply_over(cx, live! { draw_text: { color: (placeholder_color) } });
         self.update_status_label(cx);
         self.view.redraw(cx);
     }
 
     /// Clear all text and reset to listening state.
     pub fn clear(&mut self, cx: &mut Cx) {
-        self.view
-            .label(ids!(source_area.source_label))
-            .set_text(cx, "");
-        self.view
-            .label(ids!(translation_scroll.translation_label))
-            .set_text(cx, "");
-        self.status = TranslationStatus::Listening;
-        self.update_status_label(cx);
-        self.view.redraw(cx);
+        self.prev_source.clear();
+        self.prev_translation.clear();
+        self.current_source.clear();
+        self.current_translation.clear();
+        self.current_is_complete = false;
+        self.set_listening(cx);
     }
 
     fn update_status_label(&self, cx: &mut Cx) {
         let (text, color) = match self.status {
+            TranslationStatus::WarmingUp => ("● WARMING UP", vec4(0.906, 0.620, 0.204, 1.0)),     // amber
             TranslationStatus::Listening => ("● LISTENING", vec4(0.098, 0.725, 0.506, 1.0)),    // green
+            TranslationStatus::Transcribing => ("● TRANSCRIBING", vec4(0.906, 0.620, 0.204, 1.0)), // amber
             TranslationStatus::Translating => ("● TRANSLATING", vec4(0.231, 0.510, 0.831, 1.0)), // blue
             TranslationStatus::Complete => ("✓ DONE", vec4(0.098, 0.725, 0.506, 1.0)),           // green
         };
@@ -238,9 +335,11 @@ impl TranslationOverlayRef {
         source_text: &str,
         translation: &str,
         is_complete: bool,
+        prev_source: &str,
+        prev_trans: &str,
     ) {
         if let Some(mut inner) = self.borrow_mut() {
-            inner.set_translation(cx, source_text, translation, is_complete);
+            inner.set_translation(cx, source_text, translation, is_complete, prev_source, prev_trans);
         }
     }
 
@@ -248,6 +347,18 @@ impl TranslationOverlayRef {
     pub fn clear(&self, cx: &mut Cx) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.clear(cx);
+        }
+    }
+
+    pub fn set_warming_up(&self, cx: &mut Cx) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_warming_up(cx);
+        }
+    }
+
+    pub fn set_listening(&self, cx: &mut Cx) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_listening(cx);
         }
     }
 }

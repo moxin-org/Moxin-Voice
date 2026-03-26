@@ -4,6 +4,16 @@ nodes:
   # (set by the 更改 button in the translation settings page; empty = system default).
   - id: moxin-mic-input
     path: dynamic
+    env:
+      # Language-aware VAD settings (filled by screen.rs at dataflow start)
+      SPEECH_START_FRAMES: "__SPEECH_START_FRAMES__"
+      SPEECH_END_FRAMES: "__SPEECH_END_FRAMES__"
+      SPEECH_END_MS: "__SPEECH_END_MS__"
+      QUESTION_END_SILENCE_MS: "__QUESTION_END_SILENCE_MS__"
+      MIN_SEGMENT_MS: "__MIN_SEGMENT_MS__"
+      MAX_SEGMENT_MS: "__MAX_SEGMENT_MS__"
+      START_RMS_THRESHOLD: "__START_RMS_THRESHOLD__"
+      END_RMS_THRESHOLD: "__END_RMS_THRESHOLD__"
     outputs:
       - audio
       - audio_segment
@@ -36,6 +46,7 @@ nodes:
     path: __TRANSLATOR_BIN_PATH__
     inputs:
       text: asr/transcription
+      question_ended: moxin-mic-input/question_ended
     outputs:
       - source_text    # pass-through of the original ASR text
       - translation    # translated text (streamed token-by-token)
@@ -55,3 +66,4 @@ nodes:
     inputs:
       source_text: translator/source_text
       translation:  translator/translation
+      log: translator/log

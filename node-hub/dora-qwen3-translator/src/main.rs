@@ -1,11 +1,13 @@
 //! dora-qwen3-translator: real-time translation Dora node powered by qwen3-mlx.
 //!
 //! Pipeline position:
-//!   dora-qwen3-asr → [transcription] → dora-qwen3-translator → [source_text, translation]
+//!   dora-qwen3-asr + moxin-mic-input(question_ended)
+//!      → dora-qwen3-translator
+//!      → [source_text, translation]
 //!
 //! # Inputs
-//!   text  – StringArray (single element: ASR transcription)
-//!           metadata: (none required; src/tgt lang come from env)
+//!   text           – StringArray (single element: ASR transcription chunk)
+//!   question_ended – Float64Array (silence timeout marker from mic bridge)
 //!
 //! # Outputs
 //!   source_text  – StringArray (pass-through of the original ASR text,
@@ -19,20 +21,12 @@
 //!
 //!   log          – StringArray (status / debug messages)
 //!
-//! # Sentence completeness & buffering (module 3 / VAD logic)
+//! # Session finalization model
 //!
-//! Chinese speakers often pause mid-clause (inside long pre-nominal modifier
-//! chains), causing VAD to cut before the head noun arrives.  The translator
-//! buffers incomplete chunks and waits for the next ASR output before
-//! translating, using lightweight heuristics:
-//!
-//!   - Text ending with '的', '地', '得' → likely inside a modifier chain
-//!   - Text ending with subordinating conjunctions (但是, 虽然, 因为 …) → incomplete
-//!   - Maximum buffer duration: FORCE_SEND_SECS (default 8 s elapsed since
-//!     first chunk in the current buffer)
-//!
-//! For EN/FR input the risk is much lower; the default is to translate every
-//! chunk as-is (the LLM handles minor fragments gracefully).
+//! Translator now runs as an explicit session state machine:
+//! - `text` chunks continuously update source_text(streaming)
+//! - sentence finalization happens on `question_ended` OR inactivity timeout
+//! - final translation emits `source_text(complete)` + `translation(complete)`
 
 use anyhow::{anyhow, Result};
 use arrow::array::{Array, StringArray};
@@ -61,15 +55,37 @@ fn send_log(node: &mut DoraNode, msg: &str) -> Result<()> {
     send_str(node, "log", msg, BTreeMap::new())
 }
 
-fn send_source(node: &mut DoraNode, text: &str) -> Result<()> {
+fn send_source(
+    node: &mut DoraNode,
+    text: &str,
+    status: &str,
+    question_id: Option<i64>,
+) -> Result<()> {
     let mut meta = BTreeMap::new();
-    meta.insert("session_status".into(), dora_node_api::Parameter::String("complete".into()));
+    meta.insert("session_status".into(), dora_node_api::Parameter::String(status.into()));
+    if let Some(qid) = question_id {
+        meta.insert(
+            "question_id".to_string(),
+            dora_node_api::Parameter::Integer(qid),
+        );
+    }
     send_str(node, "source_text", text, meta)
 }
 
-fn send_translation_chunk(node: &mut DoraNode, chunk: &str, status: &str) -> Result<()> {
+fn send_translation_chunk(
+    node: &mut DoraNode,
+    chunk: &str,
+    status: &str,
+    question_id: Option<i64>,
+) -> Result<()> {
     let mut meta = BTreeMap::new();
     meta.insert("session_status".into(), dora_node_api::Parameter::String(status.into()));
+    if let Some(qid) = question_id {
+        meta.insert(
+            "question_id".to_string(),
+            dora_node_api::Parameter::Integer(qid),
+        );
+    }
     send_str(node, "translation", chunk, meta)
 }
 
@@ -94,54 +110,27 @@ fn lang_display(code: &str) -> &'static str {
     normalize_lang(code)
 }
 
-// ── Sentence completeness check (module 3) ───────────────────────────────────
-
-/// Returns true if `text` looks like a syntactically complete sentence for
-/// the given source language.  False positives (accepting an incomplete
-/// fragment) are acceptable — the LLM will handle them gracefully.  False
-/// negatives (rejecting a complete sentence) cause unnecessary buffering.
-fn is_syntactically_complete(text: &str, src_lang: &str) -> bool {
-    let t = text.trim();
+fn should_drop_low_info_chunk(chunk: &str, src_lang: &str) -> bool {
+    let t = chunk.trim().trim_matches(|c: char| {
+        c.is_ascii_punctuation() || c.is_whitespace() || "，。！？；：、“”‘’（）()…".contains(c)
+    });
     if t.is_empty() {
-        return false;
-    }
-
-    // For English and French, accept every chunk — the risk of mid-clause VAD
-    // cuts is low and the LLM handles fragments well.
-    let lang = normalize_lang(src_lang);
-    if lang != "Chinese" {
         return true;
     }
 
-    // Chinese-specific checks
-    // 1. Ends with a definite sentence-final punctuation → complete.
-    if t.ends_with('。') || t.ends_with('！') || t.ends_with('？')
-        || t.ends_with('…') || t.ends_with('；')
-    {
-        return true;
-    }
-
-    // 2. Ends with a structural particle → likely inside a modifier chain.
-    //    的/地/得 signal attributive, adverbial, or resultative modifiers.
-    if t.ends_with('的') || t.ends_with('地') || t.ends_with('得') {
-        return false;
-    }
-
-    // 3. Ends with a subordinating conjunction → clause not yet complete.
-    let incomplete_endings: &[&str] = &[
-        "但是", "然而", "不过", "而且", "并且", "虽然", "尽管", "即使",
-        "因为", "由于", "所以", "因此", "如果", "假如", "假设", "只要",
-        "虽", "但", "若", "如",
-    ];
-    for ending in incomplete_endings {
-        if t.ends_with(ending) {
-            return false;
+    // Chinese filler words / non-lexical short utterances that are commonly
+    // triggered by breath/noise and should not be translated as standalone text.
+    if normalize_lang(src_lang) == "Chinese" {
+        const FILLERS: &[&str] = &[
+            "嗯", "啊", "呃", "额", "唔", "哦", "噢", "哎", "哈",
+            "嗯嗯", "啊啊", "呃呃",
+        ];
+        if FILLERS.contains(&t) {
+            return true;
         }
     }
 
-    // 4. Default: accept.  The LLM adds "[...]" if it thinks the input is
-    //    a fragment (see system prompt).
-    true
+    false
 }
 
 // ── Model path resolution ────────────────────────────────────────────────────
@@ -165,11 +154,29 @@ fn build_system_prompt(src_lang: &str, tgt_lang: &str) -> String {
         "/no_think You are a professional conference interpreter. \
          Translate the following {src} text into {tgt}. \
          Output only the translation — no explanations, no annotations, no parentheses. \
-         If the input appears to be a sentence fragment (ends abruptly mid-clause), \
-         translate what is available and append \" [...]\" to indicate continuation is expected.",
+         Append \" [...]\" ONLY when the input is clearly an unfinished fragment; \
+         for complete sentences, NEVER append \"[...]\" and NEVER repeat the translation.",
         src = lang_display(src_lang),
         tgt = lang_display(tgt_lang),
     )
+}
+
+fn post_process_translation(raw: &str, source_is_complete: bool) -> String {
+    let mut out = raw.trim().to_string();
+
+    // For syntactically complete source text, fragment markers are usually noise.
+    if source_is_complete {
+        loop {
+            let trimmed = out.trim_end();
+            if let Some(prefix) = trimmed.strip_suffix("[...]") {
+                out = prefix.trim_end().to_string();
+            } else {
+                break;
+            }
+        }
+    }
+
+    out
 }
 
 fn supports_enable_thinking(chat_template: &str) -> bool {
@@ -264,6 +271,179 @@ fn build_prompt_token_ids(
     Ok(prompt_ids)
 }
 
+fn translate_and_emit(
+    node: &mut DoraNode,
+    tokenizer: &mut Tokenizer,
+    model: &mut qwen3_mlx::Model,
+    chat_template: &str,
+    model_id: &str,
+    system_prompt: &str,
+    text_to_translate: &str,
+    force_disable_thinking: bool,
+    temperature: f32,
+    max_tokens: usize,
+    question_id: Option<i64>,
+) -> Result<()> {
+    const STREAM_BATCH: usize = 5;
+
+    let prompt_ids = build_prompt_token_ids(
+        tokenizer,
+        chat_template,
+        model_id,
+        system_prompt,
+        text_to_translate,
+        force_disable_thinking,
+    )?;
+
+    let prompt_len = prompt_ids.len();
+    let prompt_tokens = mlx_rs::Array::from(&prompt_ids[..]).index(NewAxis);
+    tracing::info!(
+        "Translating {} chars ({} prompt tokens)…",
+        text_to_translate.len(),
+        prompt_len
+    );
+    let t_start = Instant::now();
+
+    let mut cache = Vec::new();
+    let generator = Generate::<KVCache>::new(model, &mut cache, temperature, &prompt_tokens);
+
+    let mut token_buf: Vec<mlx_rs::Array> = Vec::new();
+    let mut full_translation = String::new();
+    let mut generated = 0usize;
+
+    for token_result in generator {
+        let token = match token_result {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = format!("Generation error: {e}");
+                tracing::error!("{}", msg);
+                let _ = send_log(node, &msg);
+                break;
+            }
+        };
+
+        let token_id = token.item::<u32>();
+        if token_id == 151643 || token_id == 151645 {
+            break;
+        }
+
+        token_buf.push(token);
+        generated += 1;
+
+        if token_buf.len() >= STREAM_BATCH {
+            if let Err(e) = eval(&token_buf) {
+                tracing::warn!("eval failed: {e}");
+            }
+            let ids: Vec<u32> = token_buf.drain(..).map(|t| t.item::<u32>()).collect();
+            if let Ok(text) = tokenizer.decode(&ids, true) {
+                if !text.is_empty() {
+                    let _ = send_translation_chunk(node, &text, "streaming", question_id);
+                    full_translation.push_str(&text);
+                }
+            }
+        }
+
+        if generated >= max_tokens {
+            break;
+        }
+    }
+
+    if !token_buf.is_empty() {
+        let _ = eval(&token_buf);
+        let ids: Vec<u32> = token_buf.drain(..).map(|t| t.item::<u32>()).collect();
+        if let Ok(text) = tokenizer.decode(&ids, true) {
+            if !text.is_empty() {
+                full_translation.push_str(&text);
+            }
+        }
+    }
+
+    let elapsed = t_start.elapsed().as_secs_f32();
+    tracing::info!(
+        "Translation done in {:.2}s ({} tokens): {}",
+        elapsed,
+        generated,
+        &full_translation[..full_translation.len().min(100)]
+    );
+    let final_translation = post_process_translation(&full_translation, true);
+    let _ = send_log(
+        node,
+        &format!("Translated in {:.2}s ({} tokens)", elapsed, generated),
+    );
+    let _ = send_translation_chunk(node, &final_translation, "complete", question_id);
+    Ok(())
+}
+
+struct PendingSession {
+    question_id: Option<i64>,
+    text: String,
+    started_at: Instant,
+    last_chunk_at: Instant,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finalize_pending_session(
+    pending: &mut Option<PendingSession>,
+    reason: &str,
+    node: &mut DoraNode,
+    tokenizer: &mut Tokenizer,
+    model: &mut qwen3_mlx::Model,
+    chat_template: &str,
+    model_id: &str,
+    system_prompt: &str,
+    force_disable_thinking: bool,
+    temperature: f32,
+    max_tokens: usize,
+) {
+    let Some(session) = pending.take() else {
+        return;
+    };
+    let text_to_translate = session.text;
+    let question_id = session.question_id;
+    if text_to_translate.trim().is_empty() {
+        return;
+    }
+
+    tracing::info!(
+        "Finalizing sentence (reason={}): {}",
+        reason,
+        &text_to_translate[..text_to_translate.len().min(80)]
+    );
+    let _ = send_log(
+        node,
+        &format!(
+            "Finalizing sentence: reason={}, question_id={:?}, chars={}",
+            reason,
+            question_id,
+            text_to_translate.chars().count()
+        ),
+    );
+    eprintln!(
+        "[translator-finalize] reason={} qid={:?} text={}",
+        reason,
+        question_id,
+        &text_to_translate[..text_to_translate.len().min(120)]
+    );
+    let _ = send_source(node, &text_to_translate, "complete", question_id);
+    if let Err(e) = translate_and_emit(
+        node,
+        tokenizer,
+        model,
+        chat_template,
+        model_id,
+        system_prompt,
+        &text_to_translate,
+        force_disable_thinking,
+        temperature,
+        max_tokens,
+        question_id,
+    ) {
+        let msg = format!("{e}");
+        tracing::error!("{}", msg);
+        let _ = send_log(node, &msg);
+    }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
@@ -290,9 +470,11 @@ fn main() -> Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(256);
-    // How many tokens to batch before sending a streaming update to the UI
-    const STREAM_BATCH: usize = 5;
-    // Force-send buffered text after this many seconds even if incomplete
+    // Idle timeout controls sentence finalization when question_ended is missed.
+    // With question_id present, use longer timeout to avoid premature split.
+    const IDLE_FINALIZE_WITH_QID_MS: u64 = 3200;
+    const IDLE_FINALIZE_NO_QID_MS: u64 = 1400;
+    // Absolute cap for a single buffered session.
     const FORCE_SEND_SECS: u64 = 8;
 
     tracing::info!("Translation: {} → {}", src_lang, tgt_lang);
@@ -332,161 +514,222 @@ fn main() -> Result<()> {
         supports_enable_thinking(&chat_template)
     );
 
-    // ── Text buffer for incomplete sentences ─────────────────────────────────
-    let mut pending_text = String::new();
-    let mut buffer_start: Option<Instant> = None;
+    let mut pending: Option<PendingSession> = None;
+    // Deferred question_ended: when question_ended arrives before the ASR text,
+    // remember it so we can finalize immediately when the matching text arrives.
+    let mut deferred_ended_qid: Option<i64> = None;
 
-    while let Some(event) = events.recv() {
-        match event {
-            Event::Input { id, data, .. } => {
-                if id.as_str() != "text" {
-                    continue;
-                }
-
-                // Extract the transcription string
-                let arr = match data.as_any().downcast_ref::<StringArray>() {
-                    Some(a) if a.len() > 0 => a,
-                    _ => continue,
-                };
-                let chunk = arr.value(0).trim().to_string();
-                if chunk.is_empty() {
-                    continue;
-                }
-
-                tracing::info!("Received ASR chunk: {}", &chunk[..chunk.len().min(80)]);
-
-                // Append to buffer
-                if pending_text.is_empty() {
-                    pending_text = chunk;
-                    buffer_start = Some(Instant::now());
-                } else {
-                    // Join Chinese without space, others with space
-                    let sep = if normalize_lang(&src_lang) == "Chinese" { "" } else { " " };
-                    pending_text.push_str(sep);
-                    pending_text.push_str(&chunk);
-                }
-
-                // Decide whether to translate now or continue buffering
-                let timed_out = buffer_start
-                    .map(|t| t.elapsed() >= Duration::from_secs(FORCE_SEND_SECS))
-                    .unwrap_or(false);
-
-                let complete = is_syntactically_complete(&pending_text, &src_lang);
-
-                if !complete && !timed_out {
-                    tracing::debug!("Buffering (incomplete sentence): {}", &pending_text[..pending_text.len().min(60)]);
-                    continue;
-                }
-
-                // Take the buffered text and reset
-                let text_to_translate = std::mem::take(&mut pending_text);
-                buffer_start = None;
-
-                if timed_out && !complete {
-                    tracing::warn!("Force-sending after {}s timeout: {}", FORCE_SEND_SECS, &text_to_translate[..text_to_translate.len().min(60)]);
-                }
-
-                // Pass original text through so the overlay can show it
-                let _ = send_source(&mut node, &text_to_translate);
-
-                let prompt_ids = match build_prompt_token_ids(
+    loop {
+        // Timer-driven convergence: even with no new inputs, session can finalize.
+        if let Some(session) = pending.as_ref() {
+            let now = Instant::now();
+            let idle_elapsed = now.duration_since(session.last_chunk_at);
+            let age_elapsed = now.duration_since(session.started_at);
+            let idle_threshold_ms = if session.question_id.is_some() {
+                IDLE_FINALIZE_WITH_QID_MS
+            } else {
+                IDLE_FINALIZE_NO_QID_MS
+            };
+            if idle_elapsed >= Duration::from_millis(idle_threshold_ms) {
+                finalize_pending_session(
+                    &mut pending,
+                    "idle_timeout",
+                    &mut node,
                     &mut tokenizer,
+                    &mut model,
                     &chat_template,
                     &model_id,
                     &system_prompt,
-                    &text_to_translate,
                     force_disable_thinking,
-                ) {
-                    Ok(ids) => ids,
-                    Err(e) => {
-                        let msg = format!("{e}");
-                        tracing::error!("{}", msg);
-                        let _ = send_log(&mut node, &msg);
+                    temperature,
+                    max_tokens,
+                );
+            } else if age_elapsed >= Duration::from_secs(FORCE_SEND_SECS) {
+                finalize_pending_session(
+                    &mut pending,
+                    "max_age_timeout",
+                    &mut node,
+                    &mut tokenizer,
+                    &mut model,
+                    &chat_template,
+                    &model_id,
+                    &system_prompt,
+                    force_disable_thinking,
+                    temperature,
+                    max_tokens,
+                );
+            }
+        }
+
+        let event = events.recv_timeout(Duration::from_millis(100));
+        let Some(event) = event else {
+            continue;
+        };
+
+        match event {
+            Event::Input {
+                id,
+                data,
+                metadata,
+                ..
+            } => {
+                if id.as_str() == "text" {
+                    let question_id = metadata
+                        .parameters
+                        .get("question_id")
+                        .and_then(|p| match p {
+                            dora_node_api::Parameter::Integer(v) => Some(*v),
+                            _ => None,
+                        });
+                    let arr = match data.as_any().downcast_ref::<StringArray>() {
+                        Some(a) if a.len() > 0 => a,
+                        _ => continue,
+                    };
+                    let chunk = arr.value(0).trim().to_string();
+                    if chunk.is_empty() {
                         continue;
                     }
-                };
-
-                let prompt_len = prompt_ids.len();
-                let prompt_tokens = mlx_rs::Array::from(&prompt_ids[..]).index(NewAxis);
-
-                tracing::info!("Translating {} chars ({} prompt tokens)…", text_to_translate.len(), prompt_len);
-                let t_start = Instant::now();
-
-                let mut cache = Vec::new();
-                let generator = Generate::<KVCache>::new(&mut model, &mut cache, temperature, &prompt_tokens);
-
-                let mut token_buf: Vec<mlx_rs::Array> = Vec::new();
-                let mut full_translation = String::new();
-                let mut generated = 0usize;
-
-                for token_result in generator {
-                    let token = match token_result {
-                        Ok(t) => t,
-                        Err(e) => {
-                            let msg = format!("Generation error: {e}");
-                            tracing::error!("{}", msg);
-                            let _ = send_log(&mut node, &msg);
-                            break;
-                        }
-                    };
-
-                    let token_id = token.item::<u32>();
-
-                    // Qwen3 EOS tokens
-                    if token_id == 151643 || token_id == 151645 {
-                        break;
+                    if should_drop_low_info_chunk(&chunk, &src_lang) {
+                        tracing::debug!("Dropping low-info ASR chunk: {}", chunk);
+                        continue;
                     }
 
-                    token_buf.push(token);
-                    generated += 1;
-
-                    // Stream every STREAM_BATCH tokens
-                    if token_buf.len() >= STREAM_BATCH {
-                        if let Err(e) = eval(&token_buf) {
-                            tracing::warn!("eval failed: {e}");
+                    tracing::info!("Received ASR chunk: {}", &chunk[..chunk.len().min(80)]);
+                    eprintln!(
+                        "[translator-chunk] qid={:?} chunk={}",
+                        question_id,
+                        &chunk[..chunk.len().min(120)]
+                    );
+                    let now = Instant::now();
+                    match pending.as_mut() {
+                        Some(session) => {
+                            if session.question_id != question_id {
+                                finalize_pending_session(
+                                    &mut pending,
+                                    "question_id_switch",
+                                    &mut node,
+                                    &mut tokenizer,
+                                    &mut model,
+                                    &chat_template,
+                                    &model_id,
+                                    &system_prompt,
+                                    force_disable_thinking,
+                                    temperature,
+                                    max_tokens,
+                                );
+                                pending = Some(PendingSession {
+                                    question_id,
+                                    text: chunk,
+                                    started_at: now,
+                                    last_chunk_at: now,
+                                });
+                            } else {
+                                let sep = if normalize_lang(&src_lang) == "Chinese" {
+                                    ""
+                                } else {
+                                    " "
+                                };
+                                session.text.push_str(sep);
+                                session.text.push_str(&chunk);
+                                session.last_chunk_at = now;
+                            }
                         }
-                        let ids: Vec<u32> = token_buf.drain(..).map(|t| t.item::<u32>()).collect();
-                        if let Ok(text) = tokenizer.decode(&ids, true) {
-                            if !text.is_empty() {
-                                let _ = send_translation_chunk(&mut node, &text, "streaming");
-                                full_translation.push_str(&text);
+                        None => {
+                            pending = Some(PendingSession {
+                                question_id,
+                                text: chunk,
+                                started_at: now,
+                                last_chunk_at: now,
+                            });
+                        }
+                    }
+
+                    if let Some(session) = pending.as_ref() {
+                        let _ = send_source(&mut node, &session.text, "streaming", session.question_id);
+
+                        // Check deferred question_ended: if ASR text arrived after
+                        // question_ended, finalize immediately instead of waiting for idle timeout.
+                        if let Some(deferred_qid) = deferred_ended_qid {
+                            if session.question_id == Some(deferred_qid) {
+                                tracing::info!(
+                                    "Applying deferred question_ended for qid={}",
+                                    deferred_qid
+                                );
+                                eprintln!("[translator-deferred-apply] qid={}", deferred_qid);
+                                deferred_ended_qid = None;
+                                finalize_pending_session(
+                                    &mut pending,
+                                    "deferred_question_ended",
+                                    &mut node,
+                                    &mut tokenizer,
+                                    &mut model,
+                                    &chat_template,
+                                    &model_id,
+                                    &system_prompt,
+                                    force_disable_thinking,
+                                    temperature,
+                                    max_tokens,
+                                );
                             }
                         }
                     }
-
-                    if generated >= max_tokens {
-                        break;
-                    }
+                    continue;
                 }
 
-                // Flush remaining tokens
-                if !token_buf.is_empty() {
-                    let _ = eval(&token_buf);
-                    let ids: Vec<u32> = token_buf.drain(..).map(|t| t.item::<u32>()).collect();
-                    if let Ok(text) = tokenizer.decode(&ids, true) {
-                        if !text.is_empty() {
-                            full_translation.push_str(&text);
+                if id.as_str() == "question_ended" {
+                    let ended_question_id = metadata
+                        .parameters
+                        .get("question_id")
+                        .and_then(|p| match p {
+                            dora_node_api::Parameter::Integer(v) => Some(*v),
+                            _ => None,
+                        });
+                    if let Some(session) = pending.as_ref() {
+                        if ended_question_id.is_some() && session.question_id != ended_question_id {
+                            tracing::info!(
+                                "Ignoring question_ended mismatch: pending={:?}, ended={:?}",
+                                session.question_id, ended_question_id
+                            );
+                            eprintln!(
+                                "[translator-mismatch] pending_qid={:?} ended_qid={:?}",
+                                session.question_id, ended_question_id
+                            );
+                            continue;
                         }
                     }
+                    if pending.is_none() {
+                        // ASR hasn't delivered the text yet; remember for later.
+                        if let Some(qid) = ended_question_id {
+                            tracing::info!(
+                                "question_ended arrived before ASR text, deferring qid={}",
+                                qid
+                            );
+                            eprintln!("[translator-defer] qid={}", qid);
+                            deferred_ended_qid = Some(qid);
+                        }
+                        continue;
+                    }
+                    finalize_pending_session(
+                        &mut pending,
+                        "question_ended",
+                        &mut node,
+                        &mut tokenizer,
+                        &mut model,
+                        &chat_template,
+                        &model_id,
+                        &system_prompt,
+                        force_disable_thinking,
+                        temperature,
+                        max_tokens,
+                    );
+                    deferred_ended_qid = None;
+                    continue;
                 }
-
-                // Send "complete" with the full translation so the UI can do a clean final update
-                let elapsed = t_start.elapsed().as_secs_f32();
-                tracing::info!(
-                    "Translation done in {:.2}s ({} tokens): {}",
-                    elapsed,
-                    generated,
-                    &full_translation[..full_translation.len().min(100)]
-                );
-                let _ = send_log(&mut node, &format!("Translated in {:.2}s ({} tokens)", elapsed, generated));
-                let _ = send_translation_chunk(&mut node, &full_translation, "complete");
             }
-
             Event::Stop(_) => {
                 tracing::info!("Stop event received, shutting down");
                 break;
             }
-
             _ => {}
         }
     }

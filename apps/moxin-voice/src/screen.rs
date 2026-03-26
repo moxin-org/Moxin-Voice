@@ -14935,6 +14935,27 @@ impl TTSScreen {
         let src_upper = self.translation_src_lang.to_uppercase();
         let tgt_upper = self.translation_tgt_lang.to_uppercase();
 
+        // Endpoint detection policy (language-aware):
+        // - start/end frame hysteresis
+        // - minimum segment duration gate
+        // - start/end RMS hysteresis
+        let (
+            speech_start_frames,
+            speech_end_frames,
+            speech_end_ms,
+            question_end_silence_ms,
+            min_segment_ms,
+            start_rms_threshold,
+            end_rms_threshold,
+        ) = match self.translation_src_lang.as_str() {
+            // Chinese: lower endpoint/min-segment latency while preserving stability.
+            "zh" => (5_i32, 10_i32, 420_i32, 1200_i32, 420_i32, 0.018_f32, 0.010_f32),
+            "en" => (4_i32, 10_i32, 300_i32, 900_i32, 300_i32, 0.015_f32, 0.009_f32),
+            "fr" => (4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32),
+            _ => (4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32),
+        };
+        let max_segment_ms = 8000_i32;
+
         // Resolve absolute binary paths for dev (target/release or target/debug)
         // and DMG distribution (binary sibling to current_exe).
         let asr_path = Self::resolve_dora_binary("dora-qwen3-asr")
@@ -14954,7 +14975,21 @@ impl TTSScreen {
             .replace("__TRANSLATION_SRC_LANG__", &self.translation_src_lang)
             .replace("__TRANSLATION_TGT_LANG__", &self.translation_tgt_lang)
             .replace("__ASR_BIN_PATH__", &asr_path)
-            .replace("__TRANSLATOR_BIN_PATH__", &translator_path);
+            .replace("__TRANSLATOR_BIN_PATH__", &translator_path)
+            .replace("__SPEECH_START_FRAMES__", &speech_start_frames.to_string())
+            .replace("__SPEECH_END_FRAMES__", &speech_end_frames.to_string())
+            .replace("__SPEECH_END_MS__", &speech_end_ms.to_string())
+            .replace(
+                "__QUESTION_END_SILENCE_MS__",
+                &question_end_silence_ms.to_string(),
+            )
+            .replace("__MIN_SEGMENT_MS__", &min_segment_ms.to_string())
+            .replace("__MAX_SEGMENT_MS__", &max_segment_ms.to_string())
+            .replace(
+                "__START_RMS_THRESHOLD__",
+                &format!("{:.4}", start_rms_threshold),
+            )
+            .replace("__END_RMS_THRESHOLD__", &format!("{:.4}", end_rms_threshold));
 
         // Write rendered dataflow to a temp file
         let tmp_path = std::env::temp_dir().join("moxin_translation_dataflow.yml");
@@ -14979,6 +15014,20 @@ impl TTSScreen {
         self.add_translation_log(
             cx,
             &format!("[INFO] 数据流启动命令已提交 ({} → {})", src_upper, tgt_upper),
+        );
+        self.add_translation_log(
+            cx,
+            &format!(
+                "[INFO] VAD 策略: start={}f, end={}ms ({}f), min_segment={}ms, question_end={}ms, max_segment={}ms, rms(start/end)={:.4}/{:.4}",
+                speech_start_frames,
+                speech_end_ms,
+                speech_end_frames,
+                min_segment_ms,
+                question_end_silence_ms,
+                max_segment_ms,
+                start_rms_threshold,
+                end_rms_threshold
+            ),
         );
 
         // Show the translation overlay window via SharedDoraState

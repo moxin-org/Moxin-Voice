@@ -85,6 +85,10 @@ impl TranslationListenerBridge {
         let mut current_source_text = String::new();
         // Accumulated translation text (built up from streaming chunks).
         let mut accumulated_translation = String::new();
+        // Previous completed sentence — carried in every SharedDoraState update so
+        // the UI overlay can display it even if it missed the is_complete transition.
+        let mut prev_source_text = String::new();
+        let mut prev_translation = String::new();
 
         loop {
             if stop_receiver.try_recv().is_ok() {
@@ -114,14 +118,54 @@ impl TranslationListenerBridge {
                             None => continue,
                         };
 
-                        if id == DataId::from("source_text".to_owned()) {
-                            // New sentence starting — reset accumulators
+                        if id == DataId::from("log".to_owned()) {
+                            eprintln!("[TranslatorLog] {}", text);
+                        } else if id == DataId::from("source_text".to_owned()) {
+                            let session_status = metadata
+                                .parameters
+                                .iter()
+                                .find(|(k, _)| k.as_str() == "session_status")
+                                .and_then(|(_, v)| {
+                                    if let Parameter::String(s) = v {
+                                        Some(s.as_str())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .unwrap_or("complete");
+
+                            // New sentence / partial ASR streaming update.
                             debug!(
-                                "[TranslationListener] source_text: {}",
-                                &text
+                                "[TranslationListener] source_text (status={}): {}",
+                                session_status, &text
                             );
+
+                            // If source text changed (new sentence starting) and we had
+                            // a non-empty translation for the old sentence, promote it
+                            // to prev even if we never saw is_complete (handles the case
+                            // where complete was overwritten before UI polled).
+                            if text != current_source_text
+                                && !current_source_text.is_empty()
+                                && !accumulated_translation.is_empty()
+                            {
+                                prev_source_text = current_source_text.clone();
+                                prev_translation = accumulated_translation.clone();
+                            }
+
                             current_source_text = text;
                             accumulated_translation.clear();
+
+                            // Push source-only update so overlay can render ASR stream and
+                            // show "working" state before translation tokens arrive.
+                            if let Some(ref shared) = shared_state {
+                                shared.translation.set(Some(TranslationUpdate {
+                                    source_text: current_source_text.clone(),
+                                    translation: String::new(),
+                                    is_complete: false,
+                                    prev_source_text: prev_source_text.clone(),
+                                    prev_translation: prev_translation.clone(),
+                                }));
+                            }
                         } else if id == DataId::from("translation".to_owned()) {
                             // Read session_status from metadata parameters
                             let session_status = metadata
@@ -138,8 +182,14 @@ impl TranslationListenerBridge {
                                 .unwrap_or("complete");
 
                             let is_complete = session_status == "complete";
-
-                            accumulated_translation.push_str(&text);
+                            if is_complete {
+                                // "complete" payload from translator is the FULL sentence.
+                                // Replace instead of append, otherwise we duplicate content.
+                                accumulated_translation = text.clone();
+                            } else {
+                                // "streaming" payload is a delta chunk.
+                                accumulated_translation.push_str(&text);
+                            }
 
                             debug!(
                                 "[TranslationListener] translation chunk (complete={}): {}",
@@ -151,6 +201,8 @@ impl TranslationListenerBridge {
                                     source_text: current_source_text.clone(),
                                     translation: accumulated_translation.clone(),
                                     is_complete,
+                                    prev_source_text: prev_source_text.clone(),
+                                    prev_translation: prev_translation.clone(),
                                 }));
                             }
 
@@ -159,6 +211,13 @@ impl TranslationListenerBridge {
                                     "[TranslationListener] Translation complete: [{}] -> [{}]",
                                     current_source_text, accumulated_translation
                                 );
+                                eprintln!(
+                                    "[TranslationListener] complete source=[{}] translation=[{}]",
+                                    current_source_text, accumulated_translation
+                                );
+                                // Promote completed sentence to prev for next round.
+                                prev_source_text = current_source_text.clone();
+                                prev_translation = accumulated_translation.clone();
                                 // Reset for next sentence
                                 accumulated_translation.clear();
                             }
@@ -281,7 +340,11 @@ impl DoraBridge for TranslationListenerBridge {
     }
 
     fn expected_inputs(&self) -> Vec<String> {
-        vec!["source_text".to_string(), "translation".to_string()]
+        vec![
+            "source_text".to_string(),
+            "translation".to_string(),
+            "log".to_string(),
+        ]
     }
 
     fn expected_outputs(&self) -> Vec<String> {
