@@ -14,7 +14,6 @@ BIN_NAME="moxin-voice-shell"
 PROFILE="release"
 ICON_PATH=""
 OUT_DIR="$ROOT_DIR/dist"
-INCLUDE_PY_SRC="true"
 VERSION="1.0"
 
 usage() {
@@ -28,8 +27,6 @@ Options:
   --icon <path>          .icns or .png icon path (optional)
   --profile <profile>    Cargo profile, e.g. release/dev (default: "$PROFILE")
   --out-dir <dir>        Output directory for .app (default: "$OUT_DIR")
-  --include-python-src   Copy python node sources into app bundle (default: true)
-  --no-python-src        Do not copy python node sources
   --version <version>    CFBundleShortVersionString (default: "$VERSION")
   -h, --help             Show this help
 EOF
@@ -56,14 +53,6 @@ while [[ $# -gt 0 ]]; do
     --out-dir)
       OUT_DIR="$2"
       shift 2
-      ;;
-    --include-python-src)
-      INCLUDE_PY_SRC="true"
-      shift 1
-      ;;
-    --no-python-src)
-      INCLUDE_PY_SRC="false"
-      shift 1
       ;;
     --version)
       VERSION="$2"
@@ -108,11 +97,12 @@ MAKEPAD=apple_bundle MAKEPAD_PACKAGE_DIR=makepad run_cargo_build "$ROOT_DIR" "$P
 # dora-primespeech-mlx build removed (Qwen3-only mode). See doc/REFACTOR_QWEN3_ONLY.md.
 run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen3-tts-mlx --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen3-asr --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
+run_cargo_build "$ROOT_DIR" "$PROFILE" -p moxin-init --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 
 SHELL_BIN_PATH="$ROOT_DIR/target/$PROFILE/$BIN_NAME"
-# TTS_BIN_PATH (moxin-tts-node / PrimeSpeech) removed. See doc/REFACTOR_QWEN3_ONLY.md.
 QWEN_TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/qwen-tts-node"
 QWEN_ASR_BIN_PATH="$ROOT_DIR/target/$PROFILE/dora-qwen3-asr"
+MOXIN_INIT_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-init"
 TRAINER_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-fewshot-trainer"
 MLX_METALLIB_PATH="$ROOT_DIR/target/$PROFILE/mlx.metallib"
 DORA_BIN_PATH="$(command -v dora || true)"
@@ -120,13 +110,16 @@ if [[ ! -f "$SHELL_BIN_PATH" ]]; then
   echo "Binary not found: $SHELL_BIN_PATH"
   exit 1
 fi
-# moxin-tts-node check removed (PrimeSpeech binary no longer bundled).
 if [[ ! -f "$QWEN_TTS_BIN_PATH" ]]; then
   echo "Binary not found: $QWEN_TTS_BIN_PATH"
   exit 1
 fi
 if [[ ! -f "$QWEN_ASR_BIN_PATH" ]]; then
   echo "Binary not found: $QWEN_ASR_BIN_PATH"
+  exit 1
+fi
+if [[ ! -f "$MOXIN_INIT_BIN_PATH" ]]; then
+  echo "Binary not found: $MOXIN_INIT_BIN_PATH"
   exit 1
 fi
 if [[ -z "$DORA_BIN_PATH" || ! -x "$DORA_BIN_PATH" ]]; then
@@ -145,9 +138,9 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR" "$SCRIPTS_DIR" "$DATAFLOW_DIR"
 
 cp "$SHELL_BIN_PATH" "$MACOS_DIR/${BIN_NAME}-bin"
-# moxin-tts-node (PrimeSpeech) removed. See doc/REFACTOR_QWEN3_ONLY.md.
 cp "$QWEN_TTS_BIN_PATH" "$MACOS_DIR/qwen-tts-node"
 cp "$QWEN_ASR_BIN_PATH" "$MACOS_DIR/dora-qwen3-asr"
+cp "$MOXIN_INIT_BIN_PATH" "$MACOS_DIR/moxin-init"
 
 # Bundle Qwen3-TTS voice preview WAV files (pre-generated, committed to repo)
 QWEN_PREVIEWS_SRC="$ROOT_DIR/node-hub/dora-qwen3-tts-mlx/previews"
@@ -169,7 +162,7 @@ fi
 if [[ -f "$TRAINER_BIN_PATH" ]]; then
   cp "$TRAINER_BIN_PATH" "$MACOS_DIR/moxin-fewshot-trainer"
 fi
-chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/qwen-tts-node" "$MACOS_DIR/dora-qwen3-asr"
+chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/qwen-tts-node" "$MACOS_DIR/dora-qwen3-asr" "$MACOS_DIR/moxin-init"
 chmod +x "$MACOS_DIR/dora"
 if [[ -f "$MACOS_DIR/moxin-fewshot-trainer" ]]; then
   chmod +x "$MACOS_DIR/moxin-fewshot-trainer"
@@ -181,20 +174,6 @@ cp "$ROOT_DIR/scripts/macos_run_tts_backend.sh" "$SCRIPTS_DIR/macos_run_tts_back
 chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
 
 cp "$ROOT_DIR/scripts/dataflow/tts.bundle.yml" "$DATAFLOW_DIR/tts.yml"
-
-if [[ "$INCLUDE_PY_SRC" == "true" ]]; then
-  PY_DST="$RES_DIR/python-src"
-  mkdir -p "$PY_DST/libs" "$PY_DST/node-hub" "$PY_DST/models" "$PY_DST/scripts" "$PY_DST/omx-scripts"
-  cp -R "$ROOT_DIR/libs/dora-common" "$PY_DST/libs/dora-common"
-  # dora-asr (Python/FunASR) removed — replaced by dora-qwen3-asr (Rust binary in MacOS/).
-  cp -R "$ROOT_DIR/node-hub/dora-primespeech" "$PY_DST/node-hub/dora-primespeech"
-  cp -R "$ROOT_DIR/models/model-manager" "$PY_DST/models/model-manager"
-  cp "$ROOT_DIR/scripts/convert_all_voices.py" "$PY_DST/scripts/convert_all_voices.py"
-  cp "$ROOT_DIR/scripts/export_all_vits_onnx.py" "$PY_DST/scripts/export_all_vits_onnx.py"
-  cp "$ROOT_DIR/scripts/extract_all_prompt_semantic.py" "$PY_DST/scripts/extract_all_prompt_semantic.py"
-  cp "$ROOT_DIR/scripts/download_qwen3_tts_models.py" "$PY_DST/scripts/download_qwen3_tts_models.py"
-  cp -R "$ROOT_DIR/node-hub/dora-primespeech-mlx/patches/gpt-sovits-mlx/scripts/." "$PY_DST/omx-scripts/"
-fi
 
 # Bundle Makepad live resources for distributable app builds.
 # With MAKEPAD_PACKAGE_DIR=makepad, runtime dependency paths resolve under:
@@ -256,15 +235,10 @@ cd "$DORA_RUNTIME_DIR"
 export MOXIN_APP_RESOURCES="$RES_DIR"
 export MOXIN_FEWSHOT_TRAINER_BIN="$MACOS_DIR/moxin-fewshot-trainer"
 export MOXIN_DORA_RUNTIME_DIR="$DORA_RUNTIME_DIR"
-export MOXIN_CONDA_ROOT="${MOXIN_CONDA_ROOT:-$HOME/.moxinvoice/conda}"
-export MOXIN_CONDA_ENV="${MOXIN_CONDA_ENV:-moxin-studio}"
-export MOXIN_CONDA_ENV_PREFIX="${MOXIN_CONDA_ENV_PREFIX:-$MOXIN_CONDA_ROOT/envs/$MOXIN_CONDA_ENV}"
-export MOXIN_CONDA_BIN="${MOXIN_CONDA_BIN:-$MOXIN_CONDA_ROOT/bin/conda}"
-export MOXIN_QWEN_PY_CONDA_ENV="${MOXIN_QWEN_PY_CONDA_ENV:-moxin-qwen-tts}"
-export MOXIN_QWEN_PY_CONDA_ENV_PREFIX="${MOXIN_QWEN_PY_CONDA_ENV_PREFIX:-$MOXIN_CONDA_ROOT/envs/$MOXIN_QWEN_PY_CONDA_ENV}"
 export QWEN3_TTS_MODEL_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
 export QWEN3_TTS_CUSTOMVOICE_MODEL_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN3_TTS_MODEL_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 export QWEN3_TTS_BASE_MODEL_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN3_TTS_MODEL_ROOT/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
+export QWEN3_ASR_MODEL_PATH="${QWEN3_ASR_MODEL_PATH:-$HOME/.OminiX/models/qwen3-asr-1.7b}"
 
 # Generate a writable runtime dataflow with absolute node paths.
 RUNTIME_DATAFLOW_DIR="$DORA_RUNTIME_DIR/dataflow"
@@ -298,7 +272,7 @@ nodes:
     outputs:
       - control
 
-  - id: primespeech-tts
+  - id: qwen-tts
     path: "$RES_DIR/scripts/macos_run_tts_backend.sh"
     inputs:
       text: moxin-prompt-input/control
@@ -308,20 +282,18 @@ nodes:
       - segment_complete
       - log
     env:
-      VOICE_NAME: "Doubao"
-      MOXIN_INFERENCE_BACKEND: "__MOXIN_INFERENCE_BACKEND__"
-      MOXIN_ZERO_SHOT_BACKEND: "__MOXIN_ZERO_SHOT_BACKEND__"
+      VOICE_NAME: "vivian"
       LOG_LEVEL: INFO
 
   - id: moxin-audio-player
     path: dynamic
     inputs:
-      audio: primespeech-tts/audio
+      audio: qwen-tts/audio
     outputs:
       - buffer_status
 YAML
 export MOXIN_DATAFLOW_PATH="$RUNTIME_DATAFLOW_PATH"
-export PATH="$MACOS_DIR:$MOXIN_CONDA_ENV_PREFIX/bin:$MOXIN_CONDA_ROOT/bin:$HOME/miniconda3/envs/$MOXIN_CONDA_ENV/bin:$HOME/anaconda3/envs/$MOXIN_CONDA_ENV/bin:$HOME/.cargo/bin:$HOME/miniconda3/bin:$HOME/anaconda3/bin:$PATH"
+export PATH="$MACOS_DIR:$HOME/.cargo/bin:$PATH"
 
 # Ensure Dora is available with bounded wait.
 # 1) If already healthy, do nothing.
