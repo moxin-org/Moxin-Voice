@@ -258,10 +258,16 @@ impl TranslationOverlay {
                 vec4(0.780, 0.820, 0.900, 1.0) // tentative during streaming
             };
             translation_label.apply_over(cx, live! { draw_text: { color: (display_color) } });
+            // Status is based on the CURRENT sentence only, not on prev_translation.
+            // Without this, having a non-empty prev_translation causes the status to
+            // show TRANSLATING even while the current sentence is still pending (no
+            // current_translation yet), because translation_display is non-empty.
             self.status = if is_complete {
                 TranslationStatus::Complete
+            } else if !self.current_translation.trim().is_empty() {
+                TranslationStatus::Translating  // current sentence actively streaming
             } else {
-                TranslationStatus::Translating
+                TranslationStatus::Transcribing // waiting for current sentence translation
             };
         }
         self.update_status_label(cx);
