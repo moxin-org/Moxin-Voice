@@ -2,7 +2,7 @@
 
 **分支**：`main`
 **创建日期**：2026-03-25
-**最后更新**：2026-03-25（计划创建）
+**最后更新**：2026-03-26（全部模块完成）
 
 ---
 
@@ -23,11 +23,11 @@ Moxin Voice 经历多次后端重构（Python FunASR → Python PrimeSpeech → 
 | # | 模块 | 描述 | 状态 | 备注 |
 |---|------|------|------|------|
 | 1 | 计划文档 | 本文件 | ✅ 完成 | |
-| 2 | `moxin-init` crate | Rust 模型下载器二进制 | ⏳ 待开始 | 核心新增 |
-| 3 | workspace Cargo.toml | 注册新成员，验证编译 | ⏳ 待开始 | |
-| 4 | `macos_bootstrap.sh` | 大幅简化，去掉 conda | ⏳ 待开始 | 243 行 → ~30 行 |
-| 5 | `macos_preflight.sh` | 删除 conda/Python 检查 | ⏳ 待开始 | |
-| 6 | `build_macos_app.sh` | 打包 moxin-init，删 python-src | ⏳ 待开始 | |
+| 2 | `moxin-init` crate | Rust 模型下载器二进制 | ✅ 完成 | 核心新增 |
+| 3 | workspace Cargo.toml | 注册新成员，验证编译 | ✅ 完成 | |
+| 4 | `macos_bootstrap.sh` | 大幅简化，去掉 conda | ✅ 完成 | 243 行 → 57 行 |
+| 5 | `macos_preflight.sh` | 删除 conda/Python 检查 | ✅ 完成 | |
+| 6 | `build_macos_app.sh` | 打包 moxin-init，删 python-src | ✅ 完成 | |
 
 **状态说明**：⏳ 待开始 · 🔄 进行中 · ✅ 完成 · 🔴 阻塞
 
