@@ -133,6 +133,40 @@ fn should_drop_low_info_chunk(chunk: &str, src_lang: &str) -> bool {
     false
 }
 
+fn ends_with_hard_sentence_boundary(text: &str) -> bool {
+    let trimmed = text.trim_end();
+    trimmed.ends_with('。')
+        || trimmed.ends_with('！')
+        || trimmed.ends_with('？')
+        || trimmed.ends_with('.')
+        || trimmed.ends_with('!')
+        || trimmed.ends_with('?')
+        || trimmed.ends_with('；')
+        || trimmed.ends_with(';')
+}
+
+fn should_force_finalize_by_size(text: &str, src_lang: &str) -> bool {
+    let char_count = text.chars().count();
+    if normalize_lang(src_lang) == "Chinese" {
+        char_count >= 56
+    } else {
+        char_count >= 180
+    }
+}
+
+fn translation_looks_complete(text: &str, generated_tokens: usize) -> bool {
+    if generated_tokens < 8 {
+        return false;
+    }
+    let t = text.trim_end();
+    t.ends_with('.')
+        || t.ends_with('!')
+        || t.ends_with('?')
+        || t.ends_with('。')
+        || t.ends_with('！')
+        || t.ends_with('？')
+}
+
 // ── Model path resolution ────────────────────────────────────────────────────
 
 fn resolve_model_path() -> PathBuf {
@@ -285,6 +319,8 @@ fn translate_and_emit(
     question_id: Option<i64>,
 ) -> Result<()> {
     const STREAM_BATCH: usize = 5;
+    const MAX_TRANSLATION_SECS: f32 = 45.0;
+    const ENABLE_STREAMING_OUTPUT: bool = true;
 
     let prompt_ids = build_prompt_token_ids(
         tokenizer,
@@ -311,7 +347,18 @@ fn translate_and_emit(
     let mut full_translation = String::new();
     let mut generated = 0usize;
 
+    let token_budget = max_tokens;
     for token_result in generator {
+        if t_start.elapsed().as_secs_f32() >= MAX_TRANSLATION_SECS {
+            let msg = format!(
+                "Generation timeout after {:.2}s, forcing finalize",
+                t_start.elapsed().as_secs_f32()
+            );
+            tracing::warn!("{}", msg);
+            let _ = send_log(node, &msg);
+            break;
+        }
+
         let token = match token_result {
             Ok(t) => t,
             Err(e) => {
@@ -337,13 +384,19 @@ fn translate_and_emit(
             let ids: Vec<u32> = token_buf.drain(..).map(|t| t.item::<u32>()).collect();
             if let Ok(text) = tokenizer.decode(&ids, true) {
                 if !text.is_empty() {
-                    let _ = send_translation_chunk(node, &text, "streaming", question_id);
+                    if ENABLE_STREAMING_OUTPUT {
+                        let _ = send_translation_chunk(node, &text, "streaming", question_id);
+                    }
                     full_translation.push_str(&text);
                 }
             }
         }
 
-        if generated >= max_tokens {
+        if translation_looks_complete(&full_translation, generated) {
+            break;
+        }
+
+        if generated >= token_budget {
             break;
         }
     }
@@ -366,11 +419,17 @@ fn translate_and_emit(
         &full_translation[..full_translation.len().min(100)]
     );
     let final_translation = post_process_translation(&full_translation, true);
-    let _ = send_log(
-        node,
-        &format!("Translated in {:.2}s ({} tokens)", elapsed, generated),
-    );
-    let _ = send_translation_chunk(node, &final_translation, "complete", question_id);
+    let _ = send_log(node, &format!(
+        "Translated in {:.2}s ({} tokens)",
+        elapsed, generated
+    ));
+    send_translation_chunk(node, &final_translation, "complete", question_id)?;
+
+    // Release Metal buffer pool accumulated during KV-cache inference.
+    // Equivalent to Python's mx.metal.clear_cache(); prevents memory pressure
+    // from building up across successive translations.
+    unsafe { mlx_sys::mlx_clear_cache(); }
+
     Ok(())
 }
 
@@ -379,6 +438,8 @@ struct PendingSession {
     text: String,
     started_at: Instant,
     last_chunk_at: Instant,
+    last_source_emit_at: Instant,
+    last_source_emit_len: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -441,6 +502,8 @@ fn finalize_pending_session(
         let msg = format!("{e}");
         tracing::error!("{}", msg);
         let _ = send_log(node, &msg);
+        // Never leave UI/session in perpetual "translating" due to a failed send/generation.
+        let _ = send_translation_chunk(node, "", "complete", question_id);
     }
 }
 
@@ -476,6 +539,11 @@ fn main() -> Result<()> {
     const IDLE_FINALIZE_NO_QID_MS: u64 = 1400;
     // Absolute cap for a single buffered session.
     const FORCE_SEND_SECS: u64 = 8;
+    const SOURCE_EMIT_INTERVAL_MS: u64 = 280;
+    const SOURCE_EMIT_MIN_DELTA_CHARS: usize = 10;
+    // Proactive commit to prevent endless backlog during fast continuous speech.
+    const MIN_CHARS_FOR_PUNCT_COMMIT_ZH: usize = 10;
+    const MIN_CHARS_FOR_PUNCT_COMMIT_NON_ZH: usize = 24;
 
     tracing::info!("Translation: {} → {}", src_lang, tgt_lang);
 
@@ -512,6 +580,13 @@ fn main() -> Result<()> {
         "Prompt mode: {}, template_switch_supported={}",
         if force_disable_thinking { "qwen3-no-think" } else { "default" },
         supports_enable_thinking(&chat_template)
+    );
+    tracing::info!(
+        "Stability mode: stream_translation_chunks=false, source_emit_interval_ms=280, source_emit_min_delta_chars=10"
+    );
+    let _ = send_log(
+        &mut node,
+        "Stability mode active: stream_chunks=false, source_emit_interval_ms=280, source_emit_min_delta_chars=10",
     );
 
     let mut pending: Option<PendingSession> = None;
@@ -622,6 +697,8 @@ fn main() -> Result<()> {
                                     text: chunk,
                                     started_at: now,
                                     last_chunk_at: now,
+                                    last_source_emit_at: now,
+                                    last_source_emit_len: 0,
                                 });
                             } else {
                                 let sep = if normalize_lang(&src_lang) == "Chinese" {
@@ -640,12 +717,24 @@ fn main() -> Result<()> {
                                 text: chunk,
                                 started_at: now,
                                 last_chunk_at: now,
+                                last_source_emit_at: now,
+                                last_source_emit_len: 0,
                             });
                         }
                     }
 
-                    if let Some(session) = pending.as_ref() {
-                        let _ = send_source(&mut node, &session.text, "streaming", session.question_id);
+                    if let Some(session) = pending.as_mut() {
+                        let current_len = session.text.chars().count();
+                        let delta = current_len.saturating_sub(session.last_source_emit_len);
+                        let due_by_time = now.duration_since(session.last_source_emit_at)
+                            >= Duration::from_millis(SOURCE_EMIT_INTERVAL_MS);
+                        let due_by_delta = delta >= SOURCE_EMIT_MIN_DELTA_CHARS;
+                        let due_by_boundary = ends_with_hard_sentence_boundary(&session.text);
+                        if due_by_time || due_by_delta || due_by_boundary {
+                            let _ = send_source(&mut node, &session.text, "streaming", session.question_id);
+                            session.last_source_emit_at = now;
+                            session.last_source_emit_len = current_len;
+                        }
 
                         // Check deferred question_ended: if ASR text arrived after
                         // question_ended, finalize immediately instead of waiting for idle timeout.
@@ -672,6 +761,33 @@ fn main() -> Result<()> {
                                 );
                             }
                         }
+                    }
+
+                    let should_finalize_now = pending.as_ref().map(|session| {
+                        let txt = session.text.trim();
+                        let min_chars = if normalize_lang(&src_lang) == "Chinese" {
+                            MIN_CHARS_FOR_PUNCT_COMMIT_ZH
+                        } else {
+                            MIN_CHARS_FOR_PUNCT_COMMIT_NON_ZH
+                        };
+                        (txt.chars().count() >= min_chars && ends_with_hard_sentence_boundary(txt))
+                            || should_force_finalize_by_size(txt, &src_lang)
+                    }).unwrap_or(false);
+
+                    if should_finalize_now {
+                        finalize_pending_session(
+                            &mut pending,
+                            "proactive_boundary_commit",
+                            &mut node,
+                            &mut tokenizer,
+                            &mut model,
+                            &chat_template,
+                            &model_id,
+                            &system_prompt,
+                            force_disable_thinking,
+                            temperature,
+                            max_tokens,
+                        );
                     }
                     continue;
                 }
