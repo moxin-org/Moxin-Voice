@@ -1,0 +1,31 @@
+[package]
+name = "dora-qwen35-translator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Qwen3.5 LLM translation Dora node for Moxin Voice (Apple Silicon / MLX)"
+
+[dependencies]
+# Qwen3.5 LLM inference via OminiX-MLX
+qwen3-5-35b-mlx = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "qwen3-5-35b-mlx" }
+mlx-lm-utils = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-lm-utils" }
+mlx-rs = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-rs" }
+mlx-sys = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", package = "mlx-sys" }
+
+# Dora
+dora-node-api = "0.4.0"
+arrow = { version = "54.2.1", default-features = false, features = ["ipc"] }
+
+# Utilities
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "5.0"
+minijinja = "2.12"
+minijinja-contrib = { version = "2.12", features = ["pycompat"] }
+
+[[bin]]
+name = "dora-qwen35-translator"
+path = "src/main.rs"

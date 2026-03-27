@@ -12,6 +12,7 @@ QWEN_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
 QWEN_CUSTOM_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 QWEN_BASE_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
 QWEN_ASR_MODEL_DIR="${QWEN3_ASR_MODEL_PATH:-$HOME/.OminiX/models/qwen3-asr-1.7b}"
+QWEN35_TRANSLATOR_MODEL_DIR="${QWEN35_TRANSLATOR_MODEL_PATH:-$HOME/.OminiX/models/Qwen3.5-2B-MLX-4bit}"
 
 if [[ -z "$APP_RESOURCES" ]]; then
   APP_RESOURCES="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -66,6 +67,14 @@ qwen_model_ready() {
   [[ -f "$model_dir/speech_tokenizer/model.safetensors" ]]
 }
 
+qwen35_translation_model_ready() {
+  local model_dir="$1"
+  [[ -f "$model_dir/config.json" ]] &&
+  [[ -f "$model_dir/tokenizer.json" ]] &&
+  [[ -f "$model_dir/tokenizer_config.json" ]] &&
+  ([[ -f "$model_dir/model.safetensors" ]] || [[ -f "$model_dir/model.safetensors.index.json" ]])
+}
+
 # Locate qwen-tts-node binary
 qwen_node_resolved=0
 resolve_qwen_node() {
@@ -114,6 +123,13 @@ if [[ ! -x "${APP_RESOURCES}/../MacOS/dora-qwen3-asr" ]] && \
   warnings+=("dora-qwen3-asr binary not found — voice cloning transcription unavailable (run: cargo build -p dora-qwen3-asr)")
 fi
 
+# Check dora-qwen35-translator binary
+if [[ ! -x "${APP_RESOURCES}/../MacOS/dora-qwen35-translator" ]] && \
+   [[ ! -x "${APP_RESOURCES}/target/debug/dora-qwen35-translator" ]] && \
+   [[ ! -x "${APP_RESOURCES}/target/release/dora-qwen35-translator" ]]; then
+  warnings+=("dora-qwen35-translator binary not found — Qwen3.5 translation backend unavailable (run: cargo build -p dora-qwen35-translator)")
+fi
+
 # Check qwen-tts-node binary
 resolve_qwen_node
 if [[ "$qwen_node_resolved" != "1" ]]; then
@@ -147,11 +163,17 @@ if ! qwen_model_ready "$QWEN_BASE_DIR"; then
   errors+=("Qwen3 Base model incomplete: $QWEN_BASE_DIR — run moxin-init or launch the app")
 fi
 
+# Check Qwen3.5 translator model (optional — only needed for the new translator backend)
+if ! qwen35_translation_model_ready "$QWEN35_TRANSLATOR_MODEL_DIR"; then
+  warnings+=("Qwen3.5 translator model incomplete: $QWEN35_TRANSLATOR_MODEL_DIR — run moxin-init before testing dora-qwen35-translator")
+fi
+
 if [[ "$MODE" != "--quick" ]]; then
   echo "=== Moxin Voice Preflight (Qwen3-only) ==="
   echo "Resources:  $APP_RESOURCES"
   echo "Dataflow:   $DATAFLOW_PATH"
   echo "ASR model:  $QWEN_ASR_MODEL_DIR"
+  echo "Qwen3.5 translator model: $QWEN35_TRANSLATOR_MODEL_DIR"
   echo "Qwen root:  $QWEN_ROOT"
   echo ""
 fi

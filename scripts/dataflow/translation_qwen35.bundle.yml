@@ -1,0 +1,56 @@
+nodes:
+  - id: moxin-mic-input
+    path: dynamic
+    env:
+      SPEECH_START_FRAMES: "5"
+      SPEECH_END_FRAMES: "10"
+      SPEECH_END_MS: "420"
+      QUESTION_END_SILENCE_MS: "1200"
+      MIN_SEGMENT_MS: "420"
+      MAX_SEGMENT_MS: "8000"
+      START_RMS_THRESHOLD: "0.0180"
+      END_RMS_THRESHOLD: "0.0100"
+    outputs:
+      - audio
+      - audio_segment
+      - is_speaking
+      - speech_started
+      - speech_ended
+      - question_ended
+      - log
+      - status
+
+  - id: asr
+    path: ../MacOS/dora-qwen3-asr
+    inputs:
+      audio: moxin-mic-input/audio_segment
+    outputs:
+      - transcription
+      - log
+    env:
+      LANGUAGE: "zh"
+      LOG_LEVEL: "INFO"
+
+  - id: translator
+    path: ../MacOS/dora-qwen35-translator
+    inputs:
+      text: asr/transcription
+      question_ended: moxin-mic-input/question_ended
+    outputs:
+      - source_text
+      - translation
+      - log
+    env:
+      SRC_LANG: "zh"
+      TGT_LANG: "en"
+      QWEN35_TRANSLATOR_MODEL_PATH: ""
+      TEMPERATURE: "0.0"
+      MAX_TOKENS: "256"
+      LOG_LEVEL: "INFO"
+
+  - id: moxin-translation-listener
+    path: dynamic
+    inputs:
+      source_text: translator/source_text
+      translation: translator/translation
+      log: translator/log

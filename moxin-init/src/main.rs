@@ -18,6 +18,8 @@
 //! | `QWEN3_TTS_BASE_REPO`             | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit`       |
 //! | `QWEN3_ASR_MODEL_PATH`            | (ASR download skipped if unset)                      |
 //! | `QWEN3_ASR_REPO`                  | `mlx-community/Qwen3-ASR-1.7B-8bit`                 |
+//! | `QWEN35_TRANSLATOR_MODEL_PATH`    | `~/.OminiX/models/Qwen3.5-2B-MLX-4bit`              |
+//! | `QWEN35_TRANSLATOR_REPO`          | `mlx-community/Qwen3.5-2B-MLX-4bit`                 |
 //! | `HF_ENDPOINT`                     | `https://huggingface.co` (set for mirror support)   |
 
 use std::env;
@@ -58,6 +60,14 @@ fn tts_model_ready(dir: &Path) -> bool {
 
 fn asr_model_ready(dir: &Path) -> bool {
     dir.join("config.json").exists()
+}
+
+fn qwen35_translation_model_ready(dir: &Path) -> bool {
+    dir.join("config.json").exists()
+        && dir.join("tokenizer.json").exists()
+        && dir.join("tokenizer_config.json").exists()
+        && (dir.join("model.safetensors").exists()
+            || dir.join("model.safetensors.index.json").exists())
 }
 
 // ── HuggingFace HTTP helpers ──────────────────────────────────────────────────
@@ -195,6 +205,8 @@ struct Config {
     tts_base_repo: String,
     asr_dir: Option<PathBuf>,
     asr_repo: String,
+    qwen35_translator_dir: PathBuf,
+    qwen35_translator_repo: String,
 }
 
 fn resolve_config() -> Config {
@@ -218,6 +230,11 @@ fn resolve_config() -> Config {
         asr_dir: env::var("QWEN3_ASR_MODEL_PATH").ok().map(PathBuf::from),
         asr_repo: env::var("QWEN3_ASR_REPO")
             .unwrap_or_else(|_| "mlx-community/Qwen3-ASR-1.7B-8bit".to_string()),
+        qwen35_translator_dir: env::var("QWEN35_TRANSLATOR_MODEL_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| home.join(".OminiX/models/Qwen3.5-2B-MLX-4bit")),
+        qwen35_translator_repo: env::var("QWEN35_TRANSLATOR_REPO")
+            .unwrap_or_else(|_| "mlx-community/Qwen3.5-2B-MLX-4bit".to_string()),
     }
 }
 
@@ -227,8 +244,8 @@ fn main() -> Result<()> {
     let cfg = resolve_config();
     let state_file = cfg.state_file.as_deref();
 
-    // 3 potential downloads: CustomVoice TTS, Base TTS, ASR (optional)
-    let total: usize = 3;
+    // 4 potential downloads: CustomVoice TTS, Base TTS, Qwen3.5 translator, ASR (optional)
+    let total: usize = 4;
 
     write_state(state_file, 0, total, "Check Models", "Verifying model files");
 
@@ -284,20 +301,49 @@ fn main() -> Result<()> {
         eprintln!("[moxin-init] TTS Base download complete");
     }
 
-    // ── Step 3: ASR (optional — non-fatal if missing or download fails) ───────
+    // ── Step 3: Qwen3.5 translator (optional — non-fatal if missing or download fails) ──
+    if qwen35_translation_model_ready(&cfg.qwen35_translator_dir) {
+        eprintln!("[moxin-init] Qwen3.5 translator model already ready, skipping");
+        write_state(state_file, 3, total, "Qwen3.5 Translator", "Already present");
+    } else {
+        write_state(
+            state_file,
+            3,
+            total,
+            "Downloading Qwen3.5 Translator",
+            "Starting (optional)...",
+        );
+        match download_repo(
+            &client,
+            &cfg.qwen35_translator_repo,
+            &cfg.qwen35_translator_dir,
+            state_file,
+            3,
+            total,
+        ) {
+            Ok(_) => eprintln!("[moxin-init] Qwen3.5 translator download complete"),
+            Err(e) => eprintln!(
+                "[moxin-init] WARN: Qwen3.5 translator download failed (non-fatal, \
+                 existing translator backend still works): {}",
+                e
+            ),
+        }
+    }
+
+    // ── Step 4: ASR (optional — non-fatal if missing or download fails) ───────
     if let Some(asr_dir) = &cfg.asr_dir {
         if asr_model_ready(asr_dir) {
             eprintln!("[moxin-init] ASR model already ready, skipping");
-            write_state(state_file, 3, total, "ASR Model", "Already present");
+            write_state(state_file, 4, total, "ASR Model", "Already present");
         } else {
             write_state(
                 state_file,
-                3,
+                4,
                 total,
                 "Downloading ASR Model",
                 "Starting (optional)...",
             );
-            match download_repo(&client, &cfg.asr_repo, asr_dir, state_file, 3, total) {
+            match download_repo(&client, &cfg.asr_repo, asr_dir, state_file, 4, total) {
                 Ok(_) => eprintln!("[moxin-init] ASR download complete"),
                 Err(e) => eprintln!(
                     "[moxin-init] WARN: ASR download failed (non-fatal, voice cloning \
@@ -307,7 +353,7 @@ fn main() -> Result<()> {
             }
         }
     } else {
-        write_state(state_file, 3, total, "ASR Model", "Skipped (QWEN3_ASR_MODEL_PATH not set)");
+        write_state(state_file, 4, total, "ASR Model", "Skipped (QWEN3_ASR_MODEL_PATH not set)");
     }
 
     write_state(state_file, total, total, "Done", "All models ready");

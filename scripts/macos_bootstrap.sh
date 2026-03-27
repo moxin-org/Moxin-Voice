@@ -17,10 +17,12 @@ QWEN_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
 QWEN_CUSTOM_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 QWEN_BASE_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
 QWEN_ASR_DIR="${QWEN3_ASR_MODEL_PATH:-$HOME/.OminiX/models/qwen3-asr-1.7b}"
+QWEN35_TRANSLATOR_DIR="${QWEN35_TRANSLATOR_MODEL_PATH:-$HOME/.OminiX/models/Qwen3.5-2B-MLX-4bit}"
 
 QWEN_CUSTOM_REPO="${QWEN3_TTS_CUSTOMVOICE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 QWEN_BASE_REPO="${QWEN3_TTS_BASE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
 QWEN_ASR_REPO="${QWEN3_ASR_REPO:-mlx-community/Qwen3-ASR-1.7B-8bit}"
+QWEN35_TRANSLATOR_REPO="${QWEN35_TRANSLATOR_REPO:-mlx-community/Qwen3.5-2B-MLX-4bit}"
 
 # Locate the moxin-init binary: app bundle first, then dev build trees.
 resolve_moxin_init() {
@@ -47,6 +49,7 @@ echo "=== Moxin Voice Bootstrap (moxin-init) ==="
 echo "moxin-init: $MOXIN_INIT"
 echo "Qwen TTS root: $QWEN_ROOT"
 echo "ASR model dir: $QWEN_ASR_DIR"
+echo "Qwen3.5 translator dir: $QWEN35_TRANSLATOR_DIR"
 echo ""
 
 exec env \
@@ -58,5 +61,7 @@ exec env \
   QWEN3_TTS_BASE_REPO="$QWEN_BASE_REPO" \
   QWEN3_ASR_MODEL_PATH="$QWEN_ASR_DIR" \
   QWEN3_ASR_REPO="$QWEN_ASR_REPO" \
+  QWEN35_TRANSLATOR_MODEL_PATH="$QWEN35_TRANSLATOR_DIR" \
+  QWEN35_TRANSLATOR_REPO="$QWEN35_TRANSLATOR_REPO" \
   HF_ENDPOINT="${HF_ENDPOINT:-}" \
   "$MOXIN_INIT"

@@ -11,6 +11,7 @@ members = [
     "node-hub/dora-qwen3-tts-mlx",
     "node-hub/dora-qwen3-asr",
     "node-hub/dora-qwen3-translator",
+    "node-hub/dora-qwen35-translator",
 ]
 
 [workspace.package]

@@ -97,11 +97,13 @@ MAKEPAD=apple_bundle MAKEPAD_PACKAGE_DIR=makepad run_cargo_build "$ROOT_DIR" "$P
 # dora-primespeech-mlx build removed (Qwen3-only mode). See doc/REFACTOR_QWEN3_ONLY.md.
 run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen3-tts-mlx --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen3-asr --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
+run_cargo_build "$ROOT_DIR" "$PROFILE" -p dora-qwen35-translator --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 run_cargo_build "$ROOT_DIR" "$PROFILE" -p moxin-init --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
 
 SHELL_BIN_PATH="$ROOT_DIR/target/$PROFILE/$BIN_NAME"
 QWEN_TTS_BIN_PATH="$ROOT_DIR/target/$PROFILE/qwen-tts-node"
 QWEN_ASR_BIN_PATH="$ROOT_DIR/target/$PROFILE/dora-qwen3-asr"
+QWEN35_TRANSLATOR_BIN_PATH="$ROOT_DIR/target/$PROFILE/dora-qwen35-translator"
 MOXIN_INIT_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-init"
 TRAINER_BIN_PATH="$ROOT_DIR/target/$PROFILE/moxin-fewshot-trainer"
 MLX_METALLIB_PATH="$ROOT_DIR/target/$PROFILE/mlx.metallib"
@@ -116,6 +118,10 @@ if [[ ! -f "$QWEN_TTS_BIN_PATH" ]]; then
 fi
 if [[ ! -f "$QWEN_ASR_BIN_PATH" ]]; then
   echo "Binary not found: $QWEN_ASR_BIN_PATH"
+  exit 1
+fi
+if [[ ! -f "$QWEN35_TRANSLATOR_BIN_PATH" ]]; then
+  echo "Binary not found: $QWEN35_TRANSLATOR_BIN_PATH"
   exit 1
 fi
 if [[ ! -f "$MOXIN_INIT_BIN_PATH" ]]; then
@@ -137,9 +143,21 @@ DATAFLOW_DIR="$RES_DIR/dataflow"
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RES_DIR" "$SCRIPTS_DIR" "$DATAFLOW_DIR"
 
+TTS_BUNDLE_YAML="$ROOT_DIR/scripts/dataflow/tts.bundle.yml"
+TRANSLATION_QWEN35_BUNDLE_YAML="$ROOT_DIR/scripts/dataflow/translation_qwen35.bundle.yml"
+if [[ ! -f "$TTS_BUNDLE_YAML" ]]; then
+  echo "Dataflow file not found: $TTS_BUNDLE_YAML"
+  exit 1
+fi
+if [[ ! -f "$TRANSLATION_QWEN35_BUNDLE_YAML" ]]; then
+  echo "Dataflow file not found: $TRANSLATION_QWEN35_BUNDLE_YAML"
+  exit 1
+fi
+
 cp "$SHELL_BIN_PATH" "$MACOS_DIR/${BIN_NAME}-bin"
 cp "$QWEN_TTS_BIN_PATH" "$MACOS_DIR/qwen-tts-node"
 cp "$QWEN_ASR_BIN_PATH" "$MACOS_DIR/dora-qwen3-asr"
+cp "$QWEN35_TRANSLATOR_BIN_PATH" "$MACOS_DIR/dora-qwen35-translator"
 cp "$MOXIN_INIT_BIN_PATH" "$MACOS_DIR/moxin-init"
 
 # Bundle Qwen3-TTS voice preview WAV files (pre-generated, committed to repo)
@@ -162,7 +180,7 @@ fi
 if [[ -f "$TRAINER_BIN_PATH" ]]; then
   cp "$TRAINER_BIN_PATH" "$MACOS_DIR/moxin-fewshot-trainer"
 fi
-chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/qwen-tts-node" "$MACOS_DIR/dora-qwen3-asr" "$MACOS_DIR/moxin-init"
+chmod +x "$MACOS_DIR/${BIN_NAME}-bin" "$MACOS_DIR/qwen-tts-node" "$MACOS_DIR/dora-qwen3-asr" "$MACOS_DIR/dora-qwen35-translator" "$MACOS_DIR/moxin-init"
 chmod +x "$MACOS_DIR/dora"
 if [[ -f "$MACOS_DIR/moxin-fewshot-trainer" ]]; then
   chmod +x "$MACOS_DIR/moxin-fewshot-trainer"
@@ -173,7 +191,8 @@ cp "$ROOT_DIR/scripts/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_bootstrap.sh"
 cp "$ROOT_DIR/scripts/macos_run_tts_backend.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
 chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
 
-cp "$ROOT_DIR/scripts/dataflow/tts.bundle.yml" "$DATAFLOW_DIR/tts.yml"
+cp "$TTS_BUNDLE_YAML" "$DATAFLOW_DIR/tts.yml"
+cp "$TRANSLATION_QWEN35_BUNDLE_YAML" "$DATAFLOW_DIR/translation_qwen35.yml"
 
 # Bundle Makepad live resources for distributable app builds.
 # With MAKEPAD_PACKAGE_DIR=makepad, runtime dependency paths resolve under:
@@ -239,6 +258,8 @@ export QWEN3_TTS_MODEL_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-
 export QWEN3_TTS_CUSTOMVOICE_MODEL_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN3_TTS_MODEL_ROOT/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
 export QWEN3_TTS_BASE_MODEL_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN3_TTS_MODEL_ROOT/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
 export QWEN3_ASR_MODEL_PATH="${QWEN3_ASR_MODEL_PATH:-$HOME/.OminiX/models/qwen3-asr-1.7b}"
+export QWEN35_TRANSLATOR_MODEL_PATH="${QWEN35_TRANSLATOR_MODEL_PATH:-$HOME/.OminiX/models/Qwen3.5-2B-MLX-4bit}"
+export QWEN35_TRANSLATOR_REPO="${QWEN35_TRANSLATOR_REPO:-mlx-community/Qwen3.5-2B-MLX-4bit}"
 
 # Generate a writable runtime dataflow with absolute node paths.
 RUNTIME_DATAFLOW_DIR="$DORA_RUNTIME_DIR/dataflow"
