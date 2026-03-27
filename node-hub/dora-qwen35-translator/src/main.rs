@@ -445,7 +445,7 @@ fn translate_and_emit(
         "Translation done in {:.2}s ({} tokens): {}",
         elapsed,
         generated,
-        &full_translation[..full_translation.len().min(100)]
+        &full_translation[..full_translation.char_indices().nth(100).map(|(i,_)|i).unwrap_or(full_translation.len())]
     );
     let final_translation = post_process_translation(&full_translation, true);
     let _ = send_log(node, &format!(
@@ -498,7 +498,7 @@ fn finalize_pending_session(
     tracing::info!(
         "Finalizing sentence (reason={}): {}",
         reason,
-        &text_to_translate[..text_to_translate.len().min(80)]
+        &text_to_translate[..text_to_translate.char_indices().nth(80).map(|(i,_)|i).unwrap_or(text_to_translate.len())]
     );
     let _ = send_log(
         node,
@@ -513,7 +513,7 @@ fn finalize_pending_session(
         "[translator-finalize] reason={} qid={:?} text={}",
         reason,
         question_id,
-        &text_to_translate[..text_to_translate.len().min(120)]
+        &text_to_translate[..text_to_translate.char_indices().nth(120).map(|(i,_)|i).unwrap_or(text_to_translate.len())]
     );
     let _ = send_source(node, &text_to_translate, "complete", question_id);
     if let Err(e) = translate_and_emit(
@@ -591,8 +591,16 @@ fn main() -> Result<()> {
     let mut tokenizer = Tokenizer::from_file(&tokenizer_file)
         .map_err(|e| anyhow!("Failed to load tokenizer: {e:?}"))?;
 
-    let chat_template = load_model_chat_template_from_file(&tokenizer_config_file)?
-        .ok_or_else(|| anyhow!("Chat template not found in tokenizer_config.json"))?;
+    // Try tokenizer_config.json first; fall back to chat_template.jinja (some quantized
+    // model distributions ship the template as a separate file instead).
+    let chat_template = match load_model_chat_template_from_file(&tokenizer_config_file)? {
+        Some(t) => t,
+        None => {
+            let jinja_path = model_path.join("chat_template.jinja");
+            std::fs::read_to_string(&jinja_path)
+                .map_err(|_| anyhow!("Chat template not found in tokenizer_config.json or chat_template.jinja"))?
+        }
+    };
 
     let mut model = load_model(&model_path)
         .map_err(|e| anyhow!("Failed to load Qwen3.5 model: {e}"))?;
@@ -704,11 +712,11 @@ fn main() -> Result<()> {
                         continue;
                     }
 
-                    tracing::info!("Received ASR chunk: {}", &chunk[..chunk.len().min(80)]);
+                    tracing::info!("Received ASR chunk: {}", &chunk[..chunk.char_indices().nth(80).map(|(i,_)|i).unwrap_or(chunk.len())]);
                     eprintln!(
                         "[translator-chunk] qid={:?} chunk={}",
                         question_id,
-                        &chunk[..chunk.len().min(120)]
+                        &chunk[..chunk.char_indices().nth(120).map(|(i,_)|i).unwrap_or(chunk.len())]
                     );
                     let now = Instant::now();
                     match pending.as_mut() {

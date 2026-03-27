@@ -14907,10 +14907,10 @@ impl TTSScreen {
         // Resolve the dataflow template path
         let template_path = {
             let candidates = [
-                std::path::PathBuf::from("apps/moxin-voice/dataflow/translation.yml"),
+                std::path::PathBuf::from("apps/moxin-voice/dataflow/translation_qwen35.yml"),
                 dirs::home_dir()
                     .unwrap_or_default()
-                    .join(".OminiX/dataflows/translation.yml"),
+                    .join(".OminiX/dataflows/translation_qwen35.yml"),
             ];
             candidates.into_iter().find(|p| p.exists())
         };
@@ -14918,7 +14918,7 @@ impl TTSScreen {
         let template_path = match template_path {
             Some(p) => p,
             None => {
-                self.add_translation_log(cx, "[ERROR] translation.yml 未找到");
+                self.add_translation_log(cx, "[ERROR] translation_qwen35.yml 未找到");
                 return;
             }
         };
@@ -14964,10 +14964,10 @@ impl TTSScreen {
                 self.add_translation_log(cx, "[WARN] dora-qwen3-asr binary not found — run: cargo build --release -p dora-qwen3-asr");
                 String::new()
             });
-        let translator_path = Self::resolve_dora_binary("dora-qwen3-translator")
+        let translator_path = Self::resolve_dora_binary("dora-qwen35-translator")
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|| {
-                self.add_translation_log(cx, "[WARN] dora-qwen3-translator binary not found — run: cargo build --release -p dora-qwen3-translator");
+                self.add_translation_log(cx, "[WARN] dora-qwen35-translator binary not found — run: cargo build --release -p dora-qwen35-translator");
                 String::new()
             });
 
