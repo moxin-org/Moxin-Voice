@@ -49,13 +49,24 @@ fn normalize_language(lang: &str) -> String {
     }
 }
 
-fn send_transcription(node: &mut DoraNode, text: &str, question_id: Option<i64>) -> Result<()> {
+fn send_transcription(
+    node: &mut DoraNode,
+    text: &str,
+    question_id: Option<i64>,
+    transcription_mode: Option<&str>,
+) -> Result<()> {
     let arr = vec![text.to_string()].into_arrow();
     let mut meta = BTreeMap::new();
     if let Some(qid) = question_id {
         meta.insert(
             "question_id".to_string(),
             dora_node_api::Parameter::Integer(qid),
+        );
+    }
+    if let Some(mode) = transcription_mode {
+        meta.insert(
+            "transcription_mode".to_string(),
+            dora_node_api::Parameter::String(mode.to_string()),
         );
     }
     node.send_output("transcription".into(), meta, arr)
@@ -163,6 +174,13 @@ fn main() -> Result<()> {
                         dora_node_api::Parameter::Integer(v) => Some(*v),
                         _ => None,
                     });
+                let transcription_mode: Option<String> = metadata
+                    .parameters
+                    .get("transcription_mode")
+                    .and_then(|p| match p {
+                        dora_node_api::Parameter::String(s) => Some(s.clone()),
+                        _ => None,
+                    });
 
                 let duration_secs = samples.len() as f32 / sample_rate.max(1) as f32;
                 tracing::info!(
@@ -190,7 +208,7 @@ fn main() -> Result<()> {
                             let msg = format!("Resample failed: {}", e);
                             tracing::error!("{}", msg);
                             let _ = send_log(&mut node, &msg);
-                            let _ = send_transcription(&mut node, "", question_id);
+                            let _ = send_transcription(&mut node, "", question_id, transcription_mode.as_deref());
                             continue;
                         }
                     }
@@ -219,14 +237,14 @@ fn main() -> Result<()> {
                             ),
                         );
 
-                        send_transcription(&mut node, &text, question_id)?;
+                        send_transcription(&mut node, &text, question_id, transcription_mode.as_deref())?;
                     }
                     Err(e) => {
                         let msg = format!("Transcription failed: {:#}", e);
                         tracing::error!("{}", msg);
                         let _ = send_log(&mut node, &msg);
                         // Send empty transcription on error (matching dora-asr behavior)
-                        let _ = send_transcription(&mut node, "", question_id);
+                        let _ = send_transcription(&mut node, "", question_id, transcription_mode.as_deref());
                     }
                 }
             }

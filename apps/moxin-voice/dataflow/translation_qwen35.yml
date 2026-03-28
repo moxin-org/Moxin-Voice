@@ -10,6 +10,7 @@ nodes:
       MAX_SEGMENT_MS: "__MAX_SEGMENT_MS__"
       START_RMS_THRESHOLD: "__START_RMS_THRESHOLD__"
       END_RMS_THRESHOLD: "__END_RMS_THRESHOLD__"
+      PROGRESSIVE_INTERVAL_MS: "1500"
     outputs:
       - audio
       - audio_segment

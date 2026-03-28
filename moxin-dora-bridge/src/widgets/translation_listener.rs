@@ -140,18 +140,13 @@ impl TranslationListenerBridge {
                                 session_status, &text
                             );
 
-                            // If source text changed (new sentence starting) and we had
-                            // a non-empty translation for the old sentence, promote it
-                            // to prev even if we never saw is_complete (handles the case
-                            // where complete was overwritten before UI polled).
-                            if text != current_source_text
-                                && !current_source_text.is_empty()
-                                && !accumulated_translation.is_empty()
-                            {
-                                prev_source_text = current_source_text.clone();
-                                prev_translation = accumulated_translation.clone();
-                            }
-
+                            // Do NOT promote to prev here.  Progressive mode causes
+                            // frequent source_text changes within the same sentence
+                            // (each snapshot adds a few characters).  Promoting these
+                            // intermediate snapshots fills prev with near-duplicate
+                            // content.  Promotion is handled exclusively by the
+                            // is_complete path in the translation handler (below),
+                            // which fires only when a sentence is truly finished.
                             current_source_text = text;
                             accumulated_translation.clear();
 

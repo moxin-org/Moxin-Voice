@@ -51,6 +51,10 @@ struct VadState {
     last_speech_end_time: Option<Instant>,
     question_end_sent: bool,
     current_question_id: u32,
+    /// Progressive ASR: timestamp of last progressive audio_segment send
+    last_progressive_send_at: Option<Instant>,
+    /// Progressive ASR: interval in ms between progressive sends (0 = disabled)
+    progressive_interval_ms: u64,
 }
 
 impl Default for VadState {
@@ -92,6 +96,11 @@ impl Default for VadState {
             .and_then(|s| s.parse::<f32>().ok())
             .unwrap_or(0.009);
 
+        let progressive_interval_ms = std::env::var("PROGRESSIVE_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(1500); // Default 1500ms; set to 0 to disable
+
         Self {
             is_speaking: false,
             speech_buffer: Vec::new(),
@@ -107,6 +116,8 @@ impl Default for VadState {
             last_speech_end_time: None,
             question_end_sent: false,
             current_question_id: rand::random::<u32>() % 900000 + 100000,
+            last_progressive_send_at: None,
+            progressive_interval_ms,
         }
     }
 }
@@ -864,17 +875,43 @@ impl AecInputBridge {
                                 "Speech started (question_id={})",
                                 vad_state.current_question_id
                             );
+                            // Reset progressive timer when speech starts
+                            vad_state.last_progressive_send_at = Some(Instant::now());
                         }
                     } else {
                         // Continue segment
                         vad_state.audio_segment_buffer.extend(&all_audio);
                         vad_state.silence_count = 0;
 
+                        // Progressive ASR: periodically send the full accumulated buffer
+                        // so ASR can transcribe in-progress speech without waiting for silence.
+                        if vad_state.progressive_interval_ms > 0 {
+                            let now = Instant::now();
+                            if let Some(last) = vad_state.last_progressive_send_at {
+                                if now.duration_since(last)
+                                    >= Duration::from_millis(vad_state.progressive_interval_ms)
+                                    && vad_state.audio_segment_buffer.len()
+                                        >= vad_state.min_segment_size
+                                {
+                                    let snapshot = vad_state.audio_segment_buffer.clone();
+                                    if let Err(e) = Self::send_audio_segment_progressive(
+                                        &mut node,
+                                        &snapshot,
+                                        vad_state.current_question_id,
+                                    ) {
+                                        warn!("Failed to send progressive audio_segment: {}", e);
+                                    }
+                                    vad_state.last_progressive_send_at = Some(now);
+                                }
+                            }
+                        }
+
                         // Check max size
                         if vad_state.audio_segment_buffer.len() >= vad_state.max_segment_size {
                             audio_segment = Some(vad_state.audio_segment_buffer.clone());
                             vad_state.audio_segment_buffer.clear();
                             vad_state.is_speaking = false;
+                            vad_state.last_progressive_send_at = None;
                             speech_ended = true;
                         }
                     }
@@ -894,6 +931,7 @@ impl AecInputBridge {
                             vad_state.is_speaking = false;
                             vad_state.silence_count = 0;
                             vad_state.speech_buffer.clear();
+                            vad_state.last_progressive_send_at = None;
                             speech_ended = true;
                             vad_state.last_speech_end_time = Some(Instant::now());
                             vad_state.question_end_sent = false;
@@ -1071,6 +1109,36 @@ impl AecInputBridge {
             Parameter::Integer(question_id as i64),
         );
         params.insert("sample_rate".to_string(), Parameter::Integer(16000));
+        params.insert(
+            "transcription_mode".to_string(),
+            Parameter::String("final".to_string()),
+        );
+
+        node.send_output(output_id, params, data)
+            .map_err(|e| BridgeError::SendFailed(e.to_string()))
+    }
+
+    /// Send a snapshot of the in-progress speech buffer for progressive ASR.
+    /// The transcription_mode="progressive" tag tells downstream nodes to REPLACE
+    /// (not append) the current session text and emit a streaming translation.
+    fn send_audio_segment_progressive(
+        node: &mut DoraNode,
+        samples: &[f32],
+        question_id: u32,
+    ) -> BridgeResult<()> {
+        let data = samples.to_vec().into_arrow();
+        let output_id: DataId = "audio_segment".to_string().into();
+
+        let mut params: BTreeMap<String, Parameter> = BTreeMap::new();
+        params.insert(
+            "question_id".to_string(),
+            Parameter::Integer(question_id as i64),
+        );
+        params.insert("sample_rate".to_string(), Parameter::Integer(16000));
+        params.insert(
+            "transcription_mode".to_string(),
+            Parameter::String("progressive".to_string()),
+        );
 
         node.send_output(output_id, params, data)
             .map_err(|e| BridgeError::SendFailed(e.to_string()))

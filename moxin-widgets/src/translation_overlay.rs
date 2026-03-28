@@ -192,7 +192,7 @@ impl TranslationOverlay {
 
     const PLACEHOLDER_WARMING: &'static str = "Warming up translation models…";
     const PLACEHOLDER_LISTENING: &'static str = "Listening…";
-    const PLACEHOLDER_TRANSCRIBING: &'static str = "Transcribing and preparing translation…";
+    const PLACEHOLDER_TRANSCRIBING: &'static str = "...";
 
     /// Set the language pair label, e.g. "ZH → EN"
     pub fn set_lang_pair(&mut self, cx: &mut Cx, src: &str, tgt: &str) {

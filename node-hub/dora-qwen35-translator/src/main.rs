@@ -347,10 +347,12 @@ fn translate_and_emit(
     max_tokens: usize,
     question_id: Option<i64>,
     eos_tokens: &HashSet<u32>,
-) -> Result<()> {
+    final_status: &str,
+    enable_streaming: bool,
+) -> Result<String> {
     const STREAM_BATCH: usize = 5;
     const MAX_TRANSLATION_SECS: f32 = 45.0;
-    const ENABLE_STREAMING_OUTPUT: bool = true;
+    let enable_streaming_output = enable_streaming;
 
     let prompt_ids = build_prompt_token_ids(
         tokenizer,
@@ -413,7 +415,7 @@ fn translate_and_emit(
             let ids: Vec<u32> = token_buf.drain(..).map(|t| t.item::<u32>()).collect();
             if let Ok(text) = tokenizer.decode(&ids, true) {
                 if !text.is_empty() {
-                    if ENABLE_STREAMING_OUTPUT {
+                    if enable_streaming_output {
                         let _ = send_translation_chunk(node, &text, "streaming", question_id);
                     }
                     full_translation.push_str(&text);
@@ -452,29 +454,58 @@ fn translate_and_emit(
         "Translated in {:.2}s ({} tokens)",
         elapsed, generated
     ));
-    send_translation_chunk(node, &final_translation, "complete", question_id)?;
+    send_translation_chunk(node, &final_translation, final_status, question_id)?;
 
     // Release Metal buffer pool accumulated during KV-cache inference.
     // Equivalent to Python's mx.metal.clear_cache(); prevents memory pressure
     // from building up across successive translations.
     unsafe { mlx_sys::mlx_clear_cache(); }
 
-    Ok(())
+    Ok(final_translation)
+}
+
+/// Full text to translate: finalized bursts + current in-progress burst (if any).
+fn effective_text(session: &PendingSession, src_lang: &str) -> String {
+    match session.current_burst_text.as_deref() {
+        Some(burst) if !burst.is_empty() => {
+            let sep = if normalize_lang(src_lang) == "Chinese" { "" } else { " " };
+            if session.text.is_empty() {
+                burst.to_string()
+            } else {
+                format!("{}{}{}", session.text, sep, burst)
+            }
+        }
+        _ => session.text.clone(),
+    }
 }
 
 struct PendingSession {
     question_id: Option<i64>,
+    /// Finalized burst text: accumulates across all completed speech bursts
+    /// (i.e. all `mode=final` / legacy chunks).  Does NOT include the current
+    /// in-progress burst.
     text: String,
+    /// Latest progressive snapshot of the CURRENT burst (not yet finalized).
+    /// Set on `mode=progressive`, cleared when a `mode=final` for the same
+    /// burst arrives.  Never appended to `text` directly.
+    current_burst_text: Option<String>,
     started_at: Instant,
     last_chunk_at: Instant,
     last_source_emit_at: Instant,
     last_source_emit_len: usize,
+    /// Source text used in the most recent progressive translation.
+    /// When finalization produces the same source text, we reuse the cached
+    /// result instead of re-running the model — prevents duplicate output.
+    last_progressive_translated_text: Option<String>,
+    /// Translation result corresponding to `last_progressive_translated_text`.
+    last_progressive_translation: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn finalize_pending_session(
     pending: &mut Option<PendingSession>,
     reason: &str,
+    src_lang: &str,
     node: &mut DoraNode,
     tokenizer: &mut Tokenizer,
     model: &mut qwen3_5_35b_mlx::Model,
@@ -489,11 +520,22 @@ fn finalize_pending_session(
     let Some(session) = pending.take() else {
         return;
     };
-    let text_to_translate = session.text;
     let question_id = session.question_id;
+    // Include any in-progress burst snapshot that hasn't been finalized yet.
+    let text_to_translate = effective_text(&session, src_lang);
     if text_to_translate.trim().is_empty() {
         return;
     }
+
+    // Deduplication: if the source text is identical to the last progressive
+    // translation, reuse the cached result — avoids re-running the model and
+    // prevents streaming delta chunks from appending to already-displayed text.
+    let cached_translation: Option<String> =
+        if session.last_progressive_translated_text.as_deref() == Some(text_to_translate.as_str()) {
+            session.last_progressive_translation.clone()
+        } else {
+            None
+        };
 
     tracing::info!(
         "Finalizing sentence (reason={}): {}",
@@ -516,6 +558,21 @@ fn finalize_pending_session(
         &text_to_translate[..text_to_translate.char_indices().nth(120).map(|(i,_)|i).unwrap_or(text_to_translate.len())]
     );
     let _ = send_source(node, &text_to_translate, "complete", question_id);
+
+    if let Some(cached) = cached_translation {
+        // Source text is unchanged — emit cached translation directly as "complete".
+        // This prevents: (a) duplicate model inference and (b) streaming delta tokens
+        // being appended to the already-accumulated progressive translation in the UI.
+        tracing::info!("Using cached progressive translation (source unchanged)");
+        let _ = send_translation_chunk(node, &cached, "complete", question_id);
+        return;
+    }
+
+    // When a progressive translation was recently shown, skip streaming deltas
+    // during finalization — the UI already has a translation displayed, and
+    // streaming would cause it to disappear then rebuild character by character.
+    let had_progressive = session.last_progressive_translated_text.is_some();
+
     if let Err(e) = translate_and_emit(
         node,
         tokenizer,
@@ -529,6 +586,8 @@ fn finalize_pending_session(
         max_tokens,
         question_id,
         eos_tokens,
+        "complete",
+        !had_progressive, // skip streaming deltas when progressive was active
     ) {
         let msg = format!("{e}");
         tracing::error!("{}", msg);
@@ -634,6 +693,10 @@ fn main() -> Result<()> {
     // Deferred question_ended: when question_ended arrives before the ASR text,
     // remember it so we can finalize immediately when the matching text arrives.
     let mut deferred_ended_qid: Option<i64> = None;
+    // After question_ended fires and finalizes a session, stale ASR chunks for the
+    // same qid may still arrive from the pipeline.  Track the ended qid so we can
+    // drop those late-arriving chunks instead of creating a spurious new session.
+    let mut already_ended_qid: Option<i64> = None;
 
     loop {
         // Timer-driven convergence: even with no new inputs, session can finalize.
@@ -646,10 +709,13 @@ fn main() -> Result<()> {
             } else {
                 IDLE_FINALIZE_NO_QID_MS
             };
-            if idle_elapsed >= Duration::from_millis(idle_threshold_ms) {
+            // While progressive ASR is active, suppress idle timeout — speech is still
+            // in progress; only question_ended or a "final" transcript should finalize.
+            if session.current_burst_text.is_none() && idle_elapsed >= Duration::from_millis(idle_threshold_ms) {
                 finalize_pending_session(
                     &mut pending,
                     "idle_timeout",
+                    &src_lang,
                     &mut node,
                     &mut tokenizer,
                     &mut model,
@@ -665,6 +731,7 @@ fn main() -> Result<()> {
                 finalize_pending_session(
                     &mut pending,
                     "max_age_timeout",
+                    &src_lang,
                     &mut node,
                     &mut tokenizer,
                     &mut model,
@@ -699,6 +766,16 @@ fn main() -> Result<()> {
                             dora_node_api::Parameter::Integer(v) => Some(*v),
                             _ => None,
                         });
+                    let transcription_mode: Option<String> = metadata
+                        .parameters
+                        .get("transcription_mode")
+                        .and_then(|p| match p {
+                            dora_node_api::Parameter::String(s) => Some(s.clone()),
+                            _ => None,
+                        });
+                    let is_progressive = transcription_mode.as_deref() == Some("progressive");
+                    let _is_final_mode = transcription_mode.as_deref() == Some("final");
+
                     let arr = match data.as_any().downcast_ref::<StringArray>() {
                         Some(a) if a.len() > 0 => a,
                         _ => continue,
@@ -712,19 +789,40 @@ fn main() -> Result<()> {
                         continue;
                     }
 
-                    tracing::info!("Received ASR chunk: {}", &chunk[..chunk.char_indices().nth(80).map(|(i,_)|i).unwrap_or(chunk.len())]);
+                    // Drop stale ASR chunks that arrive after question_ended for the same qid.
+                    if let Some(ended_qid) = already_ended_qid {
+                        if question_id == Some(ended_qid) {
+                            tracing::info!(
+                                "Dropping stale chunk for already-ended qid={}: {}",
+                                ended_qid,
+                                &chunk[..chunk.char_indices().nth(40).map(|(i,_)|i).unwrap_or(chunk.len())]
+                            );
+                            continue;
+                        }
+                        // Different qid → clear the marker
+                        already_ended_qid = None;
+                    }
+
+                    tracing::info!(
+                        "Received ASR chunk (mode={:?}): {}",
+                        transcription_mode,
+                        &chunk[..chunk.char_indices().nth(80).map(|(i,_)|i).unwrap_or(chunk.len())]
+                    );
                     eprintln!(
-                        "[translator-chunk] qid={:?} chunk={}",
+                        "[translator-chunk] qid={:?} mode={:?} chunk={}",
                         question_id,
+                        transcription_mode,
                         &chunk[..chunk.char_indices().nth(120).map(|(i,_)|i).unwrap_or(chunk.len())]
                     );
                     let now = Instant::now();
+
                     match pending.as_mut() {
                         Some(session) => {
                             if session.question_id != question_id {
                                 finalize_pending_session(
                                     &mut pending,
                                     "question_id_switch",
+                                    &src_lang,
                                     &mut node,
                                     &mut tokenizer,
                                     &mut model,
@@ -738,13 +836,22 @@ fn main() -> Result<()> {
                                 );
                                 pending = Some(PendingSession {
                                     question_id,
-                                    text: chunk,
+                                    text: if is_progressive { String::new() } else { chunk.clone() },
+                                    current_burst_text: if is_progressive { Some(chunk.clone()) } else { None },
                                     started_at: now,
                                     last_chunk_at: now,
                                     last_source_emit_at: now,
                                     last_source_emit_len: 0,
+                                    last_progressive_translated_text: None,
+                                    last_progressive_translation: None,
                                 });
+                            } else if is_progressive {
+                                // Progressive snapshot of current burst — keep finalized text,
+                                // just update the in-progress burst view.
+                                session.current_burst_text = Some(chunk.clone());
+                                session.last_chunk_at = now;
                             } else {
+                                // Final or legacy chunk: append to finalized text, clear burst.
                                 let sep = if normalize_lang(&src_lang) == "Chinese" {
                                     ""
                                 } else {
@@ -753,35 +860,77 @@ fn main() -> Result<()> {
                                 session.text.push_str(sep);
                                 session.text.push_str(&chunk);
                                 session.last_chunk_at = now;
+                                session.current_burst_text = None;
                             }
                         }
                         None => {
                             pending = Some(PendingSession {
                                 question_id,
-                                text: chunk,
+                                text: if is_progressive { String::new() } else { chunk.clone() },
+                                current_burst_text: if is_progressive { Some(chunk.clone()) } else { None },
                                 started_at: now,
                                 last_chunk_at: now,
                                 last_source_emit_at: now,
                                 last_source_emit_len: 0,
+                                last_progressive_translated_text: None,
+                                last_progressive_translation: None,
                             });
                         }
                     }
 
-                    if let Some(session) = pending.as_mut() {
-                        let current_len = session.text.chars().count();
-                        let delta = current_len.saturating_sub(session.last_source_emit_len);
-                        let due_by_time = now.duration_since(session.last_source_emit_at)
-                            >= Duration::from_millis(SOURCE_EMIT_INTERVAL_MS);
-                        let due_by_delta = delta >= SOURCE_EMIT_MIN_DELTA_CHARS;
-                        let due_by_boundary = ends_with_hard_sentence_boundary(&session.text);
-                        if due_by_time || due_by_delta || due_by_boundary {
-                            let _ = send_source(&mut node, &session.text, "streaming", session.question_id);
-                            session.last_source_emit_at = now;
-                            session.last_source_emit_len = current_len;
+                    // Progressive: immediately emit source_text and translate with streaming status.
+                    // We skip the normal source-emit throttle and finalization checks below.
+                    if is_progressive {
+                        if let Some(session) = pending.as_ref() {
+                            // effective_text = finalized bursts + current in-progress burst
+                            let text_snapshot = effective_text(session, &src_lang);
+                            let qid = session.question_id;
+                            let current_len = text_snapshot.chars().count();
+                            let _ = send_source(&mut node, &text_snapshot, "streaming", qid);
+                            if let Some(s) = pending.as_mut() {
+                                s.last_source_emit_at = now;
+                                s.last_source_emit_len = current_len;
+                            }
+                            if !text_snapshot.trim().is_empty() {
+                                let _ = send_log(&mut node, &format!(
+                                    "Progressive translate: {} chars",
+                                    current_len
+                                ));
+                                match translate_and_emit(
+                                    &mut node,
+                                    &mut tokenizer,
+                                    &mut model,
+                                    &chat_template,
+                                    &model_id,
+                                    &system_prompt,
+                                    &text_snapshot,
+                                    force_disable_thinking,
+                                    temperature,
+                                    max_tokens,
+                                    qid,
+                                    &eos_tokens,
+                                    "streaming",
+                                    false, // skip mid-generation streaming for progressive
+                                ) {
+                                    Ok(translated) => {
+                                        // Cache this result so finalization can reuse it if
+                                        // the source text hasn't changed — prevents duplicates.
+                                        if let Some(s) = pending.as_mut() {
+                                            s.last_progressive_translated_text = Some(text_snapshot.clone());
+                                            s.last_progressive_translation = Some(translated);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = send_log(&mut node, &format!("Progressive translate error: {e}"));
+                                    }
+                                }
+                            }
                         }
+                        continue;
+                    }
 
-                        // Check deferred question_ended: if ASR text arrived after
-                        // question_ended, finalize immediately instead of waiting for idle timeout.
+                    // Check deferred question_ended first.
+                    if let Some(session) = pending.as_ref() {
                         if let Some(deferred_qid) = deferred_ended_qid {
                             if session.question_id == Some(deferred_qid) {
                                 tracing::info!(
@@ -793,6 +942,7 @@ fn main() -> Result<()> {
                                 finalize_pending_session(
                                     &mut pending,
                                     "deferred_question_ended",
+                                    &src_lang,
                                     &mut node,
                                     &mut tokenizer,
                                     &mut model,
@@ -804,11 +954,17 @@ fn main() -> Result<()> {
                                     max_tokens,
                                     &eos_tokens,
                                 );
+                                already_ended_qid = Some(deferred_qid);
                             }
                         }
                     }
 
+                    // Proactive finalization on sentence boundary — only for non-progressive mode.
+                    // During progressive mode the speech is still ongoing; don't finalize early.
                     let should_finalize_now = pending.as_ref().map(|session| {
+                        if session.current_burst_text.is_some() {
+                            return false;
+                        }
                         let txt = session.text.trim();
                         let min_chars = if normalize_lang(&src_lang) == "Chinese" {
                             MIN_CHARS_FOR_PUNCT_COMMIT_ZH
@@ -820,9 +976,13 @@ fn main() -> Result<()> {
                     }).unwrap_or(false);
 
                     if should_finalize_now {
+                        // finalize sends its own source_text("complete") — skip
+                        // the intermediate source_text("streaming") to avoid
+                        // triggering a redundant clear in the listener.
                         finalize_pending_session(
                             &mut pending,
                             "proactive_boundary_commit",
+                            &src_lang,
                             &mut node,
                             &mut tokenizer,
                             &mut model,
@@ -834,6 +994,19 @@ fn main() -> Result<()> {
                             max_tokens,
                             &eos_tokens,
                         );
+                    } else if let Some(session) = pending.as_mut() {
+                        // Emit intermediate source_text only when NOT finalizing.
+                        let current_len = session.text.chars().count();
+                        let delta = current_len.saturating_sub(session.last_source_emit_len);
+                        let due_by_time = now.duration_since(session.last_source_emit_at)
+                            >= Duration::from_millis(SOURCE_EMIT_INTERVAL_MS);
+                        let due_by_delta = delta >= SOURCE_EMIT_MIN_DELTA_CHARS;
+                        let due_by_boundary = ends_with_hard_sentence_boundary(&session.text);
+                        if due_by_time || due_by_delta || due_by_boundary {
+                            let _ = send_source(&mut node, &session.text, "streaming", session.question_id);
+                            session.last_source_emit_at = now;
+                            session.last_source_emit_len = current_len;
+                        }
                     }
                     continue;
                 }
@@ -874,6 +1047,7 @@ fn main() -> Result<()> {
                     finalize_pending_session(
                         &mut pending,
                         "question_ended",
+                        &src_lang,
                         &mut node,
                         &mut tokenizer,
                         &mut model,
@@ -886,6 +1060,8 @@ fn main() -> Result<()> {
                         &eos_tokens,
                     );
                     deferred_ended_qid = None;
+                    // Mark this qid as ended so stale ASR chunks are dropped.
+                    already_ended_qid = ended_question_id;
                     continue;
                 }
             }
