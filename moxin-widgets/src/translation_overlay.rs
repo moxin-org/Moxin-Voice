@@ -1,36 +1,47 @@
 //! # Translation Overlay Widget
 //!
 //! Full-window content widget displayed in the translation overlay window.
-//! Shows the original ASR text (source language) and its live translation
-//! (target language) as they stream in from `dora-qwen3-translator`.
+//! Shows a scrolling list of completed sentences (source + translation) and
+//! the current in-progress ASR text at the bottom.
 //!
 //! ## Layout
 //!
 //! ```text
 //! ┌──────────────────────────────────────────────┐
-//! │  ZH → EN                         ● LISTENING │  toolbar
+//! │                     ZH → EN      ● LISTENING │  toolbar
 //! ├──────────────────────────────────────────────┤
-//! │  [source text, small, dimmed]                │
-//! │                                              │
-//! │  TRANSLATION TEXT (large, bright)            │
-//! │  ...streaming tokens appended here...        │
+//! │  [source 1 - small, gray]                    │  ↑
+//! │  Translation 1 - large, white                │  │ scroll
+//! │                                              │  │
+//! │  [source 2 - small, gray]                    │  │
+//! │  Translation 2 - large, white                │  │
+//! │                                              │  │
+//! │  [pending ASR text - small, amber]           │  ↓
+//! │  (bottom_spacer — dynamic, for anchor)       │
 //! └──────────────────────────────────────────────┘
 //! ```
 //!
-//! ## Usage
+//! ## Scroll anchor
 //!
-//! ```rust,ignore
-//! // In shell handle_event, on timer:
-//! if let Some(update) = shared_state.translation.read_if_dirty() {
-//!     let overlay = self.ui.translation_overlay(id!(translation_overlay));
-//!     match update {
-//!         Some(u) => overlay.set_translation(cx, &u.source_text, &u.translation, u.is_complete),
-//!         None    => overlay.clear(cx),
-//!     }
-//! }
-//! ```
+//! `scroll_anchor_fraction` controls where the *bottom edge* of the last
+//! sentence sits inside the viewport after auto-scroll:
+//!
+//!   - `1.0`  → last sentence at the very bottom (classic scroll-to-bottom)
+//!   - `0.5`  → last sentence at the middle of the viewport  ← default
+//!   - `0.25` → last sentence in the upper quarter
+//!
+//! A `bottom_spacer` whose height = `viewport_h × (1 − anchor)` is appended
+//! after the content so that scrolling to the physical bottom of the scroll
+//! view places the last sentence at `anchor × viewport_h` from the top.
+//!
+//! **To change the default anchor**, edit `SCROLL_ANCHOR_FRACTION` below.
 
 use makepad_widgets::*;
+
+/// Where the last sentence appears in the viewport (0.0 = top, 1.0 = bottom).
+/// Change this constant to reposition the auto-scroll target without touching
+/// any other code.
+const SCROLL_ANCHOR_FRACTION: f64 = 0.5;
 
 live_design! {
     use link::theme::*;
@@ -40,33 +51,47 @@ live_design! {
     use crate::theme::FONT_REGULAR;
     use crate::theme::FONT_SEMIBOLD;
     use crate::theme::FONT_BOLD;
-    use crate::theme::SLATE_800;
-    use crate::theme::SLATE_400;
     use crate::theme::SLATE_300;
     use crate::theme::WHITE;
-    use crate::theme::ACCENT_BLUE;
+    use crate::theme::ACCENT_GREEN;
     use crate::theme::MOXIN_BG_PRIMARY_DARK;
     use crate::theme::MOXIN_BG_SECONDARY_DARK;
     use crate::theme::MOXIN_TEXT_MUTED_DARK;
-    use crate::theme::ACCENT_GREEN;
 
     pub TranslationOverlay = {{TranslationOverlay}} {
         width: Fill, height: Fill
         flow: Down
         show_bg: true
-        draw_bg: { color: (MOXIN_BG_PRIMARY_DARK) }
+        draw_bg: {
+            instance bg_opacity: 1.0
+            fn pixel(self) -> vec4 {
+                let base = (MOXIN_BG_PRIMARY_DARK);
+                return vec4(base.x, base.y, base.z, self.bg_opacity);
+            }
+        }
 
         // ── Toolbar ──────────────────────────────────────────────────────────
+        // Left side is intentionally empty (macOS window buttons occupy that space).
         toolbar = <View> {
             width: Fill, height: 44
             flow: Right
             align: { y: 0.5 }
             padding: { left: 16, right: 16 }
             show_bg: true
-            draw_bg: { color: (MOXIN_BG_SECONDARY_DARK) }
+            draw_bg: {
+                instance bg_opacity: 1.0
+                fn pixel(self) -> vec4 {
+                    let base = (MOXIN_BG_SECONDARY_DARK);
+                    return vec4(base.x, base.y, base.z, self.bg_opacity);
+                }
+            }
+
+            // Spacer pushes lang + status to the right
+            <View> { width: Fill, height: 1 }
 
             lang_label = <Label> {
-                width: Fill
+                width: Fit
+                margin: { right: 12 }
                 draw_text: {
                     color: (SLATE_300)
                     text_style: <FONT_SEMIBOLD> { font_size: 13.0 }
@@ -84,45 +109,41 @@ live_design! {
             }
         }
 
-        // ── Source text ───────────────────────────────────────────────────────
-        source_area = <View> {
-            width: Fill, height: Fit
+        // ── Scrolling sentence list ──────────────────────────────────────────
+        content_scroll = <ScrollYView> {
+            width: Fill, height: Fill
             flow: Down
-            padding: { left: 16, right: 16, top: 10, bottom: 6 }
+            padding: { left: 16, right: 16, top: 12, bottom: 0 }
 
-            source_label = <Label> {
+            // history_label: all completed sentences rendered as a single text block
+            history_label = <Label> {
                 width: Fill, height: Fit
                 draw_text: {
-                    color: (MOXIN_TEXT_MUTED_DARK)
-                    text_style: <FONT_REGULAR> { font_size: 12.0 }
+                    color: (WHITE)
+                    text_style: <FONT_REGULAR> { font_size: 14.0 }
                     wrap: Word
                 }
                 text: ""
             }
-        }
 
-        // ── Divider ───────────────────────────────────────────────────────────
-        <View> {
-            width: Fill, height: 1
-            margin: { left: 16, right: 16 }
-            show_bg: true
-            draw_bg: { color: #2a2a3a }
-        }
-
-        // ── Translation text ──────────────────────────────────────────────────
-        translation_scroll = <ScrollYView> {
-            width: Fill, height: Fill
-            flow: Down
-            padding: { left: 16, right: 16, top: 12, bottom: 16 }
-
-            translation_label = <Label> {
+            // pending_label: current ASR text (not yet translated)
+            pending_label = <Label> {
                 width: Fill, height: Fit
+                margin: { top: 8 }
                 draw_text: {
-                    color: (WHITE)
-                    text_style: <FONT_BOLD> { font_size: 18.0 }
+                    color: (MOXIN_TEXT_MUTED_DARK)
+                    text_style: <FONT_REGULAR> { font_size: 13.0 }
                     wrap: Word
                 }
                 text: ""
+            }
+
+            // Dynamic spacer — height is recomputed each time the viewport
+            // changes so that the scroll anchor stays correct.
+            // Do NOT place any content after this view.
+            bottom_spacer = <View> {
+                width: Fill
+                height: 0.0
             }
         }
     }
@@ -135,7 +156,6 @@ pub enum TranslationStatus {
     WarmingUp,
     Listening,
     Transcribing,
-    Translating,
     Complete,
 }
 
@@ -152,19 +172,26 @@ pub struct TranslationOverlay {
     #[rust]
     status: TranslationStatus,
 
-    /// Previous completed sentence (source/translation)
+    /// Cached history length for detecting changes
     #[rust]
-    prev_source: String,
-    #[rust]
-    prev_translation: String,
+    last_history_len: usize,
 
-    /// Current sentence under processing
+    /// Cached pending text for detecting changes
     #[rust]
-    current_source: String,
+    last_pending_text: String,
+
+    /// Where the bottom of the last sentence sits in the viewport.
+    /// Defaults to SCROLL_ANCHOR_FRACTION (0.5 = middle).
     #[rust]
-    current_translation: String,
+    scroll_anchor_fraction: f64,
+
+    /// Viewport height from the most recent draw — used to update the spacer.
     #[rust]
-    current_is_complete: bool,
+    last_viewport_height: f64,
+
+    /// True when content changed and we need to scroll to bottom on next draw.
+    #[rust]
+    pending_scroll: bool,
 }
 
 impl Widget for TranslationOverlay {
@@ -173,26 +200,62 @@ impl Widget for TranslationOverlay {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
-        self.view.draw_walk(cx, scope, walk)
+        // ── Update bottom_spacer height ───────────────────────────────────────
+        //
+        // viewport_h from previous frame (1-frame lag is imperceptible).
+        // spacer_h = viewport_h × (1 − anchor) ensures that scrolling to the
+        // physical bottom lands the last sentence at anchor × viewport_h.
+
+        let viewport_h = self
+            .view
+            .view(ids!(content_scroll))
+            .area()
+            .rect(cx)
+            .size
+            .y;
+
+        if viewport_h > 1.0 && (viewport_h - self.last_viewport_height).abs() > 1.0 {
+            self.last_viewport_height = viewport_h;
+            let spacer_h = viewport_h * (1.0 - self.scroll_anchor_fraction);
+            self.view
+                .view(ids!(content_scroll.bottom_spacer))
+                .apply_over(cx, live! { height: (spacer_h) });
+            // Spacer changed → re-scroll to maintain anchor.
+            self.pending_scroll = true;
+        }
+
+        // ── Draw content first ────────────────────────────────────────────────
+        //
+        // IMPORTANT: draw_walk must complete before set_scroll_pos is called.
+        // Reason: scroll_bar.set_scroll_pos() clamps immediately to
+        //   min(value, view_total - view_visible)
+        // where view_total is updated only during draw_scroll_bars() which runs
+        // at the end of view.draw_walk(). If we set scroll before draw, view_total
+        // is stale (previous frame) and f64::MAX clamps to old max — often 0.
+        //
+        // After draw_walk, view_total reflects the freshly laid-out content, so
+        // f64::MAX clamps to the correct new maximum scroll position.
+
+        let result = self.view.draw_walk(cx, scope, walk);
+
+        // ── Set scroll after draw (view_total is now current) ─────────────────
+        if self.pending_scroll {
+            self.pending_scroll = false;
+            self.view
+                .view(ids!(content_scroll))
+                .set_scroll_pos(cx, dvec2(0.0, f64::MAX));
+            // One more redraw to render with the updated scroll position.
+            self.view.redraw(cx);
+        }
+
+        result
     }
 }
 
 impl TranslationOverlay {
-    fn compose_two_lines(prev: &str, current: &str) -> String {
-        let prev = prev.trim();
-        let current = current.trim();
-        if prev.is_empty() {
-            return current.to_string();
-        }
-        if current.is_empty() {
-            return prev.to_string();
-        }
-        format!("{prev}\n{current}")
+    fn after_new_from_doc(&mut self, _cx: &mut Cx) {
+        self.scroll_anchor_fraction = SCROLL_ANCHOR_FRACTION;
     }
-
-    const PLACEHOLDER_WARMING: &'static str = "Warming up translation models…";
-    const PLACEHOLDER_LISTENING: &'static str = "Listening…";
-    const PLACEHOLDER_TRANSCRIBING: &'static str = "...";
 
     /// Set the language pair label, e.g. "ZH → EN"
     pub fn set_lang_pair(&mut self, cx: &mut Cx, src: &str, tgt: &str) {
@@ -202,123 +265,121 @@ impl TranslationOverlay {
             .set_text(cx, &self.lang_pair);
     }
 
-    /// Update translation content (called on each streaming chunk or completion).
+    /// Set overlay background opacity (0.0 = fully transparent, 1.0 = opaque).
+    pub fn set_opacity(&mut self, cx: &mut Cx, opacity: f64) {
+        self.view.apply_over(cx, live! {
+            draw_bg: { bg_opacity: (opacity) }
+        });
+        self.view.view(ids!(toolbar)).apply_over(cx, live! {
+            draw_bg: { bg_opacity: (opacity) }
+        });
+        self.view.redraw(cx);
+    }
+
+    /// Render translation history and pending ASR text.
     ///
-    /// `source_text` — original ASR transcription
-    /// `translation`  — accumulated translation text so far
-    /// `is_complete`  — true when the sentence is fully translated
-    pub fn set_translation(
+    /// `history` — completed sentences as `(source_text, translation)` pairs.
+    /// `pending` — current in-progress ASR text (not yet translated).
+    pub fn set_translation_update(
         &mut self,
         cx: &mut Cx,
-        source_text: &str,
-        translation: &str,
-        is_complete: bool,
-        prev_source: &str,
-        prev_trans: &str,
+        history: &[(String, String)],
+        pending: &str,
     ) {
-        // Always sync prev from the authoritative listener-side tracking.
-        // This ensures we never lose a completed sentence due to DirtyValue overwrite.
-        if !prev_source.is_empty() {
-            self.prev_source = prev_source.to_string();
-            self.prev_translation = prev_trans.to_string();
-        }
-
-        if source_text != self.current_source {
-            self.current_source = source_text.to_string();
-            self.current_translation.clear();
-            self.current_is_complete = false;
-        }
-        self.current_translation = translation.to_string();
-        self.current_is_complete = is_complete;
-
-        let source_display = Self::compose_two_lines(&self.prev_source, &self.current_source);
+        // Build history text: each sentence is "source\ntranslation\n"
+        let history_text = Self::format_history(history);
         self.view
-            .label(ids!(source_area.source_label))
-            .set_text(cx, &source_display);
+            .label(ids!(content_scroll.history_label))
+            .set_text(cx, &history_text);
 
-        let translation_display =
-            Self::compose_two_lines(&self.prev_translation, &self.current_translation);
-        let translation_label = self.view.label(ids!(translation_scroll.translation_label));
-        if !is_complete && translation_display.trim().is_empty() {
-            translation_label.set_text(cx, Self::PLACEHOLDER_TRANSCRIBING);
-            let placeholder_color = vec4(0.584, 0.647, 0.761, 1.0);
-            translation_label.apply_over(cx, live! { draw_text: { color: (placeholder_color) } });
-            self.status = TranslationStatus::Transcribing;
+        // Pending ASR text
+        let pending = pending.trim();
+        self.view
+            .label(ids!(content_scroll.pending_label))
+            .set_text(cx, pending);
+
+        // Update status
+        self.status = if !pending.is_empty() {
+            TranslationStatus::Transcribing
+        } else if !history.is_empty() {
+            TranslationStatus::Complete
         } else {
-            let display_text = if !is_complete && self.current_translation.trim().is_empty() {
-                // Keep previous completed sentence visible while current sentence is pending.
-                Self::compose_two_lines(&self.prev_translation, Self::PLACEHOLDER_TRANSCRIBING)
-            } else {
-                translation_display
-            };
-            translation_label.set_text(cx, &display_text);
-            let display_color = if is_complete {
-                vec4(1.0, 1.0, 1.0, 1.0) // final/confirmed
-            } else {
-                vec4(0.780, 0.820, 0.900, 1.0) // tentative during streaming
-            };
-            translation_label.apply_over(cx, live! { draw_text: { color: (display_color) } });
-            // Status is based on the CURRENT sentence only, not on prev_translation.
-            // Without this, having a non-empty prev_translation causes the status to
-            // show TRANSLATING even while the current sentence is still pending (no
-            // current_translation yet), because translation_display is non-empty.
-            self.status = if is_complete {
-                TranslationStatus::Complete
-            } else if !self.current_translation.trim().is_empty() {
-                TranslationStatus::Translating  // current sentence actively streaming
-            } else {
-                TranslationStatus::Transcribing // waiting for current sentence translation
-            };
-        }
+            TranslationStatus::Listening
+        };
         self.update_status_label(cx);
+
+        // ── Auto-scroll ───────────────────────────────────────────────────────
+        //
+        // Key insight: we call set_scroll_pos(f64::MAX) here — BEFORE the next
+        // draw. The scroll bars store f64::MAX; during the NEXT draw_walk the
+        // scroll view lays out the freshly-updated content, computes the real
+        // max_scroll, and clamps f64::MAX to it automatically.
+        //
+        // This is intentionally done here (not inside draw_walk) so the clamping
+        // uses the CURRENT frame's new layout rather than the stale previous one.
+
+        let new_len = history.len();
+        let pending_changed = pending != self.last_pending_text;
+        if new_len != self.last_history_len || pending_changed {
+            self.last_history_len = new_len;
+            self.last_pending_text = pending.to_string();
+            // Mark scroll pending — actual set_scroll_pos happens in draw_walk
+            // AFTER view.draw_walk() so that view_total reflects new content.
+            self.pending_scroll = true;
+        }
+
         self.view.redraw(cx);
     }
 
-    /// Show warm-up state before dataflow/models are ready.
+    fn format_history(history: &[(String, String)]) -> String {
+        let mut out = String::new();
+        for (i, (source, translation)) in history.iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            out.push_str(source.trim());
+            out.push('\n');
+            out.push_str(translation.trim());
+            if i < history.len() - 1 {
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    /// Show warm-up state (status label only, no content text).
     pub fn set_warming_up(&mut self, cx: &mut Cx) {
         self.status = TranslationStatus::WarmingUp;
-        self.view
-            .label(ids!(source_area.source_label))
-            .set_text(cx, "");
-        let translation_label = self.view.label(ids!(translation_scroll.translation_label));
-        translation_label.set_text(cx, Self::PLACEHOLDER_WARMING);
-        let placeholder_color = vec4(0.584, 0.647, 0.761, 1.0);
-        translation_label.apply_over(cx, live! { draw_text: { color: (placeholder_color) } });
         self.update_status_label(cx);
         self.view.redraw(cx);
     }
 
-    /// Show ready state when listening for user speech.
+    /// Show ready/listening state (status label only, no content text).
     pub fn set_listening(&mut self, cx: &mut Cx) {
         self.status = TranslationStatus::Listening;
-        self.view
-            .label(ids!(source_area.source_label))
-            .set_text(cx, "");
-        let translation_label = self.view.label(ids!(translation_scroll.translation_label));
-        translation_label.set_text(cx, Self::PLACEHOLDER_LISTENING);
-        let placeholder_color = vec4(0.584, 0.647, 0.761, 1.0);
-        translation_label.apply_over(cx, live! { draw_text: { color: (placeholder_color) } });
         self.update_status_label(cx);
         self.view.redraw(cx);
     }
 
     /// Clear all text and reset to listening state.
     pub fn clear(&mut self, cx: &mut Cx) {
-        self.prev_source.clear();
-        self.prev_translation.clear();
-        self.current_source.clear();
-        self.current_translation.clear();
-        self.current_is_complete = false;
+        self.last_history_len = 0;
+        self.last_pending_text.clear();
+        self.view
+            .label(ids!(content_scroll.history_label))
+            .set_text(cx, "");
+        self.view
+            .label(ids!(content_scroll.pending_label))
+            .set_text(cx, "");
         self.set_listening(cx);
     }
 
     fn update_status_label(&self, cx: &mut Cx) {
         let (text, color) = match self.status {
-            TranslationStatus::WarmingUp => ("● WARMING UP", vec4(0.906, 0.620, 0.204, 1.0)),     // amber
-            TranslationStatus::Listening => ("● LISTENING", vec4(0.098, 0.725, 0.506, 1.0)),    // green
-            TranslationStatus::Transcribing => ("● TRANSCRIBING", vec4(0.906, 0.620, 0.204, 1.0)), // amber
-            TranslationStatus::Translating => ("● TRANSLATING", vec4(0.231, 0.510, 0.831, 1.0)), // blue
-            TranslationStatus::Complete => ("✓ DONE", vec4(0.098, 0.725, 0.506, 1.0)),           // green
+            TranslationStatus::WarmingUp => ("● WARMING UP", vec4(0.906, 0.620, 0.204, 1.0)),
+            TranslationStatus::Listening => ("● LISTENING", vec4(0.098, 0.725, 0.506, 1.0)),
+            TranslationStatus::Transcribing => ("● TRANSCRIBING", vec4(0.906, 0.620, 0.204, 1.0)),
+            TranslationStatus::Complete => ("✓ DONE", vec4(0.098, 0.725, 0.506, 1.0)),
         };
         let label = self.view.label(ids!(toolbar.status_label));
         label.set_text(cx, text);
@@ -334,18 +395,15 @@ impl TranslationOverlayRef {
         }
     }
 
-    /// Update with a new translation chunk from SharedDoraState
-    pub fn set_translation(
+    /// Update with sentence history and pending ASR text
+    pub fn set_translation_update(
         &self,
         cx: &mut Cx,
-        source_text: &str,
-        translation: &str,
-        is_complete: bool,
-        prev_source: &str,
-        prev_trans: &str,
+        history: &[(String, String)],
+        pending: &str,
     ) {
         if let Some(mut inner) = self.borrow_mut() {
-            inner.set_translation(cx, source_text, translation, is_complete, prev_source, prev_trans);
+            inner.set_translation_update(cx, history, pending);
         }
     }
 
@@ -365,6 +423,12 @@ impl TranslationOverlayRef {
     pub fn set_listening(&self, cx: &mut Cx) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.set_listening(cx);
+        }
+    }
+
+    pub fn set_opacity(&self, cx: &mut Cx, opacity: f64) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_opacity(cx, opacity);
         }
     }
 }

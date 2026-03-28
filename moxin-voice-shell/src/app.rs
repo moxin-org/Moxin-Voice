@@ -227,16 +227,8 @@ impl MatchEvent for App {
             // Initialize overlay state immediately on show/hide.
             let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
             if window_visible {
-                // Not ready yet until translation bridges are connected.
                 if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
                     overlay.set_warming_up(cx);
-                } else {
-                    self.translation_ui
-                        .label(ids!(body.translation_overlay.toolbar.status_label))
-                        .set_text(cx, "● WARMING UP");
-                    self.translation_ui
-                        .label(ids!(body.translation_overlay.translation_scroll.translation_label))
-                        .set_text(cx, "Warming up translation models…");
                 }
             } else if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
                 overlay.clear(cx);
@@ -259,27 +251,26 @@ impl MatchEvent for App {
                 "[translation_ui] received update: {}",
                 match &update_opt {
                     Some(u) => format!(
-                        "source_len={}, translation_len={}, complete={}",
-                        u.source_text.len(),
-                        u.translation.len(),
-                        u.is_complete
+                        "history={}, pending_len={}",
+                        u.history.len(),
+                        u.pending_source_text.len(),
                     ),
                     None => "clear".to_string(),
                 }
             );
             let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
-            let mut applied_via_widget = false;
             if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-                applied_via_widget = true;
                 match &update_opt {
                     Some(update) => {
-                        overlay.set_translation(
+                        let history: Vec<(String, String)> = update
+                            .history
+                            .iter()
+                            .map(|u| (u.source_text.clone(), u.translation.clone()))
+                            .collect();
+                        overlay.set_translation_update(
                             cx,
-                            &update.source_text,
-                            &update.translation,
-                            update.is_complete,
-                            &update.prev_source_text,
-                            &update.prev_translation,
+                            &history,
+                            &update.pending_source_text,
                         );
                     }
                     None => {
@@ -288,42 +279,8 @@ impl MatchEvent for App {
                 }
             } else {
                 ::log::warn!(
-                    "[translation_ui] TranslationOverlay borrow_mut failed, using label fallback"
+                    "[translation_ui] TranslationOverlay borrow_mut failed"
                 );
-            };
-
-            // Fallback path: update labels directly to avoid dropping visible updates
-            // when typed widget borrow fails for any reason.
-            if !applied_via_widget {
-                match &update_opt {
-                    Some(update) => {
-                        self.translation_ui
-                            .label(ids!(body.translation_overlay.source_area.source_label))
-                            .set_text(cx, &update.source_text);
-                        self.translation_ui
-                            .label(ids!(body.translation_overlay.translation_scroll.translation_label))
-                            .set_text(cx, &update.translation);
-                        let status_text = if update.is_complete {
-                            "✓ DONE"
-                        } else {
-                            "● TRANSLATING"
-                        };
-                        self.translation_ui
-                            .label(ids!(body.translation_overlay.toolbar.status_label))
-                            .set_text(cx, status_text);
-                    }
-                    None => {
-                        self.translation_ui
-                            .label(ids!(body.translation_overlay.source_area.source_label))
-                            .set_text(cx, "");
-                        self.translation_ui
-                            .label(ids!(body.translation_overlay.translation_scroll.translation_label))
-                            .set_text(cx, "");
-                        self.translation_ui
-                            .label(ids!(body.translation_overlay.toolbar.status_label))
-                            .set_text(cx, "● LISTENING");
-                    }
-                };
             };
             self.translation_ui.redraw(cx);
         }
@@ -344,31 +301,22 @@ impl MatchEvent for App {
             let translation_snapshot = dora_state.translation.read();
             if translation_snapshot.is_none() {
                 let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
-                let mut applied_via_widget = false;
                 if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-                    applied_via_widget = true;
                     if bridges_ready {
                         overlay.set_listening(cx);
                     } else {
                         overlay.set_warming_up(cx);
                     }
                 };
-                if !applied_via_widget {
-                    self.translation_ui
-                        .label(ids!(body.translation_overlay.toolbar.status_label))
-                        .set_text(cx, if bridges_ready { "● LISTENING" } else { "● WARMING UP" });
-                    self.translation_ui
-                        .label(ids!(body.translation_overlay.translation_scroll.translation_label))
-                        .set_text(
-                            cx,
-                            if bridges_ready {
-                                "Listening…"
-                            } else {
-                                "Warming up translation models…"
-                            },
-                        );
-                }
             }
+        }
+
+        // ── Translation overlay opacity ──────────────────────────────────────
+        if let Some(opacity) = dora_state.translation_overlay_opacity.read_if_dirty() {
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.set_opacity(cx, opacity);
+            };
         }
     }
 

@@ -401,25 +401,25 @@ impl EventMetadata {
     }
 }
 
-/// Translation update from the translator node.
-///
-/// Emitted by `TranslationListenerBridge` on every translation chunk.
-/// When `is_complete` is false, the translation text is a partial streaming token batch.
-/// When `is_complete` is true, the translation text is the final, complete translation.
-#[derive(Debug, Clone, Default)]
-pub struct TranslationUpdate {
+/// A single completed sentence: source text + its translation.
+#[derive(Debug, Clone)]
+pub struct SentenceUnit {
     /// Original ASR transcription (source language)
     pub source_text: String,
-    /// Translated text — partial token batch if streaming, full text if complete
+    /// Full translated text (target language)
     pub translation: String,
-    /// True when the translator has finished the full translation
-    pub is_complete: bool,
-    /// Previous completed sentence (source). Carried in every update so the UI
-    /// never loses a completed sentence even if `DirtyValue` overwrites the
-    /// `is_complete=true` state before the 50ms UI poll reads it.
-    pub prev_source_text: String,
-    /// Previous completed sentence (translation).
-    pub prev_translation: String,
+}
+
+/// Translation update from the translator node.
+///
+/// Carries the full sentence history (up to 50 completed sentences) plus
+/// any in-progress ASR text that hasn't been translated yet.
+#[derive(Debug, Clone, Default)]
+pub struct TranslationUpdate {
+    /// Completed sentences in chronological order (capped at 50).
+    pub history: Vec<SentenceUnit>,
+    /// ASR text currently being spoken (not yet translated). Empty when idle.
+    pub pending_source_text: String,
 }
 
 /// Get current unix timestamp in milliseconds

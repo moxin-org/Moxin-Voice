@@ -4,7 +4,7 @@
 //! streaming/final results to SharedDoraState for consumption by the UI overlay.
 
 use crate::bridge::{BridgeState, DoraBridge};
-use crate::data::{DoraData, TranslationUpdate};
+use crate::data::{DoraData, SentenceUnit, TranslationUpdate};
 use crate::error::{BridgeError, BridgeResult};
 use crate::shared_state::SharedDoraState;
 use crossbeam_channel::{bounded, Receiver, Sender};
@@ -80,15 +80,14 @@ impl TranslationListenerBridge {
             shared.add_bridge(node_id.clone());
         }
 
-        // Local buffer: keeps the latest source_text for the current sentence.
-        // The translator sends source_text once, then possibly multiple translation chunks.
+        const MAX_HISTORY: usize = 50;
+
+        // Completed sentence history (source + translation pairs).
+        let mut history: Vec<SentenceUnit> = Vec::new();
+        // Current in-progress ASR text (not yet translated).
+        let mut pending_source_text = String::new();
+        // Current source text for the sentence being translated.
         let mut current_source_text = String::new();
-        // Accumulated translation text (built up from streaming chunks).
-        let mut accumulated_translation = String::new();
-        // Previous completed sentence — carried in every SharedDoraState update so
-        // the UI overlay can display it even if it missed the is_complete transition.
-        let mut prev_source_text = String::new();
-        let mut prev_translation = String::new();
 
         loop {
             if stop_receiver.try_recv().is_ok() {
@@ -121,48 +120,22 @@ impl TranslationListenerBridge {
                         if id == DataId::from("log".to_owned()) {
                             eprintln!("[TranslatorLog] {}", text);
                         } else if id == DataId::from("source_text".to_owned()) {
-                            let session_status = metadata
-                                .parameters
-                                .iter()
-                                .find(|(k, _)| k.as_str() == "session_status")
-                                .and_then(|(_, v)| {
-                                    if let Parameter::String(s) = v {
-                                        Some(s.as_str())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .unwrap_or("complete");
-
-                            // New sentence / partial ASR streaming update.
                             debug!(
-                                "[TranslationListener] source_text (status={}): {}",
-                                session_status, &text
+                                "[TranslationListener] source_text: {}",
+                                &text
                             );
 
-                            // Do NOT promote to prev here.  Progressive mode causes
-                            // frequent source_text changes within the same sentence
-                            // (each snapshot adds a few characters).  Promoting these
-                            // intermediate snapshots fills prev with near-duplicate
-                            // content.  Promotion is handled exclusively by the
-                            // is_complete path in the translation handler (below),
-                            // which fires only when a sentence is truly finished.
-                            current_source_text = text;
-                            accumulated_translation.clear();
+                            // Update pending ASR text for overlay display.
+                            current_source_text = text.clone();
+                            pending_source_text = text;
 
-                            // Push source-only update so overlay can render ASR stream and
-                            // show "working" state before translation tokens arrive.
                             if let Some(ref shared) = shared_state {
                                 shared.translation.set(Some(TranslationUpdate {
-                                    source_text: current_source_text.clone(),
-                                    translation: String::new(),
-                                    is_complete: false,
-                                    prev_source_text: prev_source_text.clone(),
-                                    prev_translation: prev_translation.clone(),
+                                    history: history.clone(),
+                                    pending_source_text: pending_source_text.clone(),
                                 }));
                             }
                         } else if id == DataId::from("translation".to_owned()) {
-                            // Read session_status from metadata parameters
                             let session_status = metadata
                                 .parameters
                                 .iter()
@@ -177,45 +150,39 @@ impl TranslationListenerBridge {
                                 .unwrap_or("complete");
 
                             let is_complete = session_status == "complete";
-                            if is_complete {
-                                // "complete" payload from translator is the FULL sentence.
-                                // Replace instead of append, otherwise we duplicate content.
-                                accumulated_translation = text.clone();
-                            } else {
-                                // "streaming" payload is a delta chunk.
-                                accumulated_translation.push_str(&text);
-                            }
-
                             debug!(
-                                "[TranslationListener] translation chunk (complete={}): {}",
+                                "[TranslationListener] translation (complete={}): {}",
                                 is_complete, &text
                             );
-
-                            if let Some(ref shared) = shared_state {
-                                shared.translation.set(Some(TranslationUpdate {
-                                    source_text: current_source_text.clone(),
-                                    translation: accumulated_translation.clone(),
-                                    is_complete,
-                                    prev_source_text: prev_source_text.clone(),
-                                    prev_translation: prev_translation.clone(),
-                                }));
-                            }
 
                             if is_complete {
                                 info!(
                                     "[TranslationListener] Translation complete: [{}] -> [{}]",
-                                    current_source_text, accumulated_translation
+                                    current_source_text, text
                                 );
-                                eprintln!(
-                                    "[TranslationListener] complete source=[{}] translation=[{}]",
-                                    current_source_text, accumulated_translation
-                                );
-                                // Promote completed sentence to prev for next round.
-                                prev_source_text = current_source_text.clone();
-                                prev_translation = accumulated_translation.clone();
-                                // Reset for next sentence
-                                accumulated_translation.clear();
+
+                                // Add completed sentence to history.
+                                history.push(SentenceUnit {
+                                    source_text: current_source_text.clone(),
+                                    translation: text,
+                                });
+                                // Cap history size.
+                                if history.len() > MAX_HISTORY {
+                                    history.remove(0);
+                                }
+                                // Clear pending since this sentence is done.
+                                pending_source_text.clear();
+                                current_source_text.clear();
+
+                                if let Some(ref shared) = shared_state {
+                                    shared.translation.set(Some(TranslationUpdate {
+                                        history: history.clone(),
+                                        pending_source_text: String::new(),
+                                    }));
+                                }
                             }
+                            // Ignore streaming translation chunks — Phase 2: only show
+                            // completed translations in the overlay.
                         }
                     }
                     Event::Stop(_) => {

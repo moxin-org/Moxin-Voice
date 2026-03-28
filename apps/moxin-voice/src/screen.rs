@@ -5322,36 +5322,10 @@ live_design! {
                                             text: "输入源"
                                         }
 
-                                        translation_source_label = <Label> {
-                                            width: Fill, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_REGULAR>{ font_size: 13.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
-                                                }
-                                            }
-                                            text: "系统默认麦克风"
-                                        }
-
-                                        translation_source_btn = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 10, right: 10}
-                                            text: "更改"
-                                            draw_bg: {
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    sdf.fill(vec4(0.231, 0.435, 0.831, 0.12));
-                                                    sdf.stroke(vec4(0.231, 0.435, 0.831, 0.35), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 { return vec4(0.231, 0.435, 0.831, 1.0); }
-                                            }
+                                        translation_source_dropdown = <SettingsDeviceDropDown> {
+                                            width: Fill, height: 32
+                                            labels: ["系统默认麦克风"]
+                                            values: ["default"]
                                         }
                                     }
 
@@ -5374,7 +5348,7 @@ live_design! {
                                         flow: Right
                                         align: {y: 0.5}
                                         padding: {left: 16, right: 16}
-                                        spacing: 8
+                                        spacing: 12
 
                                         <Label> {
                                             width: 90, height: Fit
@@ -5388,108 +5362,10 @@ live_design! {
                                             text: "输入语言"
                                         }
 
-                                        src_lang_zh = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "中文"
-                                            draw_bg: {
-                                                instance active: 1.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 1.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-
-                                        src_lang_en = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "英语"
-                                            draw_bg: {
-                                                instance active: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-
-                                        src_lang_ja = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "日语"
-                                            draw_bg: {
-                                                instance active: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-
-                                        src_lang_fr = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "法语"
-                                            draw_bg: {
-                                                instance active: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
+                                        src_lang_dropdown = <SettingsDeviceDropDown> {
+                                            width: Fill, height: 32
+                                            labels: ["中文", "英语", "日语", "法语"]
+                                            values: ["zh", "en", "ja", "fr"]
                                         }
                                     }
 
@@ -5512,7 +5388,7 @@ live_design! {
                                         flow: Right
                                         align: {y: 0.5}
                                         padding: {left: 16, right: 16}
-                                        spacing: 8
+                                        spacing: 12
 
                                         <Label> {
                                             width: 90, height: Fit
@@ -5526,108 +5402,10 @@ live_design! {
                                             text: "目标语言"
                                         }
 
-                                        tgt_lang_en = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "英语"
-                                            draw_bg: {
-                                                instance active: 1.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 1.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-
-                                        tgt_lang_zh = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "中文"
-                                            draw_bg: {
-                                                instance active: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-
-                                        tgt_lang_ja = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "日语"
-                                            draw_bg: {
-                                                instance active: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-
-                                        tgt_lang_fr = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "法语"
-                                            draw_bg: {
-                                                instance active: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
+                                        tgt_lang_dropdown = <SettingsDeviceDropDown> {
+                                            width: Fill, height: 32
+                                            labels: ["英语", "中文", "日语", "法语"]
+                                            values: ["en", "zh", "ja", "fr"]
                                         }
                                     }
 
@@ -5714,6 +5492,46 @@ live_design! {
                                                     return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
                                                 }
                                             }
+                                        }
+                                    }
+
+                                    // 分隔线
+                                    <View> {
+                                        width: Fill, height: 1
+                                        margin: {left: 16, right: 16}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            fn pixel(self) -> vec4 {
+                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                            }
+                                        }
+                                    }
+
+                                    // 浮窗透明度
+                                    setting_row_opacity = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 12
+
+                                        <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "浮窗透明度"
+                                        }
+
+                                        opacity_dropdown = <SettingsDeviceDropDown> {
+                                            width: Fill, height: 32
+                                            labels: ["100%", "90%", "85%", "75%", "65%", "50%", "35%"]
+                                            values: ["1.0", "0.9", "0.85", "0.75", "0.65", "0.5", "0.35"]
                                         }
                                     }
                                 } // End settings_card
@@ -8249,6 +8067,9 @@ pub struct TTSScreen {
     /// Whether the overlay is in fullscreen mode
     #[rust]
     translation_overlay_fullscreen: bool,
+    /// Overlay window background opacity (0.0..1.0)
+    #[rust]
+    translation_overlay_opacity: f64,
 
     // Model picker modal
     #[rust]
@@ -8503,6 +8324,7 @@ impl Widget for TTSScreen {
             self.translation_audio_devices = Vec::new();
             self.translation_device_idx = 0;
             self.translation_overlay_fullscreen = false;
+            self.translation_overlay_opacity = 0.85;
 
             // Add initial log entries
             self.log_entries
@@ -8946,6 +8768,9 @@ impl Widget for TTSScreen {
             .clicked(&actions)
         {
             self.switch_page(cx, AppPage::Translation);
+            self.populate_translation_input_dropdown(cx);
+            self.update_translation_lang_dropdowns(cx);
+            self.update_translation_opacity_dropdown(cx);
         }
 
         // ── Translation page: start / stop / settings buttons ────────────────
@@ -8964,13 +8789,23 @@ impl Widget for TTSScreen {
             self.stop_translation_dataflow(cx);
         }
 
-        // 更改 input source — cycle through available CPAL audio input devices
-        if self
+        // 更改 input source — dropdown selection
+        if let Some(idx) = self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_btn))
-            .clicked(&actions)
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
+            .changed(&actions)
         {
-            self.cycle_translation_input_device(cx);
+            self.translation_device_idx = idx;
+            let device_for_bridge = if idx == 0 {
+                None
+            } else if idx <= self.translation_audio_devices.len() {
+                Some(self.translation_audio_devices[idx.saturating_sub(1)].clone())
+            } else {
+                None
+            };
+            if let Some(shared) = self.translation_shared_state() {
+                shared.translation_input_device.set(device_for_bridge);
+            }
         }
 
         // Overlay style: compact / fullscreen
@@ -8997,40 +8832,70 @@ impl Widget for TTSScreen {
             }
         }
 
-        // Source language buttons
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_zh)).clicked(&actions) {
-            self.translation_src_lang = "zh".to_string();
-            self.update_translation_lang_buttons(cx);
-        }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_en)).clicked(&actions) {
-            self.translation_src_lang = "en".to_string();
-            self.update_translation_lang_buttons(cx);
-        }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_ja)).clicked(&actions) {
-            self.translation_src_lang = "ja".to_string();
-            self.update_translation_lang_buttons(cx);
-        }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_fr)).clicked(&actions) {
-            self.translation_src_lang = "fr".to_string();
-            self.update_translation_lang_buttons(cx);
+        // Overlay opacity dropdown
+        {
+            let opacity_values: [f64; 7] = [1.0, 0.9, 0.85, 0.75, 0.65, 0.5, 0.35];
+            if let Some(idx) = self
+                .view
+                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.opacity_dropdown))
+                .changed(&actions)
+            {
+                let opacity = opacity_values.get(idx).copied().unwrap_or(0.85);
+                self.translation_overlay_opacity = opacity;
+                if let Some(shared) = self.translation_shared_state() {
+                    shared.translation_overlay_opacity.set(opacity);
+                }
+            }
         }
 
-        // Target language buttons
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_en)).clicked(&actions) {
-            self.translation_tgt_lang = "en".to_string();
-            self.update_translation_lang_buttons(cx);
+        // Source language dropdown
+        {
+            let lang_codes = ["zh", "en", "ja", "fr"];
+            if let Some(idx) = self
+                .view
+                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown))
+                .changed(&actions)
+            {
+                if let Some(code) = lang_codes.get(idx) {
+                    self.translation_src_lang = code.to_string();
+                    // Prevent same language for both source and target
+                    if self.translation_src_lang == self.translation_tgt_lang {
+                        // Pick the first different language
+                        for &c in &lang_codes {
+                            if c != *code {
+                                self.translation_tgt_lang = c.to_string();
+                                break;
+                            }
+                        }
+                        self.update_translation_lang_dropdowns(cx);
+                    }
+                }
+            }
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_zh)).clicked(&actions) {
-            self.translation_tgt_lang = "zh".to_string();
-            self.update_translation_lang_buttons(cx);
-        }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_ja)).clicked(&actions) {
-            self.translation_tgt_lang = "ja".to_string();
-            self.update_translation_lang_buttons(cx);
-        }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_fr)).clicked(&actions) {
-            self.translation_tgt_lang = "fr".to_string();
-            self.update_translation_lang_buttons(cx);
+
+        // Target language dropdown
+        {
+            let lang_codes = ["en", "zh", "ja", "fr"];
+            if let Some(idx) = self
+                .view
+                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown))
+                .changed(&actions)
+            {
+                if let Some(code) = lang_codes.get(idx) {
+                    self.translation_tgt_lang = code.to_string();
+                    // Prevent same language for both source and target
+                    if self.translation_tgt_lang == self.translation_src_lang {
+                        let src_codes = ["zh", "en", "ja", "fr"];
+                        for &c in &src_codes {
+                            if c != *code {
+                                self.translation_src_lang = c.to_string();
+                                break;
+                            }
+                        }
+                        self.update_translation_lang_dropdowns(cx);
+                    }
+                }
+            }
         }
 
         // Handle sidebar footer click (navigate to User & Settings page)
@@ -15103,14 +14968,20 @@ impl TTSScreen {
         if let Some(shared) = self.translation_shared_state() {
             let translation_snapshot = shared.translation.read();
             if let Some(update) = translation_snapshot {
-                let vad_text = if update.is_complete { "句完成" } else { "识别中" };
+                let vad_text = if update.pending_source_text.is_empty() && !update.history.is_empty() {
+                    "句完成"
+                } else if !update.pending_source_text.is_empty() {
+                    "识别中"
+                } else {
+                    "等待"
+                };
                 self.view
                     .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.metrics_row.metrics_vad.translation_vad_label))
                     .set_text(cx, vad_text);
-                // Mirror newly arrived translation chunks to the log WITHOUT consuming dirty flag.
+                // Mirror newly arrived translation to the log WITHOUT consuming dirty flag.
                 let fingerprint = format!(
-                    "{}|{}|{}",
-                    update.source_text, update.translation, update.is_complete
+                    "h{}|p={}",
+                    update.history.len(), update.pending_source_text.len()
                 );
                 let should_log = self
                     .translation_last_logged_fingerprint
@@ -15118,13 +14989,14 @@ impl TTSScreen {
                     .map(|last| last != &fingerprint)
                     .unwrap_or(true);
 
-                if should_log && !update.source_text.is_empty() {
-                    let msg = if update.is_complete {
-                        format!("[翻译完成] {} → {}", update.source_text, update.translation)
-                    } else {
-                        format!("[识别中] {}", update.source_text)
-                    };
-                    self.add_translation_log(cx, &msg);
+                if should_log {
+                    if let Some(last) = update.history.last() {
+                        let msg = format!("[翻译完成] {} → {}", last.source_text, last.translation);
+                        self.add_translation_log(cx, &msg);
+                    } else if !update.pending_source_text.is_empty() {
+                        let msg = format!("[识别中] {}", update.pending_source_text);
+                        self.add_translation_log(cx, &msg);
+                    }
                     self.translation_last_logged_fingerprint = Some(fingerprint);
                 }
             }
@@ -15174,38 +15046,20 @@ impl TTSScreen {
             .set_text(cx, &text);
     }
 
-    /// Update the language toggle button visual states after a selection change.
-    fn update_translation_lang_buttons(&mut self, cx: &mut Cx) {
-        let src = self.translation_src_lang.clone();
-        let tgt = self.translation_tgt_lang.clone();
+    /// Update the language dropdown selections after a programmatic change.
+    fn update_translation_lang_dropdowns(&mut self, cx: &mut Cx) {
+        let src_codes = ["zh", "en", "ja", "fr"];
+        let tgt_codes = ["en", "zh", "ja", "fr"];
 
-        // src buttons
-        let zh_src = if src == "zh" { 1.0_f64 } else { 0.0 };
-        let en_src = if src == "en" { 1.0_f64 } else { 0.0 };
-        let ja_src = if src == "ja" { 1.0_f64 } else { 0.0 };
-        let fr_src = if src == "fr" { 1.0_f64 } else { 0.0 };
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_zh))
-            .apply_over(cx, live! { draw_bg: { active: (zh_src) } draw_text: { active: (zh_src) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_en))
-            .apply_over(cx, live! { draw_bg: { active: (en_src) } draw_text: { active: (en_src) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_ja))
-            .apply_over(cx, live! { draw_bg: { active: (ja_src) } draw_text: { active: (ja_src) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_fr))
-            .apply_over(cx, live! { draw_bg: { active: (fr_src) } draw_text: { active: (fr_src) } });
+        let src_idx = src_codes.iter().position(|c| *c == self.translation_src_lang).unwrap_or(0);
+        let tgt_idx = tgt_codes.iter().position(|c| *c == self.translation_tgt_lang).unwrap_or(0);
 
-        // tgt buttons
-        let en_tgt = if tgt == "en" { 1.0_f64 } else { 0.0 };
-        let zh_tgt = if tgt == "zh" { 1.0_f64 } else { 0.0 };
-        let ja_tgt = if tgt == "ja" { 1.0_f64 } else { 0.0 };
-        let fr_tgt = if tgt == "fr" { 1.0_f64 } else { 0.0 };
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_en))
-            .apply_over(cx, live! { draw_bg: { active: (en_tgt) } draw_text: { active: (en_tgt) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_zh))
-            .apply_over(cx, live! { draw_bg: { active: (zh_tgt) } draw_text: { active: (zh_tgt) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_ja))
-            .apply_over(cx, live! { draw_bg: { active: (ja_tgt) } draw_text: { active: (ja_tgt) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_fr))
-            .apply_over(cx, live! { draw_bg: { active: (fr_tgt) } draw_text: { active: (fr_tgt) } });
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown))
+            .set_selected_item(cx, src_idx);
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown))
+            .set_selected_item(cx, tgt_idx);
     }
 
     /// Update the active state of the 紧凑/全屏 overlay style buttons.
@@ -15220,48 +15074,44 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { active: (full) } draw_text: { active: (full) } });
     }
 
-    /// Cycle to the next available CPAL audio input device.
-    /// Enumerates devices on first call. Updates the source label and SharedDoraState.
-    fn cycle_translation_input_device(&mut self, cx: &mut Cx) {
+    /// Sync the opacity dropdown selection with the current opacity value.
+    fn update_translation_opacity_dropdown(&mut self, cx: &mut Cx) {
+        let opacity_values: [f64; 7] = [1.0, 0.9, 0.85, 0.75, 0.65, 0.5, 0.35];
+        let idx = opacity_values
+            .iter()
+            .position(|v| (*v - self.translation_overlay_opacity).abs() < 0.01)
+            .unwrap_or(2); // default to 85%
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.opacity_dropdown))
+            .set_selected_item(cx, idx);
+    }
+
+    /// Populate the translation input device dropdown with available CPAL devices.
+    fn populate_translation_input_dropdown(&mut self, cx: &mut Cx) {
         use cpal::traits::{DeviceTrait, HostTrait};
 
-        // Enumerate on first use
-        if self.translation_audio_devices.is_empty() {
-            let host = cpal::default_host();
-            let mut names: Vec<String> = vec!["系统默认麦克风".to_string()];
-            if let Ok(devs) = host.input_devices() {
-                for d in devs {
-                    if let Ok(name) = d.name() {
-                        if !names.contains(&name) {
-                            names.push(name);
-                        }
+        let host = cpal::default_host();
+        let mut names: Vec<String> = Vec::new();
+        if let Ok(devs) = host.input_devices() {
+            for d in devs {
+                if let Ok(name) = d.name() {
+                    if !names.contains(&name) {
+                        names.push(name);
                     }
                 }
             }
-            self.translation_audio_devices = names;
-            self.translation_device_idx = 0;
         }
+        self.translation_audio_devices = names;
 
-        // Advance to next device
-        self.translation_device_idx =
-            (self.translation_device_idx + 1) % self.translation_audio_devices.len();
+        let mut labels = vec!["系统默认麦克风".to_string()];
+        labels.extend(self.translation_audio_devices.clone());
 
-        let selected = self.translation_audio_devices[self.translation_device_idx].clone();
-
-        // Update the source label
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label))
-            .set_text(cx, &selected);
-
-        // Write device name to SharedDoraState (None = system default)
-        let device_for_bridge = if self.translation_device_idx == 0 {
-            None
-        } else {
-            Some(selected)
-        };
-        if let Some(shared) = self.translation_shared_state() {
-            shared.translation_input_device.set(device_for_bridge);
-        }
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
+            .set_labels(cx, labels);
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
+            .set_selected_item(cx, 0);
     }
 
     fn translation_shared_state(&self) -> Option<Arc<moxin_dora_bridge::SharedDoraState>> {

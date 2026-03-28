@@ -493,12 +493,6 @@ struct PendingSession {
     last_chunk_at: Instant,
     last_source_emit_at: Instant,
     last_source_emit_len: usize,
-    /// Source text used in the most recent progressive translation.
-    /// When finalization produces the same source text, we reuse the cached
-    /// result instead of re-running the model — prevents duplicate output.
-    last_progressive_translated_text: Option<String>,
-    /// Translation result corresponding to `last_progressive_translated_text`.
-    last_progressive_translation: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -527,16 +521,6 @@ fn finalize_pending_session(
         return;
     }
 
-    // Deduplication: if the source text is identical to the last progressive
-    // translation, reuse the cached result — avoids re-running the model and
-    // prevents streaming delta chunks from appending to already-displayed text.
-    let cached_translation: Option<String> =
-        if session.last_progressive_translated_text.as_deref() == Some(text_to_translate.as_str()) {
-            session.last_progressive_translation.clone()
-        } else {
-            None
-        };
-
     tracing::info!(
         "Finalizing sentence (reason={}): {}",
         reason,
@@ -559,20 +543,6 @@ fn finalize_pending_session(
     );
     let _ = send_source(node, &text_to_translate, "complete", question_id);
 
-    if let Some(cached) = cached_translation {
-        // Source text is unchanged — emit cached translation directly as "complete".
-        // This prevents: (a) duplicate model inference and (b) streaming delta tokens
-        // being appended to the already-accumulated progressive translation in the UI.
-        tracing::info!("Using cached progressive translation (source unchanged)");
-        let _ = send_translation_chunk(node, &cached, "complete", question_id);
-        return;
-    }
-
-    // When a progressive translation was recently shown, skip streaming deltas
-    // during finalization — the UI already has a translation displayed, and
-    // streaming would cause it to disappear then rebuild character by character.
-    let had_progressive = session.last_progressive_translated_text.is_some();
-
     if let Err(e) = translate_and_emit(
         node,
         tokenizer,
@@ -587,12 +557,11 @@ fn finalize_pending_session(
         question_id,
         eos_tokens,
         "complete",
-        !had_progressive, // skip streaming deltas when progressive was active
+        false, // no streaming deltas — overlay only shows completed translations
     ) {
         let msg = format!("{e}");
         tracing::error!("{}", msg);
         let _ = send_log(node, &msg);
-        // Never leave UI/session in perpetual "translating" due to a failed send/generation.
         let _ = send_translation_chunk(node, "", "complete", question_id);
     }
 }
@@ -842,8 +811,6 @@ fn main() -> Result<()> {
                                     last_chunk_at: now,
                                     last_source_emit_at: now,
                                     last_source_emit_len: 0,
-                                    last_progressive_translated_text: None,
-                                    last_progressive_translation: None,
                                 });
                             } else if is_progressive {
                                 // Progressive snapshot of current burst — keep finalized text,
@@ -872,17 +839,14 @@ fn main() -> Result<()> {
                                 last_chunk_at: now,
                                 last_source_emit_at: now,
                                 last_source_emit_len: 0,
-                                last_progressive_translated_text: None,
-                                last_progressive_translation: None,
                             });
                         }
                     }
 
-                    // Progressive: immediately emit source_text and translate with streaming status.
-                    // We skip the normal source-emit throttle and finalization checks below.
+                    // Progressive: only forward source_text for ASR display.
+                    // Translation is deferred until sentence finalization.
                     if is_progressive {
                         if let Some(session) = pending.as_ref() {
-                            // effective_text = finalized bursts + current in-progress burst
                             let text_snapshot = effective_text(session, &src_lang);
                             let qid = session.question_id;
                             let current_len = text_snapshot.chars().count();
@@ -890,40 +854,6 @@ fn main() -> Result<()> {
                             if let Some(s) = pending.as_mut() {
                                 s.last_source_emit_at = now;
                                 s.last_source_emit_len = current_len;
-                            }
-                            if !text_snapshot.trim().is_empty() {
-                                let _ = send_log(&mut node, &format!(
-                                    "Progressive translate: {} chars",
-                                    current_len
-                                ));
-                                match translate_and_emit(
-                                    &mut node,
-                                    &mut tokenizer,
-                                    &mut model,
-                                    &chat_template,
-                                    &model_id,
-                                    &system_prompt,
-                                    &text_snapshot,
-                                    force_disable_thinking,
-                                    temperature,
-                                    max_tokens,
-                                    qid,
-                                    &eos_tokens,
-                                    "streaming",
-                                    false, // skip mid-generation streaming for progressive
-                                ) {
-                                    Ok(translated) => {
-                                        // Cache this result so finalization can reuse it if
-                                        // the source text hasn't changed — prevents duplicates.
-                                        if let Some(s) = pending.as_mut() {
-                                            s.last_progressive_translated_text = Some(text_snapshot.clone());
-                                            s.last_progressive_translation = Some(translated);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let _ = send_log(&mut node, &format!("Progressive translate error: {e}"));
-                                    }
-                                }
                             }
                         }
                         continue;
