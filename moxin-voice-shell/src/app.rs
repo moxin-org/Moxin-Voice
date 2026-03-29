@@ -12,6 +12,36 @@ use moxin_widgets::translation_overlay::TranslationOverlay;
 use std::process::Command;
 use std::sync::OnceLock;
 
+// ── macOS window alpha ────────────────────────────────────────────────────────
+// Sets NSWindow.alphaValue on the window whose title contains `title_fragment`.
+// NSWindow.alphaValue composites the entire window at the given opacity against
+// the screen content behind it — no Makepad patches required.
+#[cfg(target_os = "macos")]
+unsafe fn set_nswindow_alpha(title_fragment: &str, alpha: f64) {
+    use makepad_objc_sys::runtime::Object;
+    #[allow(unused_imports)]
+    use makepad_objc_sys::{class, msg_send, sel, sel_impl};
+    let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+    let windows: *mut Object = msg_send![app, windows];
+    let count: usize = msg_send![windows, count];
+    for i in 0..count {
+        let win: *mut Object = msg_send![windows, objectAtIndex: i];
+        let title: *mut Object = msg_send![win, title];
+        if title.is_null() {
+            continue;
+        }
+        let utf8: *const std::os::raw::c_char = msg_send![title, UTF8String];
+        if utf8.is_null() {
+            continue;
+        }
+        let s = std::ffi::CStr::from_ptr(utf8).to_str().unwrap_or("");
+        if s.contains(title_fragment) {
+            let () = msg_send![win, setAlphaValue: alpha];
+            return;
+        }
+    }
+}
+
 use crate::Args;
 
 // ============================================================================
@@ -110,6 +140,10 @@ pub struct App {
 
     #[rust]
     translation_overlay_visible: bool,
+
+    /// Last opacity applied to the translation window; avoids per-tick ObjC calls.
+    #[rust]
+    last_overlay_opacity: f64,
 }
 
 impl LiveRegister for App {
@@ -183,6 +217,7 @@ impl MatchEvent for App {
         // Poll SharedDoraState every 50 ms for translation updates
         self.poll_timer = cx.start_interval(0.05);
         self.translation_overlay_visible = false;
+        self.last_overlay_opacity = -1.0; // force first apply
 
         ::log::info!("Moxin Voice initialization complete");
     }
@@ -312,12 +347,16 @@ impl MatchEvent for App {
         }
 
         // ── Translation overlay opacity ──────────────────────────────────────
-        // Use .read() to get initial value (read_if_dirty only returns if dirty flag set)
         let opacity = dora_state.translation_overlay_opacity.read();
-        let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
-        if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-            overlay.set_opacity(cx, opacity);
-        };
+        if (opacity - self.last_overlay_opacity).abs() > 0.001 {
+            self.last_overlay_opacity = opacity;
+            // On macOS: use NSWindow.setAlphaValue to composite the entire window
+            // at the given opacity against the screen — no Makepad patches needed.
+            #[cfg(target_os = "macos")]
+            unsafe {
+                set_nswindow_alpha("Translation", opacity);
+            }
+        }
     }
 
     fn handle_shutdown(&mut self, _cx: &mut Cx) {

@@ -31,6 +31,9 @@ ctrlc = "3.4"
 # CLI
 clap = { version = "4.4", features = ["derive"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+makepad-objc-sys = { git = "https://github.com/wyeworks/makepad", rev = "53b2e5c84" }
+
 [[bin]]
 name = "moxin-voice-shell"
 path = "src/main.rs"
