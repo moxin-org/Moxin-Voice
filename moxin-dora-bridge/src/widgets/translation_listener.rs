@@ -1,6 +1,6 @@
 //! Translation Listener Bridge
 //!
-//! Listens to dora-qwen3-translator output (source_text + translation) and writes
+//! Listens to translator node output (source_text + translation) and writes
 //! streaming/final results to SharedDoraState for consumption by the UI overlay.
 
 use crate::bridge::{BridgeState, DoraBridge};

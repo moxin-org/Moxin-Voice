@@ -14636,7 +14636,7 @@ impl TTSScreen {
     /// Toggle the translation overlay on/off.
     ///
     /// When activating:
-    ///   1. Materialises `translation.yml` with src/tgt lang env placeholders replaced
+    ///   1. Materialises `translation_qwen35.yml` with src/tgt lang env placeholders replaced
     ///   2. Starts a separate Dora dataflow for the translation pipeline
     ///   3. Sets `SharedDoraState.translation_window_visible = true` so `app.rs` shows the window
     ///

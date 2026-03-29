@@ -657,7 +657,7 @@ pub struct SharedDoraState {
     /// ASR transcription result (language, text)
     pub asr_transcription: DirtyValue<Option<(String, String)>>,
 
-    /// Translation update from dora-qwen3-translator
+    /// Translation update from translator backend node
     /// Set on each streaming token batch; `is_complete` signals the final result.
     pub translation: DirtyValue<Option<TranslationUpdate>>,
 
