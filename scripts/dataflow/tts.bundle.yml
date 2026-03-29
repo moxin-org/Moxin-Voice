@@ -26,10 +26,9 @@ nodes:
     outputs:
       - control
 
-  - id: qwen-tts
-    # Relative to this file:
-    # Contents/Resources/dataflow/tts.yml -> Contents/Resources/scripts/macos_run_tts_backend.sh
-    path: ../scripts/macos_run_tts_backend.sh
+  - id: primespeech-tts
+    # Qwen3-only: direct bundled binary path (no shell wrapper).
+    path: ../MacOS/qwen-tts-node
     inputs:
       text: moxin-prompt-input/control
     outputs:
@@ -44,6 +43,6 @@ nodes:
   - id: moxin-audio-player
     path: dynamic
     inputs:
-      audio: qwen-tts/audio
+      audio: primespeech-tts/audio
     outputs:
       - buffer_status

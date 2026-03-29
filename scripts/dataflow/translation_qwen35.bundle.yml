@@ -2,14 +2,15 @@ nodes:
   - id: moxin-mic-input
     path: dynamic
     env:
-      SPEECH_START_FRAMES: "5"
-      SPEECH_END_FRAMES: "10"
-      SPEECH_END_MS: "420"
-      QUESTION_END_SILENCE_MS: "1200"
-      MIN_SEGMENT_MS: "420"
-      MAX_SEGMENT_MS: "8000"
-      START_RMS_THRESHOLD: "0.0180"
-      END_RMS_THRESHOLD: "0.0100"
+      SPEECH_START_FRAMES: "__SPEECH_START_FRAMES__"
+      SPEECH_END_FRAMES: "__SPEECH_END_FRAMES__"
+      SPEECH_END_MS: "__SPEECH_END_MS__"
+      QUESTION_END_SILENCE_MS: "__QUESTION_END_SILENCE_MS__"
+      MIN_SEGMENT_MS: "__MIN_SEGMENT_MS__"
+      MAX_SEGMENT_MS: "__MAX_SEGMENT_MS__"
+      START_RMS_THRESHOLD: "__START_RMS_THRESHOLD__"
+      END_RMS_THRESHOLD: "__END_RMS_THRESHOLD__"
+      PROGRESSIVE_INTERVAL_MS: "1500"
     outputs:
       - audio
       - audio_segment
@@ -21,18 +22,18 @@ nodes:
       - status
 
   - id: asr
-    path: ../MacOS/dora-qwen3-asr
+    path: __ASR_BIN_PATH__
     inputs:
       audio: moxin-mic-input/audio_segment
     outputs:
       - transcription
       - log
     env:
-      LANGUAGE: "zh"
-      LOG_LEVEL: "INFO"
+      LANGUAGE: "__TRANSLATION_SRC_LANG__"
+      LOG_LEVEL: INFO
 
   - id: translator
-    path: ../MacOS/dora-qwen35-translator
+    path: __TRANSLATOR_BIN_PATH__
     inputs:
       text: asr/transcription
       question_ended: moxin-mic-input/question_ended
@@ -41,12 +42,12 @@ nodes:
       - translation
       - log
     env:
-      SRC_LANG: "zh"
-      TGT_LANG: "en"
+      SRC_LANG: "__TRANSLATION_SRC_LANG__"
+      TGT_LANG: "__TRANSLATION_TGT_LANG__"
       QWEN35_TRANSLATOR_MODEL_PATH: ""
       TEMPERATURE: "0.0"
       MAX_TOKENS: "256"
-      LOG_LEVEL: "INFO"
+      LOG_LEVEL: INFO
 
   - id: moxin-translation-listener
     path: dynamic

@@ -188,8 +188,7 @@ fi
 
 cp "$ROOT_DIR/scripts/macos_preflight.sh" "$SCRIPTS_DIR/macos_preflight.sh"
 cp "$ROOT_DIR/scripts/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_bootstrap.sh"
-cp "$ROOT_DIR/scripts/macos_run_tts_backend.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
-chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_run_tts_backend.sh"
+chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh"
 
 cp "$TTS_BUNDLE_YAML" "$DATAFLOW_DIR/tts.yml"
 cp "$TRANSLATION_QWEN35_BUNDLE_YAML" "$DATAFLOW_DIR/translation_qwen35.yml"
@@ -293,8 +292,8 @@ nodes:
     outputs:
       - control
 
-  - id: qwen-tts
-    path: "$RES_DIR/scripts/macos_run_tts_backend.sh"
+  - id: primespeech-tts
+    path: "$MACOS_DIR/qwen-tts-node"
     inputs:
       text: moxin-prompt-input/control
     outputs:
@@ -309,7 +308,7 @@ nodes:
   - id: moxin-audio-player
     path: dynamic
     inputs:
-      audio: qwen-tts/audio
+      audio: primespeech-tts/audio
     outputs:
       - buffer_status
 YAML

@@ -8,7 +8,7 @@ nodes:
   # ASR for voice cloning transcription (Qwen3-ASR MLX backend)
   - id: asr
     build: cargo build --release -p dora-qwen3-asr
-    path: ../../../target/release/dora-qwen3-asr
+    path: __ASR_BIN_PATH__
     inputs:
       audio: moxin-audio-input/audio
     outputs:
@@ -31,10 +31,9 @@ nodes:
       - control
 
   - id: primespeech-tts
-    # Qwen3-only: run_tts_backend.sh now always launches qwen-tts-node.
-    # Node id kept as "primespeech-tts" for compatibility with bridge code that
-    # references this id. See doc/REFACTOR_QWEN3_ONLY.md.
-    path: ../../../scripts/run_tts_backend.sh
+    # Qwen3-only: launch qwen-tts-node directly (no shell wrapper).
+    # Node id kept as "primespeech-tts" for compatibility with bridge/log paths.
+    path: __QWEN_TTS_BIN_PATH__
     inputs:
       text: moxin-prompt-input/control
     outputs:

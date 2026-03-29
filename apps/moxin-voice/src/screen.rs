@@ -14585,10 +14585,30 @@ impl TTSScreen {
             Self::normalize_zero_shot_backend(&self.app_preferences.zero_shot_backend).to_string();
         std::env::set_var("MOXIN_INFERENCE_BACKEND", &inference_backend);
         std::env::set_var("MOXIN_ZERO_SHOT_BACKEND", &zero_shot_backend);
+        let asr_bin = Self::resolve_dora_binary("dora-qwen3-asr")
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                self.add_log(
+                    cx,
+                    "[WARN] [tts] dora-qwen3-asr binary not found — run: cargo build --release -p dora-qwen3-asr",
+                );
+                String::new()
+            });
+        let qwen_tts_bin = Self::resolve_dora_binary("qwen-tts-node")
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| {
+                self.add_log(
+                    cx,
+                    "[WARN] [tts] qwen-tts-node binary not found — run: cargo build --release -p dora-qwen3-tts-mlx",
+                );
+                String::new()
+            });
 
         let rendered = template
             .replace("__MOXIN_INFERENCE_BACKEND__", &inference_backend)
-            .replace("__MOXIN_ZERO_SHOT_BACKEND__", &zero_shot_backend);
+            .replace("__MOXIN_ZERO_SHOT_BACKEND__", &zero_shot_backend)
+            .replace("__ASR_BIN_PATH__", &asr_bin)
+            .replace("__QWEN_TTS_BIN_PATH__", &qwen_tts_bin);
         let rendered = Self::absolutize_dataflow_paths(&template_path, &rendered);
 
         let runtime_dir = dirs::home_dir()
@@ -14612,6 +14632,36 @@ impl TTSScreen {
             ),
         );
         Ok(runtime_path)
+    }
+
+    fn resolve_translation_dataflow_template_path(&self) -> Option<PathBuf> {
+        let env_path = std::env::var("MOXIN_TRANSLATION_DATAFLOW_PATH")
+            .ok()
+            .map(PathBuf::from)
+            .filter(|p| p.exists());
+        if env_path.is_some() {
+            return env_path;
+        }
+
+        let app_resources = std::env::var("MOXIN_APP_RESOURCES")
+            .ok()
+            .map(PathBuf::from)
+            .filter(|p| p.exists());
+        if let Some(resources) = app_resources {
+            let bundle_dataflow = resources.join("dataflow").join("translation_qwen35.yml");
+            if bundle_dataflow.exists() {
+                return Some(bundle_dataflow);
+            }
+        }
+
+        [
+            PathBuf::from("apps/moxin-voice/dataflow/translation_qwen35.yml"),
+            dirs::home_dir()
+                .unwrap_or_default()
+                .join(".OminiX/dataflows/translation_qwen35.yml"),
+        ]
+        .into_iter()
+        .find(|p| p.exists())
     }
 
     fn stop_dora(&mut self, cx: &mut Cx) {
@@ -14655,18 +14705,7 @@ impl TTSScreen {
 
         self.add_translation_log(cx, "[INFO] 正在启动翻译数据流...");
 
-        // Resolve the dataflow template path
-        let template_path = {
-            let candidates = [
-                std::path::PathBuf::from("apps/moxin-voice/dataflow/translation_qwen35.yml"),
-                dirs::home_dir()
-                    .unwrap_or_default()
-                    .join(".OminiX/dataflows/translation_qwen35.yml"),
-            ];
-            candidates.into_iter().find(|p| p.exists())
-        };
-
-        let template_path = match template_path {
+        let template_path = match self.resolve_translation_dataflow_template_path() {
             Some(p) => p,
             None => {
                 self.add_translation_log(cx, "[ERROR] translation_qwen35.yml 未找到");
@@ -14741,6 +14780,7 @@ impl TTSScreen {
                 &format!("{:.4}", start_rms_threshold),
             )
             .replace("__END_RMS_THRESHOLD__", &format!("{:.4}", end_rms_threshold));
+        let rendered = Self::absolutize_dataflow_paths(&template_path, &rendered);
 
         // Write rendered dataflow to a temp file
         let tmp_path = std::env::temp_dir().join("moxin_translation_dataflow.yml");
