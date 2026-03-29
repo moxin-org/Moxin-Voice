@@ -79,6 +79,30 @@ fn send_log(node: &mut DoraNode, msg: &str) -> Result<()> {
         .map_err(|e| anyhow!("send_output(log) failed: {}", e))
 }
 
+fn preview_text_for_log(text: &str, max_chars: usize) -> &str {
+    if max_chars == 0 {
+        return "";
+    }
+    match text.char_indices().nth(max_chars) {
+        Some((idx, _)) => &text[..idx],
+        None => text,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preview_text_for_log;
+
+    #[test]
+    fn preview_text_for_log_handles_multibyte_without_panic() {
+        let s = "现在已经可以重新启动，看看是否还出现那条“apply”错误。如果还在，我会。";
+        let out = preview_text_for_log(s, 100);
+        assert!(!out.is_empty());
+        assert!(s.starts_with(out));
+        assert!(out.is_char_boundary(out.len()));
+    }
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -225,7 +249,7 @@ fn main() -> Result<()> {
                             "Transcription complete in {:.2}s ({:.1}x realtime): {}",
                             elapsed,
                             duration_secs / elapsed.max(0.001),
-                            &text[..text.len().min(100)]
+                            preview_text_for_log(&text, 100)
                         );
 
                         let _ = send_log(

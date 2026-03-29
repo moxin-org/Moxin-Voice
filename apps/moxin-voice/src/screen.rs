@@ -5566,130 +5566,6 @@ live_design! {
                                 spacing: 12
                                 visible: false
 
-                                // 实时数据行
-                                metrics_row = <View> {
-                                    width: Fill, height: Fit
-                                    flow: Right
-                                    spacing: 10
-
-                                    metrics_cpu = <RoundedView> {
-                                        width: Fill, height: 56
-                                        flow: Down
-                                        spacing: 4
-                                        align: {x: 0.0, y: 0.5}
-                                        padding: {left: 14, right: 14, top: 10, bottom: 10}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            instance border_radius: 8.0
-                                            fn pixel(self) -> vec4 {
-                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
-                                                sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
-                                                return sdf.result;
-                                            }
-                                        }
-
-                                        <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_REGULAR>{ font_size: 10.0 }
-                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
-                                            }
-                                            text: "CPU"
-                                        }
-                                        translation_cpu_label = <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
-                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode); }
-                                            }
-                                            text: "—"
-                                        }
-                                    }
-
-                                    metrics_mem = <RoundedView> {
-                                        width: Fill, height: 56
-                                        flow: Down
-                                        spacing: 4
-                                        align: {x: 0.0, y: 0.5}
-                                        padding: {left: 14, right: 14, top: 10, bottom: 10}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            instance border_radius: 8.0
-                                            fn pixel(self) -> vec4 {
-                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
-                                                sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
-                                                return sdf.result;
-                                            }
-                                        }
-
-                                        <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_REGULAR>{ font_size: 10.0 }
-                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
-                                            }
-                                            text: "内存"
-                                        }
-                                        translation_mem_label = <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
-                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode); }
-                                            }
-                                            text: "—"
-                                        }
-                                    }
-
-                                    metrics_vad = <RoundedView> {
-                                        width: Fill, height: 56
-                                        flow: Down
-                                        spacing: 4
-                                        align: {x: 0.0, y: 0.5}
-                                        padding: {left: 14, right: 14, top: 10, bottom: 10}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            instance border_radius: 8.0
-                                            fn pixel(self) -> vec4 {
-                                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
-                                                sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
-                                                return sdf.result;
-                                            }
-                                        }
-
-                                        <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_REGULAR>{ font_size: 10.0 }
-                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
-                                            }
-                                            text: "VAD"
-                                        }
-                                        translation_vad_label = <Label> {
-                                            width: Fit, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_SEMIBOLD>{ font_size: 16.0 }
-                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode); }
-                                            }
-                                            text: "静默"
-                                        }
-                                    }
-                                } // End metrics_row
-
                                 // 日志区域
                                 translation_log_card = <RoundedView> {
                                     width: Fill, height: Fill
@@ -14767,6 +14643,16 @@ impl TTSScreen {
     /// When deactivating: stops the translation dataflow and hides the window.
     /// Start the translation dataflow and switch the translation page to running view.
     fn start_translation_dataflow(&mut self, cx: &mut Cx) {
+        // Reset in-page translation log view each run to avoid stale scroll/content
+        // bleeding through the semi-transparent overlay.
+        self.translation_log_lines.clear();
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_scroll.translation_log_label))
+            .set_text(cx, "");
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_scroll))
+            .set_scroll_pos(cx, dvec2(0.0, 0.0));
+
         self.add_translation_log(cx, "[INFO] 正在启动翻译数据流...");
 
         // Resolve the dataflow template path
@@ -14936,48 +14822,12 @@ impl TTSScreen {
         cx.stop_timer(self.translation_metrics_timer);
     }
 
-    /// Poll CPU / memory usage and update the metrics cards.
+    /// Poll translation updates and mirror completed entries to the log.
     fn poll_translation_metrics(&mut self, cx: &mut Cx) {
-        // Read memory from /proc/meminfo (macOS: vm_stat; simplest cross-platform: ps)
-        let mem_str = std::process::Command::new("sh")
-            .args(["-c", "ps -o rss= -p $PPID 2>/dev/null | awk '{printf \"%.0f MB\", $1/1024}'"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .unwrap_or_else(|| "—".to_string());
-        let mem_str = mem_str.trim().to_string();
-        let mem_display = if mem_str.is_empty() { "—".to_string() } else { mem_str };
-
-        let cpu_str = std::process::Command::new("sh")
-            .args(["-c", "ps -o %cpu= -p $PPID 2>/dev/null | awk '{printf \"%.1f%%\", $1}'"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .unwrap_or_else(|| "—".to_string());
-        let cpu_str = cpu_str.trim().to_string();
-        let cpu_display = if cpu_str.is_empty() { "—".to_string() } else { cpu_str };
-
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.metrics_row.metrics_cpu.translation_cpu_label))
-            .set_text(cx, &cpu_display);
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.metrics_row.metrics_mem.translation_mem_label))
-            .set_text(cx, &mem_display);
-
-        // Update VAD status from shared state
+        // Read translation status from shared state
         if let Some(shared) = self.translation_shared_state() {
             let translation_snapshot = shared.translation.read();
             if let Some(update) = translation_snapshot {
-                let vad_text = if update.pending_source_text.is_empty() && !update.history.is_empty() {
-                    "句完成"
-                } else if !update.pending_source_text.is_empty() {
-                    "识别中"
-                } else {
-                    "等待"
-                };
-                self.view
-                    .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.metrics_row.metrics_vad.translation_vad_label))
-                    .set_text(cx, vad_text);
                 // Mirror newly arrived translation to the log WITHOUT consuming dirty flag.
                 let fingerprint = format!(
                     "h{}|p={}",
@@ -14992,9 +14842,6 @@ impl TTSScreen {
                 if should_log {
                     if let Some(last) = update.history.last() {
                         let msg = format!("[翻译完成] {} → {}", last.source_text, last.translation);
-                        self.add_translation_log(cx, &msg);
-                    } else if !update.pending_source_text.is_empty() {
-                        let msg = format!("[识别中] {}", update.pending_source_text);
                         self.add_translation_log(cx, &msg);
                     }
                     self.translation_last_logged_fingerprint = Some(fingerprint);

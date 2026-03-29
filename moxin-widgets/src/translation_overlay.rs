@@ -23,12 +23,16 @@
 //!
 //! ## Scroll anchor
 //!
-//! The fixed bottom padding (108px on typical viewport) and pending_label margin
-//! (60px for translation placeholder) create an anchor effect:
-//! when scrolled to bottom, the last sentence appears at ~50% of viewport height.
+//! `bottom_spacer` height and pending_label margin (60px for translation placeholder)
+//! create an anchor effect: when scrolled to bottom, the last sentence appears at
+//! ~50% of viewport height.
 //!
-//! To adjust: modify `padding: { bottom: 108 }` and
-//! `margin: { bottom: 60 }` in the live_design section.
+//! Behavior rules:
+//! 1) In-progress text (ASR/translating) and completed text share the same
+//!    scroll behavior.
+//! 2) If content is still short, keep it naturally top-aligned (no forced center).
+//! 3) Only when content grows enough do we auto-scroll so the latest line stays
+//!    near the vertical center.
 
 use makepad_widgets::*;
 
@@ -99,17 +103,19 @@ live_design! {
         }
 
         // ── Scrolling sentence list ──────────────────────────────────────────
-        // Fixed bottom padding (~108px for typical ~216px content area) positions
-        // the scroll anchor at the middle of the viewport when scrolled to bottom.
-        // This is more reliable than dynamic height changes via apply_over.
+        // bottom_spacer height is set dynamically in set_viewport_height() so the
+        // last sentence anchors at ~50% of the viewport regardless of window size.
         content_scroll = <ScrollYView> {
             width: Fill, height: Fill
             flow: Down
-            padding: { left: 16, right: 16, top: 12, bottom: 108 }
+            align: { x: 0.0, y: 0.0 }
+            padding: { left: 16, right: 16, top: 12, bottom: 0 }
 
             // history_label: all completed sentences rendered as a single text block
             history_label = <Label> {
                 width: Fill, height: Fit
+                align: { x: 0.0, y: 0.0 }
+                padding: 0.0
                 draw_text: {
                     color: (WHITE)
                     text_style: <FONT_REGULAR> { font_size: 14.0 }
@@ -119,11 +125,11 @@ live_design! {
             }
 
             // pending_label: current ASR text (not yet translated)
-            // Pre-rendering space for future translation reduces scroll jumps when
-            // the translated text appears below the ASR text.
             pending_label = <Label> {
                 width: Fill, height: Fit
-                margin: { top: 8, bottom: 60 }
+                margin: { top: 8, bottom: 8 }
+                align: { x: 0.0, y: 0.0 }
+                padding: 0.0
                 draw_text: {
                     color: (MOXIN_TEXT_MUTED_DARK)
                     text_style: <FONT_REGULAR> { font_size: 13.0 }
@@ -131,6 +137,10 @@ live_design! {
                 }
                 text: ""
             }
+
+            // Dynamic spacer used only when content is long enough to require
+            // centering the newest line; otherwise stays zero.
+            bottom_spacer = <View> { width: Fill, height: 0.0 }
         }
     }
 }
@@ -169,6 +179,28 @@ pub struct TranslationOverlay {
     /// True when content changed and we need to scroll to bottom on next draw.
     #[rust]
     pending_scroll: bool,
+
+    /// Viewport height hint (window height minus toolbar) set by shell.
+    /// The widget prefers measuring real scroll-view height during draw and
+    /// falls back to this value when area data is unavailable.
+    #[rust]
+    viewport_height: f64,
+
+    /// Last applied bottom spacer height, to avoid redundant apply_over calls.
+    #[rust]
+    last_spacer_height: f64,
+
+    /// True when there is in-progress text shown in pending_label.
+    #[rust]
+    pending_active: bool,
+
+    /// Whether content exceeds half viewport and should follow tail scrolling.
+    #[rust]
+    follow_tail_scroll: bool,
+
+    /// True when only pending text is present (no completed history yet).
+    #[rust]
+    pending_only_mode: bool,
 }
 
 impl Widget for TranslationOverlay {
@@ -191,14 +223,24 @@ impl Widget for TranslationOverlay {
 
         let result = self.view.draw_walk(cx, scope, walk);
 
+        // Keep last sentence vertically centered while compensating for dynamic
+        // pending label height (wrap differs between compact/fullscreen widths).
+        self.update_anchor_spacer_from_layout(cx);
+
         // ── Set scroll after draw (view_total is now current) ─────────────────
         // The fixed bottom padding (108px) + pending_label margin (60px) creates
         // the anchor effect: scrolling to bottom lands last sentence at ~middle.
-        if self.pending_scroll {
-            self.pending_scroll = false;
+        if self.pending_only_mode {
+            // First pending ASR line must stay in natural top-flow.
             self.view
                 .view(ids!(content_scroll))
-                .set_scroll_pos(cx, dvec2(0.0, f64::MAX));
+                .set_scroll_pos(cx, dvec2(0.0, 0.0));
+        } else if self.pending_scroll {
+            self.pending_scroll = false;
+            let target_y = if self.follow_tail_scroll { f64::MAX } else { 0.0 };
+            self.view
+                .view(ids!(content_scroll))
+                .set_scroll_pos(cx, dvec2(0.0, target_y));
             // One more redraw to render with the updated scroll position.
             self.view.redraw(cx);
         }
@@ -208,6 +250,89 @@ impl Widget for TranslationOverlay {
 }
 
 impl TranslationOverlay {
+    const SCROLL_PADDING_TOP: f64 = 12.0;
+    const PENDING_MARGIN_TOP: f64 = 8.0;
+    const PENDING_MARGIN_BOTTOM: f64 = 8.0;
+    const TAIL_SAFE_GAP: f64 = 10.0;
+    const FOLLOW_THRESHOLD_RATIO: f64 = 0.5; // change to 0.75 for 3/4-screen threshold
+
+    fn compute_anchor_spacer_height(
+        viewport_height: f64,
+        content_without_spacer: f64,
+    ) -> f32 {
+        // User rule: center-follow starts only after content exceeds half viewport.
+        if content_without_spacer <= viewport_height * Self::FOLLOW_THRESHOLD_RATIO {
+            return 0.0;
+        }
+
+        // Unified behavior for pending/completed latest line.
+        ((viewport_height * 0.5) - Self::TAIL_SAFE_GAP).max(0.0) as f32
+    }
+
+    fn update_anchor_spacer_from_layout(&mut self, cx: &mut Cx2d) {
+        let measured_viewport_h = self
+            .view
+            .view(ids!(content_scroll))
+            .area()
+            .rect(cx)
+            .size
+            .y
+            .max(0.0);
+        let viewport_h = if self.viewport_height > 1.0 {
+            self.viewport_height
+        } else {
+            measured_viewport_h
+        };
+
+        let history_height = self
+            .view
+            .label(ids!(content_scroll.history_label))
+            .area()
+            .rect(cx)
+            .size
+            .y
+            .max(0.0);
+        let pending_height = self
+            .view
+            .label(ids!(content_scroll.pending_label))
+            .area()
+            .rect(cx)
+            .size
+            .y
+            .max(0.0);
+        let pending_block_h = if self.pending_active {
+            Self::PENDING_MARGIN_TOP + pending_height + Self::PENDING_MARGIN_BOTTOM
+        } else {
+            0.0
+        };
+        let content_without_spacer =
+            Self::SCROLL_PADDING_TOP + history_height + pending_block_h;
+        self.follow_tail_scroll =
+            content_without_spacer > viewport_h * Self::FOLLOW_THRESHOLD_RATIO;
+        let mut spacer_h =
+            Self::compute_anchor_spacer_height(viewport_h, content_without_spacer);
+
+        // Hard guard for first ASR line: when only pending text exists,
+        // keep top-flow and disable center-follow.
+        if self.pending_only_mode {
+            self.follow_tail_scroll = false;
+            spacer_h = 0.0;
+        }
+        let changed = (self.last_spacer_height - spacer_h as f64).abs() >= 0.5;
+        self.last_spacer_height = spacer_h as f64;
+        // Always write spacer (including 0) to avoid stale initial/default values.
+        self.view
+            .view(ids!(content_scroll.bottom_spacer))
+            .apply_over(cx, live! {
+                height: (spacer_h)
+            });
+        if changed {
+            // Spacer changed => request one more bottom snap on the next frame so
+            // scroll position matches the new layout.
+            self.pending_scroll = true;
+            self.view.redraw(cx);
+        }
+    }
 
     /// Set the language pair label, e.g. "ZH → EN"
     pub fn set_lang_pair(&mut self, cx: &mut Cx, src: &str, tgt: &str) {
@@ -215,6 +340,16 @@ impl TranslationOverlay {
         self.view
             .label(ids!(toolbar.lang_label))
             .set_text(cx, &self.lang_pair);
+    }
+
+    /// Update the content viewport height (window height minus the 44px toolbar).
+    ///
+    /// Must be called whenever the translation window is created or resized so that
+    /// the scroll anchor stays at ~50% of the visible area.
+    pub fn set_viewport_height(&mut self, cx: &mut Cx, viewport_height: f64) {
+        self.viewport_height = viewport_height;
+        self.last_spacer_height = -1.0; // force recompute on next draw
+        self.view.redraw(cx);
     }
 
     /// Set overlay background opacity (0.0 = fully transparent, 1.0 = opaque).
@@ -246,9 +381,22 @@ impl TranslationOverlay {
 
         // Pending ASR text
         let pending = pending.trim();
-        self.view
-            .label(ids!(content_scroll.pending_label))
-            .set_text(cx, pending);
+        let pending_label = self.view.label(ids!(content_scroll.pending_label));
+        if pending.is_empty() {
+            pending_label.set_text(cx, "");
+            pending_label.apply_over(cx, live! { margin: { top: 0.0, bottom: 0.0 } });
+            self.pending_active = false;
+        } else {
+            pending_label.set_text(cx, pending);
+            pending_label.apply_over(cx, live! { margin: { top: 8.0, bottom: 8.0 } });
+            self.pending_active = true;
+        }
+        self.pending_only_mode = history.is_empty() && self.pending_active;
+        if self.pending_only_mode {
+            // Hard reset on first pending line: never reuse previous scroll state.
+            self.follow_tail_scroll = false;
+            self.pending_scroll = true;
+        }
 
         // Update status
         self.status = if !pending.is_empty() {
@@ -272,7 +420,7 @@ impl TranslationOverlay {
 
         let new_len = history.len();
         let pending_changed = pending != self.last_pending_text;
-        if new_len != self.last_history_len || pending_changed {
+        if self.pending_only_mode || new_len != self.last_history_len || pending_changed {
             self.last_history_len = new_len;
             self.last_pending_text = pending.to_string();
             // Mark scroll pending — actual set_scroll_pos happens in draw_walk
@@ -317,12 +465,17 @@ impl TranslationOverlay {
     pub fn clear(&mut self, cx: &mut Cx) {
         self.last_history_len = 0;
         self.last_pending_text.clear();
+        self.pending_active = false;
+        self.follow_tail_scroll = false;
+        self.pending_only_mode = false;
+        self.pending_scroll = false;
+        self.last_spacer_height = 0.0;
         self.view
             .label(ids!(content_scroll.history_label))
             .set_text(cx, "");
-        self.view
-            .label(ids!(content_scroll.pending_label))
-            .set_text(cx, "");
+        let pending_label = self.view.label(ids!(content_scroll.pending_label));
+        pending_label.set_text(cx, "");
+        pending_label.apply_over(cx, live! { margin: { top: 0.0, bottom: 0.0 } });
         self.set_listening(cx);
     }
 
@@ -336,6 +489,39 @@ impl TranslationOverlay {
         let label = self.view.label(ids!(toolbar.status_label));
         label.set_text(cx, text);
         label.apply_over(cx, live! { draw_text: { color: (color) } });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TranslationOverlay;
+
+    #[test]
+    fn anchor_spacer_shrinks_when_pending_height_grows() {
+        let viewport = 216.0;
+        let short_content = 100.0;
+        let long_content = 280.0;
+        let short_spacer = TranslationOverlay::compute_anchor_spacer_height(
+            viewport,
+            short_content,
+        );
+        let long_spacer = TranslationOverlay::compute_anchor_spacer_height(
+            viewport,
+            long_content,
+        );
+        assert!(short_spacer < long_spacer);
+    }
+
+    #[test]
+    fn anchor_spacer_is_never_negative() {
+        let spacer = TranslationOverlay::compute_anchor_spacer_height(216.0, 300.0);
+        assert!(spacer >= 0.0);
+    }
+
+    #[test]
+    fn anchor_spacer_stays_zero_before_half_viewport() {
+        let spacer = TranslationOverlay::compute_anchor_spacer_height(216.0, 108.0);
+        assert_eq!(spacer, 0.0);
     }
 }
 
@@ -381,6 +567,12 @@ impl TranslationOverlayRef {
     pub fn set_opacity(&self, cx: &mut Cx, opacity: f64) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.set_opacity(cx, opacity);
+        }
+    }
+
+    pub fn set_viewport_height(&self, cx: &mut Cx, viewport_height: f64) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_viewport_height(cx, viewport_height);
         }
     }
 }

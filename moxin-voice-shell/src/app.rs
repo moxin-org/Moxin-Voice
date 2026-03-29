@@ -181,6 +181,15 @@ impl AppMain for App {
                 );
                 // Keep hidden by default at startup.
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
+            } else if self.translation_window_id == Some(ev.window_id) {
+                // Keep anchor formula in sync with real window size (including
+                // user resize and platform-specific window state transitions).
+                let viewport_h = (ev.new_geom.inner_size.y - 44.0).max(0.0);
+                let overlay_ref =
+                    self.translation_ui.widget(ids!(body.translation_overlay));
+                if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                    overlay.set_viewport_height(cx, viewport_h);
+                };
             }
         }
 
@@ -218,6 +227,12 @@ impl MatchEvent for App {
         self.poll_timer = cx.start_interval(0.05);
         self.translation_overlay_visible = false;
         self.last_overlay_opacity = -1.0; // force first apply
+
+        // Set initial scroll anchor for compact window (260px high, 44px toolbar → 216px viewport).
+        let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+        if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+            overlay.set_viewport_height(cx, 216.0);
+        }
 
         ::log::info!("Moxin Voice initialization complete");
     }
@@ -278,6 +293,12 @@ impl MatchEvent for App {
                 dvec2(600.0, 260.0)
             };
             self.translation_ui.as_window().resize(cx, size);
+            // Update scroll anchor after resize (toolbar is 44px).
+            let viewport_h = size.y - 44.0;
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.set_viewport_height(cx, viewport_h);
+            };
         }
 
         // ── Translation content update ────────────────────────────────────────
