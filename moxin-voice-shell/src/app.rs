@@ -312,12 +312,12 @@ impl MatchEvent for App {
         }
 
         // ── Translation overlay opacity ──────────────────────────────────────
-        if let Some(opacity) = dora_state.translation_overlay_opacity.read_if_dirty() {
-            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
-            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-                overlay.set_opacity(cx, opacity);
-            };
-        }
+        // Use .read() to get initial value (read_if_dirty only returns if dirty flag set)
+        let opacity = dora_state.translation_overlay_opacity.read();
+        let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+        if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+            overlay.set_opacity(cx, opacity);
+        };
     }
 
     fn handle_shutdown(&mut self, _cx: &mut Cx) {

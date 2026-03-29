@@ -23,25 +23,14 @@
 //!
 //! ## Scroll anchor
 //!
-//! `scroll_anchor_fraction` controls where the *bottom edge* of the last
-//! sentence sits inside the viewport after auto-scroll:
+//! The fixed bottom padding (108px on typical viewport) and pending_label margin
+//! (60px for translation placeholder) create an anchor effect:
+//! when scrolled to bottom, the last sentence appears at ~50% of viewport height.
 //!
-//!   - `1.0`  → last sentence at the very bottom (classic scroll-to-bottom)
-//!   - `0.5`  → last sentence at the middle of the viewport  ← default
-//!   - `0.25` → last sentence in the upper quarter
-//!
-//! A `bottom_spacer` whose height = `viewport_h × (1 − anchor)` is appended
-//! after the content so that scrolling to the physical bottom of the scroll
-//! view places the last sentence at `anchor × viewport_h` from the top.
-//!
-//! **To change the default anchor**, edit `SCROLL_ANCHOR_FRACTION` below.
+//! To adjust: modify `padding: { bottom: 108 }` and
+//! `margin: { bottom: 60 }` in the live_design section.
 
 use makepad_widgets::*;
-
-/// Where the last sentence appears in the viewport (0.0 = top, 1.0 = bottom).
-/// Change this constant to reposition the auto-scroll target without touching
-/// any other code.
-const SCROLL_ANCHOR_FRACTION: f64 = 0.5;
 
 live_design! {
     use link::theme::*;
@@ -110,10 +99,13 @@ live_design! {
         }
 
         // ── Scrolling sentence list ──────────────────────────────────────────
+        // Fixed bottom padding (~108px for typical ~216px content area) positions
+        // the scroll anchor at the middle of the viewport when scrolled to bottom.
+        // This is more reliable than dynamic height changes via apply_over.
         content_scroll = <ScrollYView> {
             width: Fill, height: Fill
             flow: Down
-            padding: { left: 16, right: 16, top: 12, bottom: 0 }
+            padding: { left: 16, right: 16, top: 12, bottom: 108 }
 
             // history_label: all completed sentences rendered as a single text block
             history_label = <Label> {
@@ -127,23 +119,17 @@ live_design! {
             }
 
             // pending_label: current ASR text (not yet translated)
+            // Pre-rendering space for future translation reduces scroll jumps when
+            // the translated text appears below the ASR text.
             pending_label = <Label> {
                 width: Fill, height: Fit
-                margin: { top: 8 }
+                margin: { top: 8, bottom: 60 }
                 draw_text: {
                     color: (MOXIN_TEXT_MUTED_DARK)
                     text_style: <FONT_REGULAR> { font_size: 13.0 }
                     wrap: Word
                 }
                 text: ""
-            }
-
-            // Dynamic spacer — height is recomputed each time the viewport
-            // changes so that the scroll anchor stays correct.
-            // Do NOT place any content after this view.
-            bottom_spacer = <View> {
-                width: Fill
-                height: 0.0
             }
         }
     }
@@ -180,15 +166,6 @@ pub struct TranslationOverlay {
     #[rust]
     last_pending_text: String,
 
-    /// Where the bottom of the last sentence sits in the viewport.
-    /// Defaults to SCROLL_ANCHOR_FRACTION (0.5 = middle).
-    #[rust]
-    scroll_anchor_fraction: f64,
-
-    /// Viewport height from the most recent draw — used to update the spacer.
-    #[rust]
-    last_viewport_height: f64,
-
     /// True when content changed and we need to scroll to bottom on next draw.
     #[rust]
     pending_scroll: bool,
@@ -200,30 +177,6 @@ impl Widget for TranslationOverlay {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
-        // ── Update bottom_spacer height ───────────────────────────────────────
-        //
-        // viewport_h from previous frame (1-frame lag is imperceptible).
-        // spacer_h = viewport_h × (1 − anchor) ensures that scrolling to the
-        // physical bottom lands the last sentence at anchor × viewport_h.
-
-        let viewport_h = self
-            .view
-            .view(ids!(content_scroll))
-            .area()
-            .rect(cx)
-            .size
-            .y;
-
-        if viewport_h > 1.0 && (viewport_h - self.last_viewport_height).abs() > 1.0 {
-            self.last_viewport_height = viewport_h;
-            let spacer_h = viewport_h * (1.0 - self.scroll_anchor_fraction);
-            self.view
-                .view(ids!(content_scroll.bottom_spacer))
-                .apply_over(cx, live! { height: (spacer_h) });
-            // Spacer changed → re-scroll to maintain anchor.
-            self.pending_scroll = true;
-        }
-
         // ── Draw content first ────────────────────────────────────────────────
         //
         // IMPORTANT: draw_walk must complete before set_scroll_pos is called.
@@ -231,7 +184,7 @@ impl Widget for TranslationOverlay {
         //   min(value, view_total - view_visible)
         // where view_total is updated only during draw_scroll_bars() which runs
         // at the end of view.draw_walk(). If we set scroll before draw, view_total
-        // is stale (previous frame) and f64::MAX clamps to old max — often 0.
+        // is stale (previous frame) and f64::MAX clamps to old max.
         //
         // After draw_walk, view_total reflects the freshly laid-out content, so
         // f64::MAX clamps to the correct new maximum scroll position.
@@ -239,6 +192,8 @@ impl Widget for TranslationOverlay {
         let result = self.view.draw_walk(cx, scope, walk);
 
         // ── Set scroll after draw (view_total is now current) ─────────────────
+        // The fixed bottom padding (108px) + pending_label margin (60px) creates
+        // the anchor effect: scrolling to bottom lands last sentence at ~middle.
         if self.pending_scroll {
             self.pending_scroll = false;
             self.view
@@ -253,9 +208,6 @@ impl Widget for TranslationOverlay {
 }
 
 impl TranslationOverlay {
-    fn after_new_from_doc(&mut self, _cx: &mut Cx) {
-        self.scroll_anchor_fraction = SCROLL_ANCHOR_FRACTION;
-    }
 
     /// Set the language pair label, e.g. "ZH → EN"
     pub fn set_lang_pair(&mut self, cx: &mut Cx, src: &str, tgt: &str) {
