@@ -83,7 +83,10 @@ struct RepoInfo {
 }
 
 fn hf_base() -> String {
-    env::var("HF_ENDPOINT").unwrap_or_else(|_| "https://huggingface.co".to_string())
+    match env::var("HF_ENDPOINT") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => "https://huggingface.co".to_string(),
+    }
 }
 
 /// Fetch the list of files in a HuggingFace model repo.

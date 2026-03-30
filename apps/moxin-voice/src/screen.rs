@@ -10863,6 +10863,32 @@ impl Widget for TTSScreen {
 }
 
 impl TTSScreen {
+    fn ensure_bundle_bin_on_path() {
+        let Some(exe_path) = std::env::current_exe().ok() else {
+            return;
+        };
+        let Some(bin_dir) = exe_path.parent() else {
+            return;
+        };
+
+        let bin_dir_str = bin_dir.to_string_lossy().to_string();
+        if bin_dir_str.is_empty() {
+            return;
+        }
+
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        if current_path.split(':').any(|p| p == bin_dir_str) {
+            return;
+        }
+
+        let merged_path = if current_path.is_empty() {
+            bin_dir_str
+        } else {
+            format!("{}:{}", bin_dir_str, current_path)
+        };
+        std::env::set_var("PATH", merged_path);
+    }
+
     fn add_log(&mut self, cx: &mut Cx, message: &str) {
         self.log_entries.push(message.to_string());
         self.update_log_display(cx);
@@ -14063,6 +14089,8 @@ impl TTSScreen {
     }
 
     fn start_runtime_initialization(&mut self, cx: &mut Cx) {
+        Self::ensure_bundle_bin_on_path();
+
         let app_resources = match std::env::var("MOXIN_APP_RESOURCES") {
             Ok(v) => PathBuf::from(v),
             Err(_) => {
@@ -14269,6 +14297,8 @@ impl TTSScreen {
     }
 
     fn auto_start_dataflow(&mut self, cx: &mut Cx) {
+        Self::ensure_bundle_bin_on_path();
+
         let should_start = self.dora.as_ref().map(|d| !d.is_running()).unwrap_or(false);
         if !should_start || self.dora_start_in_flight {
             return;
@@ -14693,6 +14723,8 @@ impl TTSScreen {
     /// When deactivating: stops the translation dataflow and hides the window.
     /// Start the translation dataflow and switch the translation page to running view.
     fn start_translation_dataflow(&mut self, cx: &mut Cx) {
+        Self::ensure_bundle_bin_on_path();
+
         // Reset in-page translation log view each run to avoid stale scroll/content
         // bleeding through the semi-transparent overlay.
         self.translation_log_lines.clear();

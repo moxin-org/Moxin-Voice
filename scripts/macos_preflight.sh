@@ -150,9 +150,9 @@ if [[ "$moxin_init_resolved" != "1" ]]; then
   fi
 fi
 
-# Check Qwen3 ASR model (warning only — voice cloning still works without it)
+# Check Qwen3 ASR model (required)
 if [[ ! -f "$QWEN_ASR_MODEL_DIR/config.json" ]]; then
-  warnings+=("Qwen3-ASR model not found: $QWEN_ASR_MODEL_DIR")
+  errors+=("Qwen3-ASR model not found: $QWEN_ASR_MODEL_DIR — run moxin-init or launch the app")
 fi
 
 # Check Qwen3 TTS models (required)
@@ -163,9 +163,9 @@ if ! qwen_model_ready "$QWEN_BASE_DIR"; then
   errors+=("Qwen3 Base model incomplete: $QWEN_BASE_DIR — run moxin-init or launch the app")
 fi
 
-# Check Qwen3.5 translator model (optional — only needed for the new translator backend)
+# Check Qwen3.5 translator model (required)
 if ! qwen35_translation_model_ready "$QWEN35_TRANSLATOR_MODEL_DIR"; then
-  warnings+=("Qwen3.5 translator model incomplete: $QWEN35_TRANSLATOR_MODEL_DIR — run moxin-init before testing dora-qwen35-translator")
+  errors+=("Qwen3.5 translator model incomplete: $QWEN35_TRANSLATOR_MODEL_DIR — run moxin-init or launch the app")
 fi
 
 if [[ "$MODE" != "--quick" ]]; then

@@ -315,35 +315,9 @@ YAML
 export MOXIN_DATAFLOW_PATH="$RUNTIME_DATAFLOW_PATH"
 export PATH="$MACOS_DIR:$HOME/.cargo/bin:$PATH"
 
-# Ensure Dora is available with bounded wait.
-# 1) If already healthy, do nothing.
-# 2) Otherwise try a clean reset and bring-up.
-# 3) Verify readiness; fail fast with a clear message if still unavailable.
-if ! dora system status >/dev/null 2>&1; then
-  # Reset first; run in background and don't let a stuck destroy block launch forever.
-  (dora destroy >/dev/null 2>&1 || true) &
-  DESTROY_PID=$!
-  sleep 2
-  kill "$DESTROY_PID" >/dev/null 2>&1 || true
-fi
-
-if ! dora system status >/dev/null 2>&1; then
-  (dora up > "$DORA_LOG_PATH" 2>&1 || true) &
-  UP_PID=$!
-  READY=0
-  for _ in {1..20}; do
-    if dora system status >/dev/null 2>&1; then
-      READY=1
-      break
-    fi
-    sleep 0.5
-  done
-  if [[ "$READY" != "1" ]]; then
-    kill "$UP_PID" >/dev/null 2>&1 || true
-    osascript -e "display dialog \"Failed to start Dora runtime. Check: $DORA_LOG_PATH\" buttons {\"OK\"} default button \"OK\" with title \"Moxin Voice Startup\""
-    exit 1
-  fi
-fi
+# Start Dora in background only (non-blocking) so UI can appear immediately.
+# The app side will keep checking readiness and retry startup as needed.
+(dora system status >/dev/null 2>&1 || dora up > "$DORA_LOG_PATH" 2>&1 || true) &
 
 # Run full preflight in background for diagnostics only, do not block startup.
 ("$RES_DIR/scripts/macos_preflight.sh" > "$PREFLIGHT_LOG_PATH" 2>&1 || true) &
