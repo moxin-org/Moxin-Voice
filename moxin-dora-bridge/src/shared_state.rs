@@ -674,6 +674,9 @@ pub struct SharedDoraState {
 
     /// Overlay window background opacity (0.0 = fully transparent, 1.0 = opaque).
     pub translation_overlay_opacity: DirtyValue<f64>,
+
+    /// Overlay locale flag for status labels. false=zh, true=en.
+    pub translation_locale_en: DirtyValue<bool>,
 }
 
 /// Global singleton — all crates share the same SharedDoraState instance.
@@ -698,6 +701,7 @@ impl SharedDoraState {
                     translation_input_device: DirtyValue::new(None),
                     translation_overlay_fullscreen: DirtyValue::new(false),
                     translation_overlay_opacity: DirtyValue::new(0.85),
+                    translation_locale_en: DirtyValue::new(false),
                 })
             })
             .clone()
@@ -717,6 +721,7 @@ impl SharedDoraState {
             translation_input_device: DirtyValue::new(None),
             translation_overlay_fullscreen: DirtyValue::new(false),
             translation_overlay_opacity: DirtyValue::new(0.85),
+            translation_locale_en: DirtyValue::new(false),
         })
     }
 
@@ -771,6 +776,7 @@ impl Default for SharedDoraState {
             translation_input_device: DirtyValue::new(None),
             translation_overlay_fullscreen: DirtyValue::new(false),
             translation_overlay_opacity: DirtyValue::new(0.85),
+            translation_locale_en: DirtyValue::new(false),
         }
     }
 }

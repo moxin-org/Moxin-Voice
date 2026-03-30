@@ -341,6 +341,14 @@ impl MatchEvent for App {
             self.translation_ui.redraw(cx);
         }
 
+        // ── Translation overlay locale ───────────────────────────────────────
+        if let Some(locale_en) = dora_state.translation_locale_en.read_if_dirty() {
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.set_locale_en(cx, locale_en);
+            };
+        }
+
         // ── Translation overlay status heartbeat (warming/listening) ──────────
         if self.translation_overlay_visible {
             let status_snapshot = dora_state.status.read();

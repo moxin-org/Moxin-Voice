@@ -5310,7 +5310,7 @@ live_design! {
                                         padding: {left: 16, right: 16}
                                         spacing: 12
 
-                                        <Label> {
+                                        translation_source_label = <Label> {
                                             width: 90, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
@@ -5350,7 +5350,7 @@ live_design! {
                                         padding: {left: 16, right: 16}
                                         spacing: 12
 
-                                        <Label> {
+                                        translation_src_lang_label = <Label> {
                                             width: 90, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
@@ -5390,7 +5390,7 @@ live_design! {
                                         padding: {left: 16, right: 16}
                                         spacing: 12
 
-                                        <Label> {
+                                        translation_tgt_lang_label = <Label> {
                                             width: 90, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
@@ -5430,7 +5430,7 @@ live_design! {
                                         padding: {left: 16, right: 16}
                                         spacing: 8
 
-                                        <Label> {
+                                        translation_overlay_style_label = <Label> {
                                             width: 90, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
@@ -5516,7 +5516,7 @@ live_design! {
                                         padding: {left: 16, right: 16}
                                         spacing: 12
 
-                                        <Label> {
+                                        translation_opacity_label = <Label> {
                                             width: 90, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
@@ -5591,7 +5591,7 @@ live_design! {
                                         align: {y: 0.5}
                                         padding: {left: 14, right: 14}
 
-                                        <Label> {
+                                        translation_log_title = <Label> {
                                             width: Fill, height: Fit
                                             draw_text: {
                                                 instance dark_mode: 0.0
@@ -11457,8 +11457,76 @@ impl TTSScreen {
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_history))
             .set_text(cx, self.tr("历史", "History"));
         self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_translation))
+            .set_text(cx, self.tr("实时翻译", "Live Translation"));
+        self.view
             .button(ids!(app_layout.sidebar.sidebar_footer.global_settings_btn))
             .set_text(cx, self.tr("⚙", "⚙"));
+
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.page_header.page_title
+            ))
+            .set_text(cx, self.tr("实时翻译", "Live Translation"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.page_header.translation_status_badge.translation_status_text
+            ))
+            .set_text(cx, self.tr("运行中", "Running"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label
+            ))
+            .set_text(cx, self.tr("输入源", "Input Source"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.translation_src_lang_label
+            ))
+            .set_text(cx, self.tr("输入语言", "Source Language"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.translation_tgt_lang_label
+            ))
+            .set_text(cx, self.tr("目标语言", "Target Language"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label
+            ))
+            .set_text(cx, self.tr("浮窗样式", "Overlay Style"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact
+            ))
+            .set_text(cx, self.tr("紧凑", "Compact"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full
+            ))
+            .set_text(cx, self.tr("全屏", "Fullscreen"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label
+            ))
+            .set_text(cx, self.tr("浮窗透明度", "Overlay Opacity"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_start_btn
+            ))
+            .set_text(cx, self.tr("启动实时翻译", "Start Live Translation"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_title
+            ))
+            .set_text(cx, self.tr("运行日志", "Runtime Logs"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_stop_btn
+            ))
+            .set_text(cx, self.tr("停止翻译", "Stop Translation"));
+        self.update_translation_settings_layout_for_locale(cx);
+        self.update_translation_lang_dropdowns(cx);
+        self.populate_translation_input_dropdown(cx);
+        self.sync_translation_overlay_locale();
 
         self.view
             .label(ids!(
@@ -14488,17 +14556,34 @@ impl TTSScreen {
                 crate::dora_integration::DoraEvent::DataflowStarted { dataflow_id } => {
                     self.add_translation_log(
                         cx,
-                        &format!("[INFO] 翻译数据流已启动: {}", dataflow_id),
+                        &format!(
+                            "[INFO] {}: {}",
+                            self.tr("翻译数据流已启动", "Translation dataflow started"),
+                            dataflow_id
+                        ),
                     );
                 }
                 crate::dora_integration::DoraEvent::DataflowStopped => {
-                    self.add_translation_log(cx, "[WARN] 翻译数据流已停止");
+                    self.add_translation_log(
+                        cx,
+                        &format!(
+                            "[WARN] {}",
+                            self.tr("翻译数据流已停止", "Translation dataflow stopped")
+                        ),
+                    );
                     self.translation_running = false;
                     self.show_translation_running_panel(cx, false);
                     cx.stop_timer(self.translation_metrics_timer);
                 }
                 crate::dora_integration::DoraEvent::Error { message } => {
-                    self.add_translation_log(cx, &format!("[ERROR] 翻译数据流错误: {}", message));
+                    self.add_translation_log(
+                        cx,
+                        &format!(
+                            "[ERROR] {}: {}",
+                            self.tr("翻译数据流错误", "Translation dataflow error"),
+                            message
+                        ),
+                    );
                     self.translation_running = false;
                     self.show_translation_running_panel(cx, false);
                     cx.stop_timer(self.translation_metrics_timer);
@@ -14735,12 +14820,27 @@ impl TTSScreen {
             .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_scroll))
             .set_scroll_pos(cx, dvec2(0.0, 0.0));
 
-        self.add_translation_log(cx, "[INFO] 正在启动翻译数据流...");
+        self.add_translation_log(
+            cx,
+            &format!(
+                "[INFO] {}...",
+                self.tr("正在启动翻译数据流", "Starting translation dataflow")
+            ),
+        );
 
         let template_path = match self.resolve_translation_dataflow_template_path() {
             Some(p) => p,
             None => {
-                self.add_translation_log(cx, "[ERROR] translation_qwen35.yml 未找到");
+                self.add_translation_log(
+                    cx,
+                    &format!(
+                        "[ERROR] {}",
+                        self.tr(
+                            "未找到 translation_qwen35.yml",
+                            "translation_qwen35.yml not found"
+                        )
+                    ),
+                );
                 return;
             }
         };
@@ -14749,7 +14849,10 @@ impl TTSScreen {
         let template_content = match std::fs::read_to_string(&template_path) {
             Ok(s) => s,
             Err(e) => {
-                self.add_translation_log(cx, &format!("[ERROR] 读取模板失败: {}", e));
+                self.add_translation_log(
+                    cx,
+                    &format!("[ERROR] {}: {}", self.tr("读取模板失败", "Failed to read template"), e),
+                );
                 return;
             }
         };
@@ -14817,7 +14920,10 @@ impl TTSScreen {
         // Write rendered dataflow to a temp file
         let tmp_path = std::env::temp_dir().join("moxin_translation_dataflow.yml");
         if let Err(e) = std::fs::write(&tmp_path, &rendered) {
-            self.add_translation_log(cx, &format!("[ERROR] 写入临时文件失败: {}", e));
+            self.add_translation_log(
+                cx,
+                &format!("[ERROR] {}: {}", self.tr("写入临时文件失败", "Failed to write temp file"), e),
+            );
             return;
         }
 
@@ -14831,17 +14937,32 @@ impl TTSScreen {
             .map(|d| d.start_dataflow(tmp_path))
             .unwrap_or(false);
         if !started {
-            self.add_translation_log(cx, "[ERROR] 启动失败：未能提交翻译数据流启动命令");
+            self.add_translation_log(
+                cx,
+                &format!(
+                    "[ERROR] {}",
+                    self.tr(
+                        "启动失败：未能提交翻译数据流启动命令",
+                        "Failed to start: could not submit translation dataflow command"
+                    )
+                ),
+            );
             return;
         }
         self.add_translation_log(
             cx,
-            &format!("[INFO] 数据流启动命令已提交 ({} → {})", src_upper, tgt_upper),
+            &format!(
+                "[INFO] {} ({} → {})",
+                self.tr("数据流启动命令已提交", "Dataflow start command submitted"),
+                src_upper,
+                tgt_upper
+            ),
         );
         self.add_translation_log(
             cx,
             &format!(
-                "[INFO] VAD 策略: start={}f, end={}ms ({}f), min_segment={}ms, question_end={}ms, max_segment={}ms, rms(start/end)={:.4}/{:.4}",
+                "[INFO] {}: start={}f, end={}ms ({}f), min_segment={}ms, question_end={}ms, max_segment={}ms, rms(start/end)={:.4}/{:.4}",
+                self.tr("VAD 策略", "VAD policy"),
                 speech_start_frames,
                 speech_end_ms,
                 speech_end_frames,
@@ -14855,6 +14976,7 @@ impl TTSScreen {
 
         // Show the translation overlay window via SharedDoraState
         if let Some(shared) = self.translation_shared_state() {
+            shared.translation_locale_en.set(self.is_english());
             // Force a visibility dirty edge even if state was previously true
             // (e.g. user manually closed the OS window while state remained true).
             shared.translation_window_visible.set(false);
@@ -14874,7 +14996,10 @@ impl TTSScreen {
 
     /// Stop the translation dataflow and return to settings view.
     fn stop_translation_dataflow(&mut self, cx: &mut Cx) {
-        self.add_translation_log(cx, "[INFO] 正在停止翻译...");
+        self.add_translation_log(
+            cx,
+            &format!("[INFO] {}...", self.tr("正在停止翻译", "Stopping translation")),
+        );
 
         // Hide the overlay window
         if let Some(shared) = self.translation_shared_state() {
@@ -14913,7 +15038,12 @@ impl TTSScreen {
 
                 if should_log {
                     if let Some(last) = update.history.last() {
-                        let msg = format!("[翻译完成] {} → {}", last.source_text, last.translation);
+                        let msg = format!(
+                            "[{}] {} → {}",
+                            self.tr("翻译完成", "Translated"),
+                            last.source_text,
+                            last.translation
+                        );
                         self.add_translation_log(cx, &msg);
                     }
                     self.translation_last_logged_fingerprint = Some(fingerprint);
@@ -14973,6 +15103,44 @@ impl TTSScreen {
         let src_idx = src_codes.iter().position(|c| *c == self.translation_src_lang).unwrap_or(0);
         let tgt_idx = tgt_codes.iter().position(|c| *c == self.translation_tgt_lang).unwrap_or(0);
 
+        let (src_labels, tgt_labels) = if self.is_english() {
+            (
+                vec![
+                    "Chinese".to_string(),
+                    "English".to_string(),
+                    "Japanese".to_string(),
+                    "French".to_string(),
+                ],
+                vec![
+                    "English".to_string(),
+                    "Chinese".to_string(),
+                    "Japanese".to_string(),
+                    "French".to_string(),
+                ],
+            )
+        } else {
+            (
+                vec![
+                    "中文".to_string(),
+                    "英语".to_string(),
+                    "日语".to_string(),
+                    "法语".to_string(),
+                ],
+                vec![
+                    "英语".to_string(),
+                    "中文".to_string(),
+                    "日语".to_string(),
+                    "法语".to_string(),
+                ],
+            )
+        };
+
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown))
+            .set_labels(cx, src_labels);
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown))
+            .set_labels(cx, tgt_labels);
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown))
             .set_selected_item(cx, src_idx);
@@ -14991,6 +15159,45 @@ impl TTSScreen {
         self.view
             .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full))
             .apply_over(cx, live! { draw_bg: { active: (full) } draw_text: { active: (full) } });
+    }
+
+    /// Keep translation settings labels in one line across locales.
+    /// English needs a wider left label column, so we shrink right controls accordingly.
+    fn update_translation_settings_layout_for_locale(&mut self, cx: &mut Cx) {
+        if self.is_english() {
+            self.view
+                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label))
+                .apply_over(cx, live! { width: 160.0 });
+            self.view
+                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.translation_src_lang_label))
+                .apply_over(cx, live! { width: 160.0 });
+            self.view
+                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.translation_tgt_lang_label))
+                .apply_over(cx, live! { width: 160.0 });
+            self.view
+                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label))
+                .apply_over(cx, live! { width: 160.0 });
+            self.view
+                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label))
+                .apply_over(cx, live! { width: 160.0 });
+            return;
+        }
+
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label))
+            .apply_over(cx, live! { width: 90.0 });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.translation_src_lang_label))
+            .apply_over(cx, live! { width: 90.0 });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.translation_tgt_lang_label))
+            .apply_over(cx, live! { width: 90.0 });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label))
+            .apply_over(cx, live! { width: 90.0 });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label))
+            .apply_over(cx, live! { width: 90.0 });
     }
 
     /// Sync the opacity dropdown selection with the current opacity value.
@@ -15022,21 +15229,32 @@ impl TTSScreen {
         }
         self.translation_audio_devices = names;
 
-        let mut labels = vec!["系统默认麦克风".to_string()];
+        let mut labels = vec![self
+            .tr("系统默认麦克风", "System Default Microphone")
+            .to_string()];
         labels.extend(self.translation_audio_devices.clone());
 
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
             .set_labels(cx, labels);
+        let selected_idx = self
+            .translation_device_idx
+            .min(self.translation_audio_devices.len());
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
-            .set_selected_item(cx, 0);
+            .set_selected_item(cx, selected_idx);
     }
 
     fn translation_shared_state(&self) -> Option<Arc<moxin_dora_bridge::SharedDoraState>> {
         self.translation_dora
             .as_ref()
             .map(|dora| dora.shared_dora_state().clone())
+    }
+
+    fn sync_translation_overlay_locale(&self) {
+        if let Some(shared) = self.translation_shared_state() {
+            shared.translation_locale_en.set(self.is_english());
+        }
     }
 
     /// Resolve the absolute path of a Dora node binary.

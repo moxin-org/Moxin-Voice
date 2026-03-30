@@ -168,6 +168,10 @@ pub struct TranslationOverlay {
     #[rust]
     status: TranslationStatus,
 
+    /// Locale flag for status labels. false=zh, true=en.
+    #[rust]
+    locale_en: bool,
+
     /// Cached history length for detecting changes
     #[rust]
     last_history_len: usize,
@@ -352,6 +356,16 @@ impl TranslationOverlay {
         self.view.redraw(cx);
     }
 
+    /// Set locale for toolbar status text.
+    pub fn set_locale_en(&mut self, cx: &mut Cx, locale_en: bool) {
+        if self.locale_en == locale_en {
+            return;
+        }
+        self.locale_en = locale_en;
+        self.update_status_label(cx);
+        self.view.redraw(cx);
+    }
+
     /// Set overlay background opacity (0.0 = fully transparent, 1.0 = opaque).
     pub fn set_opacity(&mut self, cx: &mut Cx, opacity: f64) {
         self.view.apply_over(cx, live! {
@@ -481,10 +495,34 @@ impl TranslationOverlay {
 
     fn update_status_label(&self, cx: &mut Cx) {
         let (text, color) = match self.status {
-            TranslationStatus::WarmingUp => ("● WARMING UP", vec4(0.906, 0.620, 0.204, 1.0)),
-            TranslationStatus::Listening => ("● LISTENING", vec4(0.098, 0.725, 0.506, 1.0)),
-            TranslationStatus::Transcribing => ("● TRANSCRIBING", vec4(0.906, 0.620, 0.204, 1.0)),
-            TranslationStatus::Complete => ("✓ DONE", vec4(0.098, 0.725, 0.506, 1.0)),
+            TranslationStatus::WarmingUp => (
+                if self.locale_en {
+                    "● WARMING UP"
+                } else {
+                    "● 预热中"
+                },
+                vec4(0.906, 0.620, 0.204, 1.0),
+            ),
+            TranslationStatus::Listening => (
+                if self.locale_en {
+                    "● LISTENING"
+                } else {
+                    "● 监听中"
+                },
+                vec4(0.098, 0.725, 0.506, 1.0),
+            ),
+            TranslationStatus::Transcribing => (
+                if self.locale_en {
+                    "● TRANSCRIBING"
+                } else {
+                    "● 识别中"
+                },
+                vec4(0.906, 0.620, 0.204, 1.0),
+            ),
+            TranslationStatus::Complete => (
+                if self.locale_en { "✓ DONE" } else { "✓ 完成" },
+                vec4(0.098, 0.725, 0.506, 1.0),
+            ),
         };
         let label = self.view.label(ids!(toolbar.status_label));
         label.set_text(cx, text);
@@ -555,6 +593,12 @@ impl TranslationOverlayRef {
     pub fn set_warming_up(&self, cx: &mut Cx) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.set_warming_up(cx);
+        }
+    }
+
+    pub fn set_locale_en(&self, cx: &mut Cx, locale_en: bool) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_locale_en(cx, locale_en);
         }
     }
 
