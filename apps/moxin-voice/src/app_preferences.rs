@@ -10,6 +10,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppPreferences {
+    pub app_language: String, // "en" | "zh"
     pub display_name: String,
     pub avatar_letter: String,
     pub default_voice_id: Option<String>,
@@ -28,6 +29,7 @@ pub struct AppPreferences {
 impl Default for AppPreferences {
     fn default() -> Self {
         Self {
+            app_language: "zh".to_string(),
             display_name: "User".to_string(),
             avatar_letter: "U".to_string(),
             default_voice_id: Some("vivian".to_string()),

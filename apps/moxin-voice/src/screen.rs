@@ -8080,14 +8080,15 @@ impl Widget for TTSScreen {
             self.update_settings_tabs(cx);
             self.update_sidebar_nav_states(cx);
 
-            // Initialize global settings state (default locale is zh)
+            // Initialize global settings state (restore persisted language)
             self.global_settings_visible = false;
-            self.app_language = i18n::get_locale();
-            if i18n::set_locale(&self.app_language).is_err() {
-                self.app_language = "zh".to_string();
-                let _ = i18n::set_locale("zh");
-            }
             self.app_preferences = app_preferences::load_preferences();
+            self.app_language = if self.app_preferences.app_language == "en" {
+                "en".to_string()
+            } else {
+                "zh".to_string()
+            };
+            let _ = i18n::set_locale(&self.app_language);
             // Qwen3-only: always override to qwen3 regardless of stored preference.
             // PrimeSpeech fallback removed. See doc/REFACTOR_QWEN3_ONLY.md.
             self.app_preferences.inference_backend = "qwen3_tts_mlx".to_string();
@@ -9340,6 +9341,7 @@ impl Widget for TTSScreen {
         {
             self.app_language = "en".to_string();
             let _ = i18n::set_locale("en");
+            self.persist_app_preferences(cx);
             self.update_language_options(cx);
             self.apply_localization(cx);
             self.load_voice_library(cx);
@@ -9356,6 +9358,7 @@ impl Widget for TTSScreen {
         {
             self.app_language = "zh".to_string();
             let _ = i18n::set_locale("zh");
+            self.persist_app_preferences(cx);
             self.update_language_options(cx);
             self.apply_localization(cx);
             self.load_voice_library(cx);
@@ -11061,6 +11064,7 @@ impl TTSScreen {
     }
 
     fn persist_app_preferences(&mut self, cx: &mut Cx) {
+        self.app_preferences.app_language = self.app_language.clone();
         self.app_preferences.display_name = self.user_display_name.clone();
         self.app_preferences.avatar_letter = self.user_avatar_letter.clone();
         self.app_preferences.default_speed = self.tts_speed;
