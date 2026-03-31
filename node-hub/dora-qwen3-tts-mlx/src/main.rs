@@ -406,7 +406,7 @@ fn resolve_max_new_tokens() -> i32 {
         .ok()
         .and_then(|v| v.parse::<i32>().ok())
         .filter(|v| *v > 0)
-        .unwrap_or(512)
+        .unwrap_or(4096)
 }
 
 fn synthesize_qwen(state: &mut QwenState, request: TtsRequest, _params: &TtsParams) -> Result<(Vec<f32>, u32)> {

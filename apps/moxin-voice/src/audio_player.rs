@@ -250,7 +250,7 @@ fn run_audio_thread(
     state: Arc<Mutex<SharedAudioState>>,
     playback_finished: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let buffer_seconds = 60.0; // Large buffer for TTS
+    let buffer_seconds = 400.0; // Large buffer for TTS (supports up to ~341s audio after resampling)
     let buffer = Arc::new(Mutex::new(CircularAudioBuffer::new(
         buffer_seconds,
         sample_rate,
