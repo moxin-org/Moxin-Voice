@@ -12523,6 +12523,13 @@ impl TTSScreen {
             .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs))
             .set_visible(cx, !history_mode);
 
+        // Hide audio player bar when in History mode
+        let show_player = self.has_generated_audio && !history_mode
+            && self.current_page == AppPage::TextToSpeech;
+        self.view
+            .view(ids!(content_wrapper.audio_player_bar))
+            .set_visible(cx, show_player);
+
         if history_mode {
             self.view
                 .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel))
@@ -12678,10 +12685,11 @@ impl TTSScreen {
             ))
             .set_visible(cx, show_translation);
 
-        // Show audio player bar only after first successful generation on TTS page
+        // Show audio player bar only on TTS page (not History tab) after first successful generation
+        let history_mode = show_tts && self.controls_panel_tab == 2;
         self.view
             .view(ids!(content_wrapper.audio_player_bar))
-            .set_visible(cx, show_tts && self.has_generated_audio);
+            .set_visible(cx, show_tts && self.has_generated_audio && !history_mode);
 
         if show_library {
             self.update_library_display(cx);
@@ -12899,8 +12907,10 @@ impl TTSScreen {
     }
 
     fn update_audio_player_visibility(&mut self, cx: &mut Cx) {
+        let history_mode =
+            self.current_page == AppPage::TextToSpeech && self.controls_panel_tab == 2;
         let show_player =
-            self.current_page == AppPage::TextToSpeech && self.has_generated_audio;
+            self.current_page == AppPage::TextToSpeech && self.has_generated_audio && !history_mode;
         self.view
             .view(ids!(content_wrapper.audio_player_bar))
             .set_visible(cx, show_player);
