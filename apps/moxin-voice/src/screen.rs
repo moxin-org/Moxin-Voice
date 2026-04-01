@@ -5512,6 +5512,86 @@ live_design! {
                                         }
                                     }
 
+                                    // 文字大小
+                                    setting_row_font_size = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 12
+
+                                        translation_font_size_label = <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "文字大小"
+                                        }
+
+                                        font_size_dropdown = <SettingsDeviceDropDown> {
+                                            width: Fill, height: 32
+                                            labels: ["小", "正常", "大"]
+                                            values: ["small", "normal", "large"]
+                                        }
+                                    }
+
+                                    // 分隔线
+                                    <View> {
+                                        width: Fill, height: 1
+                                        margin: {left: 16, right: 16}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            fn pixel(self) -> vec4 {
+                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                            }
+                                        }
+                                    }
+
+                                    // 滚动位置
+                                    setting_row_anchor_position = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 12
+
+                                        translation_anchor_position_label = <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "滚动位置"
+                                        }
+
+                                        anchor_position_dropdown = <SettingsDeviceDropDown> {
+                                            width: Fill, height: 32
+                                            labels: ["50%", "60%", "70%", "80%", "90%", "100%"]
+                                            values: ["50", "60", "70", "80", "90", "100"]
+                                        }
+                                    }
+
+                                    // 分隔线
+                                    <View> {
+                                        width: Fill, height: 1
+                                        margin: {left: 16, right: 16}
+                                        show_bg: true
+                                        draw_bg: {
+                                            instance dark_mode: 0.0
+                                            fn pixel(self) -> vec4 {
+                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                            }
+                                        }
+                                    }
+
                                     // 浮窗透明度
                                     setting_row_opacity = <View> {
                                         width: Fill, height: 52
@@ -7950,6 +8030,12 @@ pub struct TTSScreen {
     /// Overlay window background opacity (0.0..1.0)
     #[rust]
     translation_overlay_opacity: f64,
+    /// Overlay text size preset: "small" | "normal" | "large"
+    #[rust]
+    translation_overlay_font_size_preset: String,
+    /// Overlay anchor position preset percentage: "50" | "60" | ... | "100"
+    #[rust]
+    translation_overlay_anchor_position_preset: String,
 
     // Model picker modal
     #[rust]
@@ -8206,6 +8292,8 @@ impl Widget for TTSScreen {
             self.translation_device_idx = 0;
             self.translation_overlay_fullscreen = false;
             self.translation_overlay_opacity = 0.85;
+            self.translation_overlay_font_size_preset = "normal".to_string();
+            self.translation_overlay_anchor_position_preset = "50".to_string();
 
             // Add initial log entries
             self.log_entries
@@ -8751,6 +8839,7 @@ impl Widget for TTSScreen {
                         }
                         self.update_translation_lang_dropdowns(cx);
                     }
+                    self.sync_translation_overlay_lang_pair();
                 }
             }
         }
@@ -8776,6 +8865,39 @@ impl Widget for TTSScreen {
                         }
                         self.update_translation_lang_dropdowns(cx);
                     }
+                    self.sync_translation_overlay_lang_pair();
+                }
+            }
+        }
+
+        // Overlay font size preset dropdown
+        {
+            let presets = ["small", "normal", "large"];
+            if let Some(idx) = self
+                .view
+                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.font_size_dropdown))
+                .changed(&actions)
+            {
+                if let Some(preset) = presets.get(idx) {
+                    self.translation_overlay_font_size_preset = (*preset).to_string();
+                    self.update_translation_font_size_dropdown(cx);
+                    self.sync_translation_overlay_font_size();
+                }
+            }
+        }
+
+        // Overlay scroll anchor position dropdown
+        {
+            let presets = ["50", "60", "70", "80", "90", "100"];
+            if let Some(idx) = self
+                .view
+                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.anchor_position_dropdown))
+                .changed(&actions)
+            {
+                if let Some(preset) = presets.get(idx) {
+                    self.translation_overlay_anchor_position_preset = (*preset).to_string();
+                    self.update_translation_anchor_position_dropdown(cx);
+                    self.sync_translation_overlay_anchor_position();
                 }
             }
         }
@@ -11531,6 +11653,16 @@ impl TTSScreen {
             ))
             .set_text(cx, self.tr("浮窗样式", "Overlay Style"));
         self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.translation_font_size_label
+            ))
+            .set_text(cx, self.tr("文字大小", "Text Size"));
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.translation_anchor_position_label
+            ))
+            .set_text(cx, self.tr("滚动位置", "Scroll Position"));
+        self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact
             ))
@@ -11562,6 +11694,8 @@ impl TTSScreen {
             .set_text(cx, self.tr("停止翻译", "Stop Translation"));
         self.update_translation_settings_layout_for_locale(cx);
         self.update_translation_lang_dropdowns(cx);
+        self.update_translation_font_size_dropdown(cx);
+        self.update_translation_anchor_position_dropdown(cx);
         self.populate_translation_input_dropdown(cx);
         self.sync_translation_overlay_locale();
 
@@ -15029,6 +15163,16 @@ impl TTSScreen {
         // Show the translation overlay window via SharedDoraState
         if let Some(shared) = self.translation_shared_state() {
             shared.translation_locale_en.set(self.is_english());
+            shared.translation_lang_pair.set((
+                self.translation_src_lang.clone(),
+                self.translation_tgt_lang.clone(),
+            ));
+            shared
+                .translation_font_size_preset
+                .set(self.translation_overlay_font_size_preset.clone());
+            shared
+                .translation_anchor_position_preset
+                .set(self.translation_overlay_anchor_position_preset.clone());
             // Force a visibility dirty edge even if state was previously true
             // (e.g. user manually closed the OS window while state remained true).
             shared.translation_window_visible.set(false);
@@ -15230,6 +15374,12 @@ impl TTSScreen {
                 .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label))
                 .apply_over(cx, live! { width: 160.0 });
             self.view
+                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.translation_font_size_label))
+                .apply_over(cx, live! { width: 160.0 });
+            self.view
+                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.translation_anchor_position_label))
+                .apply_over(cx, live! { width: 160.0 });
+            self.view
                 .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label))
                 .apply_over(cx, live! { width: 160.0 });
             return;
@@ -15246,6 +15396,12 @@ impl TTSScreen {
             .apply_over(cx, live! { width: 90.0 });
         self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label))
+            .apply_over(cx, live! { width: 90.0 });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.translation_font_size_label))
+            .apply_over(cx, live! { width: 90.0 });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.translation_anchor_position_label))
             .apply_over(cx, live! { width: 90.0 });
         self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label))
@@ -15285,6 +15441,55 @@ impl TTSScreen {
             .unwrap_or(2); // default to 85%
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.opacity_dropdown))
+            .set_selected_item(cx, idx);
+    }
+
+    fn update_translation_font_size_dropdown(&mut self, cx: &mut Cx) {
+        let labels = if self.is_english() {
+            vec![
+                "Small".to_string(),
+                "Normal".to_string(),
+                "Large".to_string(),
+            ]
+        } else {
+            vec!["小".to_string(), "正常".to_string(), "大".to_string()]
+        };
+        let idx = match self.translation_overlay_font_size_preset.as_str() {
+            "small" => 0,
+            "large" => 2,
+            _ => 1,
+        };
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.font_size_dropdown))
+            .set_labels(cx, labels);
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.font_size_dropdown))
+            .set_selected_item(cx, idx);
+    }
+
+    fn update_translation_anchor_position_dropdown(&mut self, cx: &mut Cx) {
+        let labels = vec![
+            "50%".to_string(),
+            "60%".to_string(),
+            "70%".to_string(),
+            "80%".to_string(),
+            "90%".to_string(),
+            "100%".to_string(),
+        ];
+        let idx = match self.translation_overlay_anchor_position_preset.as_str() {
+            "50" => 0,
+            "60" => 1,
+            "70" => 2,
+            "80" => 3,
+            "90" => 4,
+            "100" => 5,
+            _ => 0,
+        };
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.anchor_position_dropdown))
+            .set_labels(cx, labels);
+        self.view
+            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.anchor_position_dropdown))
             .set_selected_item(cx, idx);
     }
 
@@ -15330,6 +15535,31 @@ impl TTSScreen {
     fn sync_translation_overlay_locale(&self) {
         if let Some(shared) = self.translation_shared_state() {
             shared.translation_locale_en.set(self.is_english());
+        }
+    }
+
+    fn sync_translation_overlay_lang_pair(&self) {
+        if let Some(shared) = self.translation_shared_state() {
+            shared.translation_lang_pair.set((
+                self.translation_src_lang.clone(),
+                self.translation_tgt_lang.clone(),
+            ));
+        }
+    }
+
+    fn sync_translation_overlay_font_size(&self) {
+        if let Some(shared) = self.translation_shared_state() {
+            shared
+                .translation_font_size_preset
+                .set(self.translation_overlay_font_size_preset.clone());
+        }
+    }
+
+    fn sync_translation_overlay_anchor_position(&self) {
+        if let Some(shared) = self.translation_shared_state() {
+            shared
+                .translation_anchor_position_preset
+                .set(self.translation_overlay_anchor_position_preset.clone());
         }
     }
 
@@ -18566,6 +18796,17 @@ impl TTSScreenRef {
                 .update_dark_mode(cx, dark_mode);
 
             inner.view.redraw(cx);
+        }
+    }
+
+    pub fn set_translation_overlay_font_size_preset(&self, cx: &mut Cx, preset: &str) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.translation_overlay_font_size_preset = match preset {
+                "small" | "large" | "normal" => preset.to_string(),
+                _ => "normal".to_string(),
+            };
+            inner.update_translation_font_size_dropdown(cx);
+            inner.sync_translation_overlay_font_size();
         }
     }
 }

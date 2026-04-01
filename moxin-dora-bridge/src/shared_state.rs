@@ -677,6 +677,15 @@ pub struct SharedDoraState {
 
     /// Overlay locale flag for status labels. false=zh, true=en.
     pub translation_locale_en: DirtyValue<bool>,
+
+    /// Current translation language pair for the overlay header.
+    pub translation_lang_pair: DirtyValue<(String, String)>,
+
+    /// Current translation overlay font size preset.
+    pub translation_font_size_preset: DirtyValue<String>,
+
+    /// Current translation overlay anchor position preset percentage.
+    pub translation_anchor_position_preset: DirtyValue<String>,
 }
 
 /// Global singleton — all crates share the same SharedDoraState instance.
@@ -702,6 +711,9 @@ impl SharedDoraState {
                     translation_overlay_fullscreen: DirtyValue::new(false),
                     translation_overlay_opacity: DirtyValue::new(0.85),
                     translation_locale_en: DirtyValue::new(false),
+                    translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
+                    translation_font_size_preset: DirtyValue::new("normal".to_string()),
+                    translation_anchor_position_preset: DirtyValue::new("50".to_string()),
                 })
             })
             .clone()
@@ -722,6 +734,9 @@ impl SharedDoraState {
             translation_overlay_fullscreen: DirtyValue::new(false),
             translation_overlay_opacity: DirtyValue::new(0.85),
             translation_locale_en: DirtyValue::new(false),
+            translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
+            translation_font_size_preset: DirtyValue::new("normal".to_string()),
+            translation_anchor_position_preset: DirtyValue::new("50".to_string()),
         })
     }
 
@@ -777,6 +792,9 @@ impl Default for SharedDoraState {
             translation_overlay_fullscreen: DirtyValue::new(false),
             translation_overlay_opacity: DirtyValue::new(0.85),
             translation_locale_en: DirtyValue::new(false),
+            translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
+            translation_font_size_preset: DirtyValue::new("normal".to_string()),
+            translation_anchor_position_preset: DirtyValue::new("50".to_string()),
         }
     }
 }

@@ -129,4 +129,9 @@ pub fn live_design(cx: &mut Cx) {
 // Re-export commonly used types
 pub use audio_player::*;
 pub use participant_panel::ParticipantPanel;
-pub use translation_overlay::{TranslationOverlay, TranslationOverlayRef, TranslationStatus};
+pub use translation_overlay::{
+    TranslationOverlay,
+    TranslationOverlayAction,
+    TranslationOverlayRef,
+    TranslationStatus,
+};

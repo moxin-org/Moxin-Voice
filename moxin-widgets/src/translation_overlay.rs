@@ -79,26 +79,55 @@ live_design! {
                 }
             }
 
-            // Spacer pushes lang + status to the right
+            // Spacer pushes right controls group to the edge.
             <View> { width: Fill, height: 1 }
 
-            lang_label = <Label> {
-                width: Fit
-                margin: { right: 12 }
-                draw_text: {
-                    color: (SLATE_300)
-                    text_style: <FONT_SEMIBOLD> { font_size: 13.0 }
-                }
-                text: "ZH → EN"
-            }
+            right_controls = <View> {
+                width: Fit, height: Fit
+                flow: Right
+                align: { y: 0.5 }
+                spacing: 3
 
-            status_label = <Label> {
-                width: Fit
-                draw_text: {
-                    color: (ACCENT_GREEN)
-                    text_style: <FONT_REGULAR> { font_size: 11.0 }
+                font_size_dropdown = <DropDown> {
+                    width: Fit, height: 26
+                    margin: { top: 1, bottom: -1 }
+                    padding: {
+                        left: 3,
+                        right: 3,
+                        top: 2,
+                        bottom: 2
+                    }
+                    labels: ["小", "正常", "大"]
+                    values: ["small", "normal", "large"]
+                    popup_menu_position: BelowInput
+                    draw_bg: {
+                        fn pixel(self) -> vec4 {
+                            return vec4(0.0, 0.0, 0.0, 0.0);
+                        }
+                    }
+                    draw_text: {
+                        color: (SLATE_300)
+                        text_style: <FONT_SEMIBOLD> { font_size: 11.0 }
+                    }
                 }
-                text: "● LISTENING"
+
+                lang_label = <Label> {
+                    width: Fit
+                    draw_text: {
+                        color: (SLATE_300)
+                        text_style: <FONT_SEMIBOLD> { font_size: 11.0 }
+                    }
+                    text: "ZH → EN"
+                }
+
+                status_label = <Label> {
+                    width: Fit
+                    draw_text: {
+                        color: (ACCENT_GREEN)
+                        text_style: <FONT_REGULAR> { font_size: 11.0 }
+                    }
+                    text: "● LISTENING"
+                }
             }
         }
 
@@ -155,6 +184,12 @@ pub enum TranslationStatus {
     Complete,
 }
 
+#[derive(Clone, Debug, DefaultNone)]
+pub enum TranslationOverlayAction {
+    None,
+    FontSizePresetChanged(String),
+}
+
 #[derive(Live, LiveHook, Widget)]
 pub struct TranslationOverlay {
     #[deref]
@@ -164,6 +199,14 @@ pub struct TranslationOverlay {
     #[rust]
     lang_pair: String,
 
+    /// Raw source language code for locale-aware display.
+    #[rust]
+    src_lang_code: String,
+
+    /// Raw target language code for locale-aware display.
+    #[rust]
+    tgt_lang_code: String,
+
     /// Current display status
     #[rust]
     status: TranslationStatus,
@@ -171,6 +214,14 @@ pub struct TranslationOverlay {
     /// Locale flag for status labels. false=zh, true=en.
     #[rust]
     locale_en: bool,
+
+    /// Font size preset id: "small" | "normal" | "large".
+    #[rust]
+    font_size_preset: String,
+
+    /// Anchor position preset percentage: "50" | "60" | ... | "100".
+    #[rust]
+    anchor_position_preset: String,
 
     /// Cached history length for detecting changes
     #[rust]
@@ -210,6 +261,21 @@ pub struct TranslationOverlay {
 impl Widget for TranslationOverlay {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         self.view.handle_event(cx, event, scope);
+        if let Event::Actions(actions) = event {
+            if let Some(idx) = self
+                .view
+                .drop_down(ids!(toolbar.right_controls.font_size_dropdown))
+                .changed(actions)
+            {
+                let preset = Self::font_size_preset_for_index(idx).to_string();
+                self.set_font_size_preset(cx, &preset);
+                cx.widget_action(
+                    self.widget_uid(),
+                    &scope.path,
+                    TranslationOverlayAction::FontSizePresetChanged(preset),
+                );
+            }
+        }
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
@@ -258,19 +324,122 @@ impl TranslationOverlay {
     const PENDING_MARGIN_TOP: f64 = 8.0;
     const PENDING_MARGIN_BOTTOM: f64 = 8.0;
     const TAIL_SAFE_GAP: f64 = 10.0;
-    const FOLLOW_THRESHOLD_RATIO: f64 = 0.5; // change to 0.75 for 3/4-screen threshold
+
+    fn toolbar_font_dropdown_vertical_padding() -> (f64, f64) {
+        (2.0, 2.0)
+    }
+
+    fn localized_lang_name(code: &str, locale_en: bool) -> String {
+        match (code, locale_en) {
+            ("zh", true) => "ZH".to_string(),
+            ("en", true) => "EN".to_string(),
+            ("ja", true) => "JA".to_string(),
+            ("fr", true) => "FR".to_string(),
+            ("de", true) => "DE".to_string(),
+            ("ko", true) => "KO".to_string(),
+            ("zh", false) => "中".to_string(),
+            ("en", false) => "英".to_string(),
+            ("ja", false) => "日".to_string(),
+            ("fr", false) => "法".to_string(),
+            ("de", false) => "德".to_string(),
+            ("ko", false) => "韩".to_string(),
+            _ => code.to_uppercase(),
+        }
+    }
+
+    fn format_lang_pair_for_locale(src: &str, tgt: &str, locale_en: bool) -> String {
+        format!(
+            "{}-{}",
+            Self::localized_lang_name(src, locale_en),
+            Self::localized_lang_name(tgt, locale_en)
+        )
+    }
+
+    fn font_size_preset_for_index(idx: usize) -> &'static str {
+        match idx {
+            0 => "small",
+            2 => "large",
+            _ => "normal",
+        }
+    }
+
+    fn font_size_preset_index(preset: &str) -> usize {
+        match preset {
+            "small" => 0,
+            "large" => 2,
+            _ => 1,
+        }
+    }
+
+    fn font_size_preset_values(preset: &str) -> (f64, f64) {
+        match preset {
+            "small" => (12.0, 11.0),
+            "large" => (16.0, 15.0),
+            _ => (14.0, 13.0),
+        }
+    }
+
+    fn anchor_position_ratio(preset: &str) -> f64 {
+        match preset {
+            "60" => 0.6,
+            "70" => 0.7,
+            "80" => 0.8,
+            "90" => 0.9,
+            "100" => 1.0,
+            _ => 0.5,
+        }
+    }
+
+    fn font_size_dropdown_labels(locale_en: bool) -> Vec<String> {
+        if locale_en {
+            vec![
+                "SMALL".to_string(),
+                "NORMAL".to_string(),
+                "LARGE".to_string(),
+            ]
+        } else {
+            vec![
+                "小".to_string(),
+                "正常".to_string(),
+                "大".to_string(),
+            ]
+        }
+    }
+
+    fn update_font_size_dropdown_labels(&self, cx: &mut Cx) {
+        let labels = Self::font_size_dropdown_labels(self.locale_en);
+        self.view
+            .drop_down(ids!(toolbar.right_controls.font_size_dropdown))
+            .set_labels(cx, labels);
+        self.view
+            .drop_down(ids!(toolbar.right_controls.font_size_dropdown))
+            .set_selected_item(cx, Self::font_size_preset_index(&self.font_size_preset));
+    }
+
+    fn update_font_size_draw_styles(&self, cx: &mut Cx) {
+        let (history_size, pending_size) =
+            Self::font_size_preset_values(&self.font_size_preset);
+        self.view
+            .label(ids!(content_scroll.history_label))
+            .apply_over(cx, live! { draw_text: { text_style: { font_size: (history_size) } } });
+        self.view
+            .label(ids!(content_scroll.pending_label))
+            .apply_over(cx, live! { draw_text: { text_style: { font_size: (pending_size) } } });
+    }
 
     fn compute_anchor_spacer_height(
         viewport_height: f64,
         content_without_spacer: f64,
+        anchor_ratio: f64,
     ) -> f32 {
-        // User rule: center-follow starts only after content exceeds half viewport.
-        if content_without_spacer <= viewport_height * Self::FOLLOW_THRESHOLD_RATIO {
+        // User rule: follow starts only after content exceeds the chosen anchor position.
+        if content_without_spacer <= viewport_height * anchor_ratio {
             return 0.0;
         }
 
-        // Unified behavior for pending/completed latest line.
-        ((viewport_height * 0.5) - Self::TAIL_SAFE_GAP).max(0.0) as f32
+        // To place the latest line at `anchor_ratio` from the top after scrolling
+        // to the bottom, the bottom spacer must consume the remaining lower area.
+        ((viewport_height * (1.0 - anchor_ratio)) - Self::TAIL_SAFE_GAP).max(0.0) as f32
     }
 
     fn update_anchor_spacer_from_layout(&mut self, cx: &mut Cx2d) {
@@ -311,10 +480,11 @@ impl TranslationOverlay {
         };
         let content_without_spacer =
             Self::SCROLL_PADDING_TOP + history_height + pending_block_h;
+        let anchor_ratio = Self::anchor_position_ratio(&self.anchor_position_preset);
         self.follow_tail_scroll =
-            content_without_spacer > viewport_h * Self::FOLLOW_THRESHOLD_RATIO;
+            content_without_spacer > viewport_h * anchor_ratio;
         let mut spacer_h =
-            Self::compute_anchor_spacer_height(viewport_h, content_without_spacer);
+            Self::compute_anchor_spacer_height(viewport_h, content_without_spacer, anchor_ratio);
 
         // Hard guard for first ASR line: when only pending text exists,
         // keep top-flow and disable center-follow.
@@ -340,9 +510,15 @@ impl TranslationOverlay {
 
     /// Set the language pair label, e.g. "ZH → EN"
     pub fn set_lang_pair(&mut self, cx: &mut Cx, src: &str, tgt: &str) {
-        self.lang_pair = format!("{} → {}", src.to_uppercase(), tgt.to_uppercase());
+        self.src_lang_code = src.to_lowercase();
+        self.tgt_lang_code = tgt.to_lowercase();
+        self.lang_pair = Self::format_lang_pair_for_locale(
+            &self.src_lang_code,
+            &self.tgt_lang_code,
+            self.locale_en,
+        );
         self.view
-            .label(ids!(toolbar.lang_label))
+            .label(ids!(toolbar.right_controls.lang_label))
             .set_text(cx, &self.lang_pair);
     }
 
@@ -362,7 +538,49 @@ impl TranslationOverlay {
             return;
         }
         self.locale_en = locale_en;
+        self.lang_pair = Self::format_lang_pair_for_locale(
+            &self.src_lang_code,
+            &self.tgt_lang_code,
+            self.locale_en,
+        );
+        self.view
+            .label(ids!(toolbar.right_controls.lang_label))
+            .set_text(cx, &self.lang_pair);
+        self.update_font_size_dropdown_labels(cx);
         self.update_status_label(cx);
+        self.view.redraw(cx);
+    }
+
+    pub fn set_font_size_preset(&mut self, cx: &mut Cx, preset: &str) {
+        let normalized = match preset {
+            "small" | "large" | "normal" => preset,
+            _ => "normal",
+        };
+        if self.font_size_preset == normalized {
+            self.view
+                .drop_down(ids!(toolbar.right_controls.font_size_dropdown))
+                .set_selected_item(cx, Self::font_size_preset_index(normalized));
+            return;
+        }
+        self.font_size_preset = normalized.to_string();
+        self.view
+            .drop_down(ids!(toolbar.right_controls.font_size_dropdown))
+            .set_selected_item(cx, Self::font_size_preset_index(normalized));
+        self.update_font_size_draw_styles(cx);
+        self.view.redraw(cx);
+    }
+
+    pub fn set_anchor_position_preset(&mut self, cx: &mut Cx, preset: &str) {
+        let normalized = match preset {
+            "50" | "60" | "70" | "80" | "90" | "100" => preset,
+            _ => "50",
+        };
+        if self.anchor_position_preset == normalized {
+            return;
+        }
+        self.anchor_position_preset = normalized.to_string();
+        self.last_spacer_height = -1.0;
+        self.pending_scroll = true;
         self.view.redraw(cx);
     }
 
@@ -524,7 +742,7 @@ impl TranslationOverlay {
                 vec4(0.098, 0.725, 0.506, 1.0),
             ),
         };
-        let label = self.view.label(ids!(toolbar.status_label));
+        let label = self.view.label(ids!(toolbar.right_controls.status_label));
         label.set_text(cx, text);
         label.apply_over(cx, live! { draw_text: { color: (color) } });
     }
@@ -542,25 +760,74 @@ mod tests {
         let short_spacer = TranslationOverlay::compute_anchor_spacer_height(
             viewport,
             short_content,
+            0.5,
         );
         let long_spacer = TranslationOverlay::compute_anchor_spacer_height(
             viewport,
             long_content,
+            0.5,
         );
         assert!(short_spacer < long_spacer);
     }
 
     #[test]
     fn anchor_spacer_is_never_negative() {
-        let spacer = TranslationOverlay::compute_anchor_spacer_height(216.0, 300.0);
+        let spacer = TranslationOverlay::compute_anchor_spacer_height(216.0, 300.0, 0.5);
         assert!(spacer >= 0.0);
     }
 
     #[test]
     fn anchor_spacer_stays_zero_before_half_viewport() {
-        let spacer = TranslationOverlay::compute_anchor_spacer_height(216.0, 108.0);
+        let spacer = TranslationOverlay::compute_anchor_spacer_height(216.0, 108.0, 0.5);
         assert_eq!(spacer, 0.0);
     }
+
+    #[test]
+    fn font_size_preset_values_match_expected_scale() {
+        assert_eq!(
+            TranslationOverlay::font_size_preset_values("normal"),
+            (14.0, 13.0)
+        );
+        assert_eq!(
+            TranslationOverlay::font_size_preset_values("large"),
+            (16.0, 15.0)
+        );
+    }
+
+    #[test]
+    fn anchor_position_preset_values_match_expected_ratios() {
+        assert_eq!(TranslationOverlay::anchor_position_ratio("50"), 0.5);
+        assert_eq!(TranslationOverlay::anchor_position_ratio("60"), 0.6);
+        assert_eq!(TranslationOverlay::anchor_position_ratio("100"), 1.0);
+    }
+
+    #[test]
+    fn upper_anchor_creates_more_bottom_spacer_than_lower_anchor() {
+        let upper = TranslationOverlay::compute_anchor_spacer_height(216.0, 300.0, 0.5);
+        let lower = TranslationOverlay::compute_anchor_spacer_height(216.0, 300.0, 0.9);
+        assert!(upper > lower);
+    }
+
+    #[test]
+    fn format_lang_pair_follows_locale() {
+        assert_eq!(
+            TranslationOverlay::format_lang_pair_for_locale("zh", "en", false),
+            "中-英"
+        );
+        assert_eq!(
+            TranslationOverlay::format_lang_pair_for_locale("zh", "en", true),
+            "ZH-EN"
+        );
+    }
+
+    #[test]
+    fn toolbar_font_dropdown_vertical_padding_stays_centered() {
+        assert_eq!(
+            TranslationOverlay::toolbar_font_dropdown_vertical_padding(),
+            (2.0, 2.0)
+        );
+    }
+
 }
 
 impl TranslationOverlayRef {
@@ -599,6 +866,18 @@ impl TranslationOverlayRef {
     pub fn set_locale_en(&self, cx: &mut Cx, locale_en: bool) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.set_locale_en(cx, locale_en);
+        }
+    }
+
+    pub fn set_font_size_preset(&self, cx: &mut Cx, preset: &str) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_font_size_preset(cx, preset);
+        }
+    }
+
+    pub fn set_anchor_position_preset(&self, cx: &mut Cx, preset: &str) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_anchor_position_preset(cx, preset);
         }
     }
 

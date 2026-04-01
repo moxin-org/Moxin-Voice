@@ -8,6 +8,7 @@ use makepad_widgets::event::WindowGeom;
 use moxin_voice::MoxinTTSApp;
 use moxin_voice::TTSScreenWidgetRefExt;
 use moxin_widgets::MoxinApp;
+use moxin_widgets::TranslationOverlayAction;
 use moxin_widgets::translation_overlay::TranslationOverlay;
 use std::process::Command;
 use std::sync::OnceLock;
@@ -136,6 +137,9 @@ pub struct App {
     poll_timer: Timer,
 
     #[rust]
+    main_window_id: Option<WindowId>,
+
+    #[rust]
     translation_window_id: Option<WindowId>,
 
     #[rust]
@@ -181,6 +185,9 @@ impl AppMain for App {
                 );
                 // Keep hidden by default at startup.
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
+            } else if self.main_window_id.is_none() {
+                self.main_window_id = Some(ev.window_id);
+                ::log::info!("[main_ui] detected window_id={:?}", ev.window_id);
             } else if self.translation_window_id == Some(ev.window_id) {
                 // Keep anchor formula in sync with real window size (including
                 // user resize and platform-specific window state transitions).
@@ -199,6 +206,40 @@ impl AppMain for App {
                 ev.accept_close.set(false);
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
                 ::log::info!("[translation_ui] close intercepted -> minimize");
+            } else if Self::should_intercept_main_window_close(
+                Some(ev.window_id),
+                self.main_window_id,
+            ) {
+                // Keep the main window restorable from the dock instead of
+                // letting macOS promote the minimized overlay as the only window.
+                ev.accept_close.set(false);
+                cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
+                ::log::info!("[main_ui] close intercepted -> minimize");
+            }
+        }
+
+        if let Event::WindowGotFocus(window_id) = event {
+            if Self::should_redirect_overlay_focus(
+                Some(*window_id),
+                self.translation_window_id,
+                self.main_window_id,
+                self.translation_overlay_visible,
+            ) {
+                ::log::info!(
+                    "[translation_ui] unexpected focus while hidden -> restore main window"
+                );
+                cx.push_unique_platform_op(CxOsOp::MinimizeWindow(*window_id));
+                if let Some(main_window_id) = self.main_window_id {
+                    #[cfg(target_os = "macos")]
+                    {
+                        cx.push_unique_platform_op(CxOsOp::Deminiaturize(main_window_id));
+                        cx.push_unique_platform_op(CxOsOp::NormalizeWindow(main_window_id));
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        cx.push_unique_platform_op(CxOsOp::RestoreWindow(main_window_id));
+                    }
+                }
             }
         }
 
@@ -209,6 +250,26 @@ impl AppMain for App {
 }
 
 impl MatchEvent for App {
+    fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
+        for action in actions {
+            match action.as_widget_action().cast() {
+                TranslationOverlayAction::FontSizePresetChanged(preset) => {
+                    if let Some(shared) = self
+                        .ui
+                        .ttsscreen(ids!(body.tts_screen))
+                        .translation_shared_dora_state()
+                    {
+                        shared.translation_font_size_preset.set(preset.clone());
+                    }
+                    self.ui
+                        .ttsscreen(ids!(body.tts_screen))
+                        .set_translation_overlay_font_size_preset(cx, &preset);
+                }
+                TranslationOverlayAction::None => {}
+            }
+        }
+    }
+
     fn handle_startup(&mut self, cx: &mut Cx) {
         ::log::info!("Moxin Voice application started");
 
@@ -225,6 +286,7 @@ impl MatchEvent for App {
 
         // Poll SharedDoraState every 50 ms for translation updates
         self.poll_timer = cx.start_interval(0.05);
+        self.main_window_id = None;
         self.translation_overlay_visible = false;
         self.last_overlay_opacity = -1.0; // force first apply
 
@@ -232,6 +294,8 @@ impl MatchEvent for App {
         let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
         if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
             overlay.set_viewport_height(cx, 216.0);
+            overlay.set_font_size_preset(cx, "normal");
+            overlay.set_anchor_position_preset(cx, "50");
         }
 
         ::log::info!("Moxin Voice initialization complete");
@@ -349,6 +413,28 @@ impl MatchEvent for App {
             };
         }
 
+        if let Some(preset) = dora_state.translation_font_size_preset.read_if_dirty() {
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.set_font_size_preset(cx, &preset);
+            };
+        }
+
+        if let Some(preset) = dora_state.translation_anchor_position_preset.read_if_dirty() {
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.set_anchor_position_preset(cx, &preset);
+            };
+        }
+
+        // ── Translation overlay language pair ────────────────────────────────
+        if let Some((src, tgt)) = dora_state.translation_lang_pair.read_if_dirty() {
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.set_lang_pair(cx, &src, &tgt);
+            };
+        }
+
         // ── Translation overlay status heartbeat (warming/listening) ──────────
         if self.translation_overlay_visible {
             let status_snapshot = dora_state.status.read();
@@ -424,10 +510,67 @@ impl MatchEvent for App {
 }
 
 impl App {
+    fn should_intercept_main_window_close(
+        window_id: Option<WindowId>,
+        main_window_id: Option<WindowId>,
+    ) -> bool {
+        matches!((window_id, main_window_id), (Some(window_id), Some(main_window_id)) if window_id == main_window_id)
+    }
+
+    fn should_redirect_overlay_focus(
+        focused_window_id: Option<WindowId>,
+        translation_window_id: Option<WindowId>,
+        main_window_id: Option<WindowId>,
+        translation_overlay_visible: bool,
+    ) -> bool {
+        matches!(
+            (focused_window_id, translation_window_id, main_window_id, translation_overlay_visible),
+            (Some(focused_window_id), Some(translation_window_id), Some(_), false)
+                if focused_window_id == translation_window_id
+        )
+    }
+
     fn is_translation_window_geom(geom: &WindowGeom) -> bool {
         let w = geom.inner_size.x;
         let h = geom.inner_size.y;
         (w - 600.0).abs() < 2.0 && (h - 260.0).abs() < 2.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::App;
+    use makepad_widgets::WindowId;
+
+    #[test]
+    fn main_window_close_is_intercepted_when_main_window_is_known() {
+        let window_id = WindowId(1, 1);
+        assert!(App::should_intercept_main_window_close(
+            Some(window_id),
+            Some(window_id)
+        ));
+        assert!(!App::should_intercept_main_window_close(
+            Some(WindowId(2, 1)),
+            Some(window_id)
+        ));
+    }
+
+    #[test]
+    fn hidden_overlay_focus_is_redirected_back_to_main_window() {
+        let main_window_id = WindowId(1, 1);
+        let overlay_window_id = WindowId(2, 1);
+        assert!(App::should_redirect_overlay_focus(
+            Some(overlay_window_id),
+            Some(overlay_window_id),
+            Some(main_window_id),
+            false
+        ));
+        assert!(!App::should_redirect_overlay_focus(
+            Some(overlay_window_id),
+            Some(overlay_window_id),
+            Some(main_window_id),
+            true
+        ));
     }
 }
 
