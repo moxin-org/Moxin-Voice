@@ -39,7 +39,7 @@ use mlx_lm_utils::tokenizer::{
     load_model_chat_template_from_file, ApplyChatTemplateArgs, Conversation, Tokenizer,
 };
 use qwen3_5_35b_mlx::{load_model, Generate};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -251,6 +251,7 @@ fn render_prompt_with_enable_thinking(
     system_prompt: &str,
     user_text: &str,
     enable_thinking: bool,
+    context_history: &[(String, String)],
 ) -> Result<String> {
     let mut env = Environment::new();
     env.set_unknown_method_callback(unknown_method_callback);
@@ -260,16 +261,18 @@ fn render_prompt_with_enable_thinking(
         .get_template("chat")
         .map_err(|e| anyhow!("Failed to load compiled chat_template: {e}"))?;
 
-    let messages = vec![
-        Conversation {
-            role: "system",
-            content: system_prompt,
-        },
-        Conversation {
-            role: "user",
-            content: user_text,
-        },
-    ];
+    let mut messages = vec![Conversation {
+        role: "system",
+        content: system_prompt,
+    }];
+    for (src, tgt) in context_history {
+        messages.push(Conversation { role: "user", content: src.as_str() });
+        messages.push(Conversation { role: "assistant", content: tgt.as_str() });
+    }
+    messages.push(Conversation {
+        role: "user",
+        content: user_text,
+    });
 
     let rendered = template
         .render(context! {
@@ -288,10 +291,11 @@ fn build_prompt_token_ids(
     system_prompt: &str,
     user_text: &str,
     force_disable_thinking: bool,
+    context_history: &[(String, String)],
 ) -> Result<Vec<u32>> {
     // Qwen3 template supports a real switch: enable_thinking=false
     if force_disable_thinking && supports_enable_thinking(chat_template) {
-        match render_prompt_with_enable_thinking(chat_template, system_prompt, user_text, false) {
+        match render_prompt_with_enable_thinking(chat_template, system_prompt, user_text, false, context_history) {
             Ok(rendered) => {
                 let encoding = tokenizer
                     .encode(rendered.as_str(), false)
@@ -305,16 +309,19 @@ fn build_prompt_token_ids(
     }
 
     // Fallback to existing path for non-Qwen3 or templates without the switch.
-    let conversations: Vec<Conversation<&str, &str>> = vec![
-        Conversation {
-            role: "system",
-            content: system_prompt,
-        },
-        Conversation {
-            role: "user",
-            content: user_text,
-        },
-    ];
+    // Build multi-turn conversation with history context.
+    let mut conversations: Vec<Conversation<&str, &str>> = vec![Conversation {
+        role: "system",
+        content: system_prompt,
+    }];
+    for (src, tgt) in context_history {
+        conversations.push(Conversation { role: "user", content: src.as_str() });
+        conversations.push(Conversation { role: "assistant", content: tgt.as_str() });
+    }
+    conversations.push(Conversation {
+        role: "user",
+        content: user_text,
+    });
     let args = ApplyChatTemplateArgs {
         conversations: vec![conversations.into()],
         documents: None,
@@ -349,6 +356,7 @@ fn translate_and_emit(
     eos_tokens: &HashSet<u32>,
     final_status: &str,
     enable_streaming: bool,
+    context_history: &[(String, String)],
 ) -> Result<String> {
     const STREAM_BATCH: usize = 5;
     const MAX_TRANSLATION_SECS: f32 = 45.0;
@@ -361,6 +369,7 @@ fn translate_and_emit(
         system_prompt,
         text_to_translate,
         force_disable_thinking,
+        context_history,
     )?;
 
     let prompt_len = prompt_ids.len();
@@ -510,40 +519,44 @@ fn finalize_pending_session(
     temperature: f32,
     max_tokens: usize,
     eos_tokens: &HashSet<u32>,
-) {
+    context_history: &[(String, String)],
+) -> Option<(String, String)> {
     let Some(session) = pending.take() else {
-        return;
+        return None;
     };
     let question_id = session.question_id;
     // Include any in-progress burst snapshot that hasn't been finalized yet.
     let text_to_translate = effective_text(&session, src_lang);
     if text_to_translate.trim().is_empty() {
-        return;
+        return None;
     }
 
     tracing::info!(
-        "Finalizing sentence (reason={}): {}",
+        "Finalizing sentence (reason={}, context_pairs={}): {}",
         reason,
+        context_history.len(),
         &text_to_translate[..text_to_translate.char_indices().nth(80).map(|(i,_)|i).unwrap_or(text_to_translate.len())]
     );
     let _ = send_log(
         node,
         &format!(
-            "Finalizing sentence: reason={}, question_id={:?}, chars={}",
+            "Finalizing sentence: reason={}, question_id={:?}, chars={}, context_pairs={}",
             reason,
             question_id,
-            text_to_translate.chars().count()
+            text_to_translate.chars().count(),
+            context_history.len(),
         ),
     );
     eprintln!(
-        "[translator-finalize] reason={} qid={:?} text={}",
+        "[translator-finalize] reason={} qid={:?} context_pairs={} text={}",
         reason,
         question_id,
+        context_history.len(),
         &text_to_translate[..text_to_translate.char_indices().nth(120).map(|(i,_)|i).unwrap_or(text_to_translate.len())]
     );
     let _ = send_source(node, &text_to_translate, "complete", question_id);
 
-    if let Err(e) = translate_and_emit(
+    match translate_and_emit(
         node,
         tokenizer,
         model,
@@ -558,11 +571,16 @@ fn finalize_pending_session(
         eos_tokens,
         "complete",
         false, // no streaming deltas — overlay only shows completed translations
+        context_history,
     ) {
-        let msg = format!("{e}");
-        tracing::error!("{}", msg);
-        let _ = send_log(node, &msg);
-        let _ = send_translation_chunk(node, "", "complete", question_id);
+        Ok(translation) => Some((text_to_translate, translation)),
+        Err(e) => {
+            let msg = format!("{e}");
+            tracing::error!("{}", msg);
+            let _ = send_log(node, &msg);
+            let _ = send_translation_chunk(node, "", "complete", question_id);
+            None
+        }
     }
 }
 
@@ -666,6 +684,39 @@ fn main() -> Result<()> {
     // same qid may still arrive from the pipeline.  Track the ended qid so we can
     // drop those late-arriving chunks instead of creating a spurious new session.
     let mut already_ended_qid: Option<i64> = None;
+    // Sliding context window: last N completed (source, translation) pairs passed
+    // to the LLM for discourse continuity across sentence boundaries.
+    const CONTEXT_HISTORY_SIZE: usize = 2;
+    let mut context_history: VecDeque<(String, String)> = VecDeque::new();
+
+    // Helper macro: finalize a session and push result into context_history.
+    // Defined as a macro to avoid borrow-checker issues with the mutable captures.
+    macro_rules! finalize {
+        ($reason:expr) => {{
+            let result = finalize_pending_session(
+                &mut pending,
+                $reason,
+                &src_lang,
+                &mut node,
+                &mut tokenizer,
+                &mut model,
+                &chat_template,
+                &model_id,
+                &system_prompt,
+                force_disable_thinking,
+                temperature,
+                max_tokens,
+                &eos_tokens,
+                context_history.make_contiguous(),
+            );
+            if let Some(pair) = result {
+                context_history.push_back(pair);
+                if context_history.len() > CONTEXT_HISTORY_SIZE {
+                    context_history.pop_front();
+                }
+            }
+        }};
+    }
 
     loop {
         // Timer-driven convergence: even with no new inputs, session can finalize.
@@ -681,37 +732,9 @@ fn main() -> Result<()> {
             // While progressive ASR is active, suppress idle timeout — speech is still
             // in progress; only question_ended or a "final" transcript should finalize.
             if session.current_burst_text.is_none() && idle_elapsed >= Duration::from_millis(idle_threshold_ms) {
-                finalize_pending_session(
-                    &mut pending,
-                    "idle_timeout",
-                    &src_lang,
-                    &mut node,
-                    &mut tokenizer,
-                    &mut model,
-                    &chat_template,
-                    &model_id,
-                    &system_prompt,
-                    force_disable_thinking,
-                    temperature,
-                    max_tokens,
-                    &eos_tokens,
-                );
+                finalize!("idle_timeout");
             } else if age_elapsed >= Duration::from_secs(FORCE_SEND_SECS) {
-                finalize_pending_session(
-                    &mut pending,
-                    "max_age_timeout",
-                    &src_lang,
-                    &mut node,
-                    &mut tokenizer,
-                    &mut model,
-                    &chat_template,
-                    &model_id,
-                    &system_prompt,
-                    force_disable_thinking,
-                    temperature,
-                    max_tokens,
-                    &eos_tokens,
-                );
+                finalize!("max_age_timeout");
             }
         }
 
@@ -788,21 +811,7 @@ fn main() -> Result<()> {
                     match pending.as_mut() {
                         Some(session) => {
                             if session.question_id != question_id {
-                                finalize_pending_session(
-                                    &mut pending,
-                                    "question_id_switch",
-                                    &src_lang,
-                                    &mut node,
-                                    &mut tokenizer,
-                                    &mut model,
-                                    &chat_template,
-                                    &model_id,
-                                    &system_prompt,
-                                    force_disable_thinking,
-                                    temperature,
-                                    max_tokens,
-                                    &eos_tokens,
-                                );
+                                finalize!("question_id_switch");
                                 pending = Some(PendingSession {
                                     question_id,
                                     text: if is_progressive { String::new() } else { chunk.clone() },
@@ -869,21 +878,7 @@ fn main() -> Result<()> {
                                 );
                                 eprintln!("[translator-deferred-apply] qid={}", deferred_qid);
                                 deferred_ended_qid = None;
-                                finalize_pending_session(
-                                    &mut pending,
-                                    "deferred_question_ended",
-                                    &src_lang,
-                                    &mut node,
-                                    &mut tokenizer,
-                                    &mut model,
-                                    &chat_template,
-                                    &model_id,
-                                    &system_prompt,
-                                    force_disable_thinking,
-                                    temperature,
-                                    max_tokens,
-                                    &eos_tokens,
-                                );
+                                finalize!("deferred_question_ended");
                                 already_ended_qid = Some(deferred_qid);
                             }
                         }
@@ -909,21 +904,7 @@ fn main() -> Result<()> {
                         // finalize sends its own source_text("complete") — skip
                         // the intermediate source_text("streaming") to avoid
                         // triggering a redundant clear in the listener.
-                        finalize_pending_session(
-                            &mut pending,
-                            "proactive_boundary_commit",
-                            &src_lang,
-                            &mut node,
-                            &mut tokenizer,
-                            &mut model,
-                            &chat_template,
-                            &model_id,
-                            &system_prompt,
-                            force_disable_thinking,
-                            temperature,
-                            max_tokens,
-                            &eos_tokens,
-                        );
+                        finalize!("proactive_boundary_commit");
                     } else if let Some(session) = pending.as_mut() {
                         // Emit intermediate source_text only when NOT finalizing.
                         let current_len = session.text.chars().count();
@@ -974,21 +955,7 @@ fn main() -> Result<()> {
                         }
                         continue;
                     }
-                    finalize_pending_session(
-                        &mut pending,
-                        "question_ended",
-                        &src_lang,
-                        &mut node,
-                        &mut tokenizer,
-                        &mut model,
-                        &chat_template,
-                        &model_id,
-                        &system_prompt,
-                        force_disable_thinking,
-                        temperature,
-                        max_tokens,
-                        &eos_tokens,
-                    );
+                    finalize!("question_ended");
                     deferred_ended_qid = None;
                     // Mark this qid as ended so stale ASR chunks are dropped.
                     already_ended_qid = ended_question_id;
