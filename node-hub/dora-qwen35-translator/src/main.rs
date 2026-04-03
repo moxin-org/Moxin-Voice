@@ -357,6 +357,9 @@ fn translate_and_emit(
     final_status: &str,
     enable_streaming: bool,
     context_history: &[(String, String)],
+    // When set, embeds the original combined source text into the final event metadata.
+    // Used for "replace_last" to let the listener atomically replace history[N-1].
+    combined_source_meta: Option<&str>,
 ) -> Result<String> {
     const STREAM_BATCH: usize = 5;
     const MAX_TRANSLATION_SECS: f32 = 45.0;
@@ -463,7 +466,16 @@ fn translate_and_emit(
         "Translated in {:.2}s ({} tokens)",
         elapsed, generated
     ));
-    send_translation_chunk(node, &final_translation, final_status, question_id)?;
+    // For "replace_last": embed combined_source into metadata so the listener
+    // can atomically pop N and update N-1 in a single event (no ordering hazard).
+    if let Some(src) = combined_source_meta {
+        let mut meta = BTreeMap::new();
+        meta.insert("session_status".into(), dora_node_api::Parameter::String(final_status.into()));
+        meta.insert("combined_source".into(), dora_node_api::Parameter::String(src.into()));
+        send_str(node, "translation", &final_translation, meta)?;
+    } else {
+        send_translation_chunk(node, &final_translation, final_status, question_id)?;
+    }
 
     // Release Metal buffer pool accumulated during KV-cache inference.
     // Equivalent to Python's mx.metal.clear_cache(); prevents memory pressure
@@ -572,6 +584,7 @@ fn finalize_pending_session(
         "complete",
         false, // no streaming deltas — overlay only shows completed translations
         context_history,
+        None,
     ) {
         Ok(translation) => Some((text_to_translate, translation)),
         Err(e) => {
@@ -737,17 +750,19 @@ fn main() -> Result<()> {
                     let sep = if normalize_lang(&src_lang) == "Chinese" { "" } else { " " };
                     let combined_src = format!("{}{}{}", prev.source_text, sep, src);
                     tracing::info!(
-                        "Retroactive merge: combining {} + {} chars",
+                        "Retroactive merge: combining {} + {} chars -> replace_last",
                         prev.source_text.chars().count(),
                         src.chars().count()
                     );
-                    let _ = send_source(&mut node, &combined_src, "update", None);
+                    // Use "replace_last" with combined_source in metadata — a single atomic
+                    // event so the listener can pop N and update N-1 without ordering hazards.
                     match translate_and_emit(
                         &mut node, &mut tokenizer, &mut model,
                         &chat_template, &model_id, &system_prompt,
                         &combined_src, force_disable_thinking, temperature, max_tokens,
-                        None, &eos_tokens, "update", false,
+                        None, &eos_tokens, "replace_last", false,
                         context_history.make_contiguous(),
+                        Some(&combined_src),
                     ) {
                         Ok(new_tgt) => {
                             // Replace the last context entry with the merged version.
