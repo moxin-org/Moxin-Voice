@@ -39,7 +39,7 @@ use mlx_lm_utils::tokenizer::{
     load_model_chat_template_from_file, ApplyChatTemplateArgs, Conversation, Tokenizer,
 };
 use qwen3_5_35b_mlx::{load_model, Generate};
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -251,7 +251,6 @@ fn render_prompt_with_enable_thinking(
     system_prompt: &str,
     user_text: &str,
     enable_thinking: bool,
-    context_history: &[(String, String)],
 ) -> Result<String> {
     let mut env = Environment::new();
     env.set_unknown_method_callback(unknown_method_callback);
@@ -261,18 +260,10 @@ fn render_prompt_with_enable_thinking(
         .get_template("chat")
         .map_err(|e| anyhow!("Failed to load compiled chat_template: {e}"))?;
 
-    let mut messages = vec![Conversation {
-        role: "system",
-        content: system_prompt,
-    }];
-    for (src, tgt) in context_history {
-        messages.push(Conversation { role: "user", content: src.as_str() });
-        messages.push(Conversation { role: "assistant", content: tgt.as_str() });
-    }
-    messages.push(Conversation {
-        role: "user",
-        content: user_text,
-    });
+    let messages = vec![
+        Conversation { role: "system", content: system_prompt },
+        Conversation { role: "user", content: user_text },
+    ];
 
     let rendered = template
         .render(context! {
@@ -291,11 +282,10 @@ fn build_prompt_token_ids(
     system_prompt: &str,
     user_text: &str,
     force_disable_thinking: bool,
-    context_history: &[(String, String)],
 ) -> Result<Vec<u32>> {
     // Qwen3 template supports a real switch: enable_thinking=false
     if force_disable_thinking && supports_enable_thinking(chat_template) {
-        match render_prompt_with_enable_thinking(chat_template, system_prompt, user_text, false, context_history) {
+        match render_prompt_with_enable_thinking(chat_template, system_prompt, user_text, false) {
             Ok(rendered) => {
                 let encoding = tokenizer
                     .encode(rendered.as_str(), false)
@@ -308,20 +298,11 @@ fn build_prompt_token_ids(
         }
     }
 
-    // Fallback to existing path for non-Qwen3 or templates without the switch.
-    // Build multi-turn conversation with history context.
-    let mut conversations: Vec<Conversation<&str, &str>> = vec![Conversation {
-        role: "system",
-        content: system_prompt,
-    }];
-    for (src, tgt) in context_history {
-        conversations.push(Conversation { role: "user", content: src.as_str() });
-        conversations.push(Conversation { role: "assistant", content: tgt.as_str() });
-    }
-    conversations.push(Conversation {
-        role: "user",
-        content: user_text,
-    });
+    // Fallback: single-turn conversation.
+    let conversations: Vec<Conversation<&str, &str>> = vec![
+        Conversation { role: "system", content: system_prompt },
+        Conversation { role: "user", content: user_text },
+    ];
     let args = ApplyChatTemplateArgs {
         conversations: vec![conversations.into()],
         documents: None,
@@ -356,7 +337,6 @@ fn translate_and_emit(
     eos_tokens: &HashSet<u32>,
     final_status: &str,
     enable_streaming: bool,
-    context_history: &[(String, String)],
     // When set, embeds the original combined source text into the final event metadata.
     // Used for "replace_last" to let the listener atomically replace history[N-1].
     combined_source_meta: Option<&str>,
@@ -372,7 +352,6 @@ fn translate_and_emit(
         system_prompt,
         text_to_translate,
         force_disable_thinking,
-        context_history,
     )?;
 
     let prompt_len = prompt_ids.len();
@@ -531,7 +510,6 @@ fn finalize_pending_session(
     temperature: f32,
     max_tokens: usize,
     eos_tokens: &HashSet<u32>,
-    context_history: &[(String, String)],
 ) -> Option<(String, String)> {
     let Some(session) = pending.take() else {
         return None;
@@ -544,26 +522,23 @@ fn finalize_pending_session(
     }
 
     tracing::info!(
-        "Finalizing sentence (reason={}, context_pairs={}): {}",
+        "Finalizing sentence (reason={}): {}",
         reason,
-        context_history.len(),
         &text_to_translate[..text_to_translate.char_indices().nth(80).map(|(i,_)|i).unwrap_or(text_to_translate.len())]
     );
     let _ = send_log(
         node,
         &format!(
-            "Finalizing sentence: reason={}, question_id={:?}, chars={}, context_pairs={}",
+            "Finalizing sentence: reason={}, question_id={:?}, chars={}",
             reason,
             question_id,
             text_to_translate.chars().count(),
-            context_history.len(),
         ),
     );
     eprintln!(
-        "[translator-finalize] reason={} qid={:?} context_pairs={} text={}",
+        "[translator-finalize] reason={} qid={:?} text={}",
         reason,
         question_id,
-        context_history.len(),
         &text_to_translate[..text_to_translate.char_indices().nth(120).map(|(i,_)|i).unwrap_or(text_to_translate.len())]
     );
     let _ = send_source(node, &text_to_translate, "complete", question_id);
@@ -583,7 +558,6 @@ fn finalize_pending_session(
         eos_tokens,
         "complete",
         false, // no streaming deltas — overlay only shows completed translations
-        context_history,
         None,
     ) {
         Ok(translation) => Some((text_to_translate, translation)),
@@ -697,12 +671,7 @@ fn main() -> Result<()> {
     // same qid may still arrive from the pipeline.  Track the ended qid so we can
     // drop those late-arriving chunks instead of creating a spurious new session.
     let mut already_ended_qid: Option<i64> = None;
-    // Sliding context window: last N completed (source, translation) pairs passed
-    // to the LLM for discourse continuity across sentence boundaries.
-    const CONTEXT_HISTORY_SIZE: usize = 2;
-    let mut context_history: VecDeque<(String, String)> = VecDeque::new();
-
-    // Helper macro: finalize a session and push result into context_history.
+    // Helper macro: finalize a session, then attempt retroactive merge with previous segment.
     // Defined as a macro to avoid borrow-checker issues with the mutable captures.
     // Retroactive merge: remember the last completed segment for possible merging.
     struct LastSegment {
@@ -717,8 +686,8 @@ fn main() -> Result<()> {
     // Don't merge if combined source would exceed this char count.
     const MAX_MERGE_CHARS: usize = 120;
 
-    // finalize! — call finalize_pending_session and handle the result:
-    // push to context history, and attempt retroactive merge with the previous segment.
+    // finalize! — call finalize_pending_session and attempt retroactive merge with previous segment.
+    // Defined as a macro to avoid borrow-checker issues with the mutable captures.
     macro_rules! finalize {
         ($reason:expr) => {{
             let pair_opt = finalize_pending_session(
@@ -735,9 +704,8 @@ fn main() -> Result<()> {
                 temperature,
                 max_tokens,
                 &eos_tokens,
-                context_history.make_contiguous(),
             );
-            if let Some((src, tgt)) = pair_opt {
+            if let Some((src, _tgt)) = pair_opt {
                 let should_merge = last_segment.as_ref().map(|prev: &LastSegment| {
                     let sep_len = if normalize_lang(&src_lang) == "Chinese" { 0 } else { 1 };
                     let combined_chars = prev.source_text.chars().count() + sep_len + src.chars().count();
@@ -761,14 +729,9 @@ fn main() -> Result<()> {
                         &chat_template, &model_id, &system_prompt,
                         &combined_src, force_disable_thinking, temperature, max_tokens,
                         None, &eos_tokens, "replace_last", false,
-                        context_history.make_contiguous(),
                         Some(&combined_src),
                     ) {
-                        Ok(new_tgt) => {
-                            // Replace the last context entry with the merged version.
-                            if let Some(last) = context_history.back_mut() {
-                                *last = (combined_src.clone(), new_tgt);
-                            }
+                        Ok(_new_tgt) => {
                             last_segment = Some(LastSegment {
                                 source_text: combined_src,
                                 completed_at: Instant::now(),
@@ -776,10 +739,6 @@ fn main() -> Result<()> {
                         }
                         Err(e) => {
                             tracing::error!("Retroactive merge re-translation failed: {e}");
-                            context_history.push_back((src.clone(), tgt.clone()));
-                            if context_history.len() > CONTEXT_HISTORY_SIZE {
-                                context_history.pop_front();
-                            }
                             last_segment = Some(LastSegment {
                                 source_text: src,
                                 completed_at: Instant::now(),
@@ -787,10 +746,6 @@ fn main() -> Result<()> {
                         }
                     }
                 } else {
-                    context_history.push_back((src.clone(), tgt.clone()));
-                    if context_history.len() > CONTEXT_HISTORY_SIZE {
-                        context_history.pop_front();
-                    }
                     last_segment = Some(LastSegment {
                         source_text: src,
                         completed_at: Instant::now(),
