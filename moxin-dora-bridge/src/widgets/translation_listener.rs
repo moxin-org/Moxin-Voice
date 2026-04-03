@@ -120,20 +120,33 @@ impl TranslationListenerBridge {
                         if id == DataId::from("log".to_owned()) {
                             eprintln!("[TranslatorLog] {}", text);
                         } else if id == DataId::from("source_text".to_owned()) {
-                            debug!(
-                                "[TranslationListener] source_text: {}",
-                                &text
-                            );
+                            let session_status = metadata
+                                .parameters
+                                .iter()
+                                .find(|(k, _)| k.as_str() == "session_status")
+                                .and_then(|(_, v)| {
+                                    if let Parameter::String(s) = v { Some(s.clone()) } else { None }
+                                })
+                                .unwrap_or_else(|| "streaming".to_string());
 
-                            // Update pending ASR text for overlay display.
-                            current_source_text = text.clone();
-                            pending_source_text = text;
+                            debug!("[TranslationListener] source_text ({}): {}", session_status, &text);
 
-                            if let Some(ref shared) = shared_state {
-                                shared.translation.set(Some(TranslationUpdate {
-                                    history: history.clone(),
-                                    pending_source_text: pending_source_text.clone(),
-                                }));
+                            if session_status == "update" {
+                                // Retroactive merge: replace the last completed sentence's source.
+                                if let Some(last) = history.last_mut() {
+                                    last.source_text = text.clone();
+                                }
+                                current_source_text = text;
+                            } else {
+                                // Normal streaming update of pending display.
+                                current_source_text = text.clone();
+                                pending_source_text = text;
+                                if let Some(ref shared) = shared_state {
+                                    shared.translation.set(Some(TranslationUpdate {
+                                        history: history.clone(),
+                                        pending_source_text: pending_source_text.clone(),
+                                    }));
+                                }
                             }
                         } else if id == DataId::from("translation".to_owned()) {
                             let session_status = metadata
@@ -149,13 +162,12 @@ impl TranslationListenerBridge {
                                 })
                                 .unwrap_or("complete");
 
-                            let is_complete = session_status == "complete";
                             debug!(
-                                "[TranslationListener] translation (complete={}): {}",
-                                is_complete, &text
+                                "[TranslationListener] translation ({}): {}",
+                                session_status, &text
                             );
 
-                            if is_complete {
+                            if session_status == "complete" {
                                 info!(
                                     "[TranslationListener] Translation complete: [{}] -> [{}]",
                                     current_source_text, text
@@ -180,9 +192,23 @@ impl TranslationListenerBridge {
                                         pending_source_text: String::new(),
                                     }));
                                 }
+                            } else if session_status == "update" {
+                                // Retroactive merge: replace the last completed sentence's translation.
+                                info!(
+                                    "[TranslationListener] Retroactive update: [{}] -> [{}]",
+                                    current_source_text, text
+                                );
+                                if let Some(last) = history.last_mut() {
+                                    last.translation = text;
+                                }
+                                if let Some(ref shared) = shared_state {
+                                    shared.translation.set(Some(TranslationUpdate {
+                                        history: history.clone(),
+                                        pending_source_text: String::new(),
+                                    }));
+                                }
                             }
-                            // Ignore streaming translation chunks — Phase 2: only show
-                            // completed translations in the overlay.
+                            // Ignore streaming translation chunks — overlay only shows completed translations.
                         }
                     }
                     Event::Stop(_) => {

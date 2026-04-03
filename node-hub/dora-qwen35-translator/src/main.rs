@@ -691,9 +691,24 @@ fn main() -> Result<()> {
 
     // Helper macro: finalize a session and push result into context_history.
     // Defined as a macro to avoid borrow-checker issues with the mutable captures.
+    // Retroactive merge: remember the last completed segment for possible merging.
+    struct LastSegment {
+        source_text: String,
+        completed_at: std::time::Instant,
+    }
+    let mut last_segment: Option<LastSegment> = None;
+    // Merge window: if the next sentence arrives within this many seconds,
+    // combine it with the previous one and re-translate as a single unit.
+    let merge_window_secs: u64 = std::env::var("TRANSLATION_MERGE_WINDOW_SECS")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    // Don't merge if combined source would exceed this char count.
+    const MAX_MERGE_CHARS: usize = 120;
+
+    // finalize! — call finalize_pending_session and handle the result:
+    // push to context history, and attempt retroactive merge with the previous segment.
     macro_rules! finalize {
         ($reason:expr) => {{
-            let result = finalize_pending_session(
+            let pair_opt = finalize_pending_session(
                 &mut pending,
                 $reason,
                 &src_lang,
@@ -709,10 +724,62 @@ fn main() -> Result<()> {
                 &eos_tokens,
                 context_history.make_contiguous(),
             );
-            if let Some(pair) = result {
-                context_history.push_back(pair);
-                if context_history.len() > CONTEXT_HISTORY_SIZE {
-                    context_history.pop_front();
+            if let Some((src, tgt)) = pair_opt {
+                let should_merge = last_segment.as_ref().map(|prev: &LastSegment| {
+                    let sep_len = if normalize_lang(&src_lang) == "Chinese" { 0 } else { 1 };
+                    let combined_chars = prev.source_text.chars().count() + sep_len + src.chars().count();
+                    prev.completed_at.elapsed() <= Duration::from_secs(merge_window_secs)
+                        && combined_chars <= MAX_MERGE_CHARS
+                }).unwrap_or(false);
+
+                if should_merge {
+                    let prev = last_segment.take().unwrap();
+                    let sep = if normalize_lang(&src_lang) == "Chinese" { "" } else { " " };
+                    let combined_src = format!("{}{}{}", prev.source_text, sep, src);
+                    tracing::info!(
+                        "Retroactive merge: combining {} + {} chars",
+                        prev.source_text.chars().count(),
+                        src.chars().count()
+                    );
+                    let _ = send_source(&mut node, &combined_src, "update", None);
+                    match translate_and_emit(
+                        &mut node, &mut tokenizer, &mut model,
+                        &chat_template, &model_id, &system_prompt,
+                        &combined_src, force_disable_thinking, temperature, max_tokens,
+                        None, &eos_tokens, "update", false,
+                        context_history.make_contiguous(),
+                    ) {
+                        Ok(new_tgt) => {
+                            // Replace the last context entry with the merged version.
+                            if let Some(last) = context_history.back_mut() {
+                                *last = (combined_src.clone(), new_tgt);
+                            }
+                            last_segment = Some(LastSegment {
+                                source_text: combined_src,
+                                completed_at: Instant::now(),
+                            });
+                        }
+                        Err(e) => {
+                            tracing::error!("Retroactive merge re-translation failed: {e}");
+                            context_history.push_back((src.clone(), tgt.clone()));
+                            if context_history.len() > CONTEXT_HISTORY_SIZE {
+                                context_history.pop_front();
+                            }
+                            last_segment = Some(LastSegment {
+                                source_text: src,
+                                completed_at: Instant::now(),
+                            });
+                        }
+                    }
+                } else {
+                    context_history.push_back((src.clone(), tgt.clone()));
+                    if context_history.len() > CONTEXT_HISTORY_SIZE {
+                        context_history.pop_front();
+                    }
+                    last_segment = Some(LastSegment {
+                        source_text: src,
+                        completed_at: Instant::now(),
+                    });
                 }
             }
         }};
