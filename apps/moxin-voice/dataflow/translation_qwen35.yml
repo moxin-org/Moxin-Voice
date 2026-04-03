@@ -47,6 +47,7 @@ nodes:
       QWEN35_TRANSLATOR_MODEL_PATH: ""
       TEMPERATURE: "0.0"
       MAX_TOKENS: "256"
+      TRANSLATION_MERGE_ENABLED: "__TRANSLATION_MERGE_ENABLED__"
       LOG_LEVEL: INFO
 
   - id: moxin-translation-listener

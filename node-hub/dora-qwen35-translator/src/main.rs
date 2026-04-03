@@ -679,12 +679,17 @@ fn main() -> Result<()> {
         completed_at: std::time::Instant,
     }
     let mut last_segment: Option<LastSegment> = None;
+    // Merge optimization on/off switch (set from UI before dataflow start).
+    let enable_merge: bool = std::env::var("TRANSLATION_MERGE_ENABLED")
+        .map(|v| v != "0" && v.to_lowercase() != "false")
+        .unwrap_or(true);
     // Merge window: if the next sentence arrives within this many seconds,
     // combine it with the previous one and re-translate as a single unit.
     let merge_window_secs: u64 = std::env::var("TRANSLATION_MERGE_WINDOW_SECS")
         .ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     // Don't merge if combined source would exceed this char count.
     const MAX_MERGE_CHARS: usize = 120;
+    tracing::info!("Retroactive merge: enabled={}", enable_merge);
 
     // finalize! — call finalize_pending_session and attempt retroactive merge with previous segment.
     // Defined as a macro to avoid borrow-checker issues with the mutable captures.
@@ -706,7 +711,7 @@ fn main() -> Result<()> {
                 &eos_tokens,
             );
             if let Some((src, _tgt)) = pair_opt {
-                let should_merge = last_segment.as_ref().map(|prev: &LastSegment| {
+                let should_merge = enable_merge && last_segment.as_ref().map(|prev: &LastSegment| {
                     let sep_len = if normalize_lang(&src_lang) == "Chinese" { 0 } else { 1 };
                     let combined_chars = prev.source_text.chars().count() + sep_len + src.chars().count();
                     prev.completed_at.elapsed() <= Duration::from_secs(merge_window_secs)
@@ -732,10 +737,9 @@ fn main() -> Result<()> {
                         Some(&combined_src),
                     ) {
                         Ok(_new_tgt) => {
-                            last_segment = Some(LastSegment {
-                                source_text: combined_src,
-                                completed_at: Instant::now(),
-                            });
+                            // Do NOT chain further merges: set last_segment = None so the
+                            // merged pair is considered final and won't cascade into the next.
+                            last_segment = None;
                         }
                         Err(e) => {
                             tracing::error!("Retroactive merge re-translation failed: {e}");
