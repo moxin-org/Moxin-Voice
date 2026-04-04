@@ -493,6 +493,11 @@ struct PendingSession {
     last_chunk_at: Instant,
     last_source_emit_at: Instant,
     last_source_emit_len: usize,
+    /// Set when `question_ended` arrives but `current_burst_text` is still active
+    /// (ASR is still processing the last audio segment).  Finalization is delayed
+    /// until ASR sends `mode=final` for the current burst (clearing
+    /// `current_burst_text`), OR until this deadline expires (hard cap).
+    question_ended_at: Option<Instant>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -770,9 +775,28 @@ fn main() -> Result<()> {
             } else {
                 IDLE_FINALIZE_NO_QID_MS
             };
-            // While progressive ASR is active, suppress idle timeout — speech is still
-            // in progress; only question_ended or a "final" transcript should finalize.
-            if session.current_burst_text.is_none() && idle_elapsed >= Duration::from_millis(idle_threshold_ms) {
+            let has_active_burst = session.current_burst_text.is_some();
+            let question_ended_at = session.question_ended_at;
+            let session_qid = session.question_id;
+
+            if let Some(qe_at) = question_ended_at {
+                // Delayed question_ended: wait for ASR to finish the current burst.
+                // Finalize as soon as ASR sends mode=final (burst_done) OR deadline expires.
+                let burst_done = !has_active_burst;
+                let deadline_expired = qe_at.elapsed() >= Duration::from_millis(1500);
+                if burst_done || deadline_expired {
+                    let reason = if burst_done { "question_ended_asr_final" } else { "question_ended_deadline" };
+                    tracing::info!(
+                        "Delayed question_ended finalizing (reason={}, burst_done={}, elapsed_ms={})",
+                        reason, burst_done, qe_at.elapsed().as_millis()
+                    );
+                    finalize!(reason);
+                    // Now safe to block stale chunks — translation has started.
+                    already_ended_qid = session_qid;
+                }
+            } else if !has_active_burst && idle_elapsed >= Duration::from_millis(idle_threshold_ms) {
+                // While progressive ASR is active, suppress idle timeout — speech is still
+                // in progress; only question_ended or a "final" transcript should finalize.
                 finalize!("idle_timeout");
             } else if age_elapsed >= Duration::from_secs(FORCE_SEND_SECS) {
                 finalize!("max_age_timeout");
@@ -861,6 +885,7 @@ fn main() -> Result<()> {
                                     last_chunk_at: now,
                                     last_source_emit_at: now,
                                     last_source_emit_len: 0,
+                                    question_ended_at: None,
                                 });
                             } else if is_progressive {
                                 // Progressive snapshot of current burst — keep finalized text,
@@ -889,6 +914,7 @@ fn main() -> Result<()> {
                                 last_chunk_at: now,
                                 last_source_emit_at: now,
                                 last_source_emit_len: 0,
+                                question_ended_at: None,
                             });
                         }
                     }
@@ -996,10 +1022,37 @@ fn main() -> Result<()> {
                         }
                         continue;
                     }
-                    finalize!("question_ended");
+                    let has_active_burst = pending.as_ref()
+                        .map(|s| s.current_burst_text.is_some())
+                        .unwrap_or(false);
+
+                    if has_active_burst {
+                        // ASR is still processing the last audio segment — its progressive
+                        // snapshot is incomplete.  Set a deadline so the timer loop
+                        // finalizes once ASR sends mode=final (or 1.5s hard cap).
+                        // Do NOT set already_ended_qid yet so ASR final can still arrive.
+                        if let Some(session) = pending.as_mut() {
+                            if session.question_ended_at.is_none() {
+                                session.question_ended_at = Some(Instant::now());
+                                tracing::info!(
+                                    "question_ended deferred: ASR burst still active for qid={:?}, \
+                                     will finalize on ASR final (max 1500ms)",
+                                    ended_question_id
+                                );
+                                eprintln!(
+                                    "[translator-qe-defer] qid={:?} waiting for ASR final",
+                                    ended_question_id
+                                );
+                            }
+                        }
+                    } else {
+                        // No active burst — ASR already delivered final for everything.
+                        // Finalize immediately for minimum latency.
+                        finalize!("question_ended");
+                        // Mark this qid as ended so stale ASR chunks are dropped.
+                        already_ended_qid = ended_question_id;
+                    }
                     deferred_ended_qid = None;
-                    // Mark this qid as ended so stale ASR chunks are dropped.
-                    already_ended_qid = ended_question_id;
                     continue;
                 }
             }

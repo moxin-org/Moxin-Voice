@@ -27,12 +27,24 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
+/// Audio source selection
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum AudioSource {
+    /// Capture from microphone (default)
+    #[default]
+    Microphone,
+    /// Capture system audio via ScreenCaptureKit (macOS 13+)
+    SystemAudio,
+}
+
 /// Control commands for AEC input
 #[derive(Debug, Clone)]
 pub enum AecControlCommand {
     StartRecording,
     StopRecording,
     SetAecEnabled(bool),
+    /// Switch between microphone and system audio capture.
+    SetAudioSource(AudioSource),
 }
 
 /// VAD segmentation state
@@ -543,6 +555,29 @@ impl AecInputBridge {
             }
         };
 
+        // 3. ScreenCaptureKit system audio capture (macOS 13+, no user install needed)
+        #[cfg(target_os = "macos")]
+        let mut sck_capture: Option<crate::widgets::screencapture_input::ScreenCaptureInput> = {
+            match crate::widgets::screencapture_input::ScreenCaptureInput::new() {
+                Ok(cap) => {
+                    info!("[AecInput] ScreenCaptureKit available for system audio capture");
+                    Some(cap)
+                }
+                Err(e) => {
+                    warn!("[AecInput] ScreenCaptureKit not available: {} (system audio disabled)", e);
+                    None
+                }
+            }
+        };
+        #[cfg(not(target_os = "macos"))]
+        let mut sck_capture: Option<()> = None;
+
+        // Track current audio source; read initial preference from shared state.
+        let mut audio_source = shared_state
+            .as_ref()
+            .map(|ss| ss.translation_audio_source.read().clone())
+            .unwrap_or_default();
+
         // If no AEC available, force AEC disabled
         let aec_available = aec_capture.is_some();
         if !aec_available {
@@ -612,16 +647,43 @@ impl AecInputBridge {
         );
 
         // Start recording by default when connected
-        if using_aec {
-            if let Some(ref mut aec) = aec_capture {
-                aec.start();
+        match audio_source {
+            AudioSource::SystemAudio => {
+                #[cfg(target_os = "macos")]
+                {
+                    if let Some(ref mut sck) = sck_capture {
+                        if let Err(e) = sck.start() {
+                            error!("[AecInput] Failed to start system audio capture: {}", e);
+                            let _ = Self::send_log(&mut node, &node_id, "ERROR",
+                                &format!("System audio start failed: {} — falling back to mic", e));
+                            // Fall back to CPAL mic
+                            let _ = cpal_capture.start();
+                        } else {
+                            let _ = Self::send_log(&mut node, &node_id, "INFO",
+                                "🔊 Recording started (system audio via ScreenCaptureKit)");
+                        }
+                    } else {
+                        let _ = Self::send_log(&mut node, &node_id, "WARN",
+                            "System audio unavailable — falling back to microphone");
+                        let _ = cpal_capture.start();
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = cpal_capture.start();
+                }
             }
-            let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Recording started with AEC (echo cancellation ON)");
-        } else {
-            if let Err(e) = cpal_capture.start() {
-                error!("Failed to start CPAL capture: {}", e);
+            AudioSource::Microphone => {
+                if using_aec {
+                    if let Some(ref mut aec) = aec_capture { aec.start(); }
+                    let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Recording started with AEC (echo cancellation ON)");
+                } else {
+                    if let Err(e) = cpal_capture.start() {
+                        error!("Failed to start CPAL capture: {}", e);
+                    }
+                    let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Recording started without AEC (regular mic)");
+                }
             }
-            let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Recording started without AEC (regular mic)");
         }
         is_recording.store(true, Ordering::Release);
         recording_active = true;
@@ -646,12 +708,69 @@ impl AecInputBridge {
         // Main event loop
         let poll_interval = Duration::from_millis(10);
         let mut last_poll = Instant::now();
+        // Track the last audio source we acted on so we detect changes from SharedDoraState.
+        let mut last_applied_source = audio_source.clone();
 
         loop {
             // Check for stop signal
             if stop_receiver.try_recv().is_ok() {
                 eprintln!("[AecInput] Received internal stop signal from bridge");
                 break;
+            }
+
+            // Poll SharedDoraState for audio source changes set by the UI.
+            // This lets the UI toggle Mic/System Audio without going through the
+            // command channel — the DirtyValue acts as a one-shot notification.
+            if let Some(ref ss) = shared_state {
+                let desired = ss.translation_audio_source.read().clone();
+                if desired != last_applied_source && recording_active {
+                    info!("[AecInput] Audio source changed via SharedDoraState: {:?} → {:?}",
+                        last_applied_source, desired);
+                    // Synthesize a SetAudioSource command by re-using the same handler.
+                    // Stop current source.
+                    match last_applied_source {
+                        AudioSource::SystemAudio => {
+                            #[cfg(target_os = "macos")]
+                            if let Some(ref mut sck) = sck_capture { sck.stop(); }
+                        }
+                        AudioSource::Microphone => {
+                            if using_aec {
+                                if let Some(ref mut aec) = aec_capture { aec.stop(); }
+                            } else {
+                                cpal_capture.stop();
+                            }
+                        }
+                    }
+                    audio_source = desired.clone();
+                    last_applied_source = desired.clone();
+                    // Start new source.
+                    match desired {
+                        AudioSource::SystemAudio => {
+                            #[cfg(target_os = "macos")]
+                            {
+                                if let Some(ref mut sck) = sck_capture {
+                                    if let Err(e) = sck.start() {
+                                        error!("[AecInput] Failed to start system audio: {}", e);
+                                        let _ = Self::send_log(&mut node, &node_id, "ERROR",
+                                            &format!("System audio start failed: {}", e));
+                                    } else {
+                                        let _ = Self::send_log(&mut node, &node_id, "INFO",
+                                            "🔊 Switched to system audio capture");
+                                    }
+                                }
+                            }
+                        }
+                        AudioSource::Microphone => {
+                            if using_aec {
+                                if let Some(ref mut aec) = aec_capture { aec.start(); }
+                                let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Switched to microphone (AEC)");
+                            } else {
+                                let _ = cpal_capture.start();
+                                let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Switched to microphone");
+                            }
+                        }
+                    }
+                }
             }
 
             // Handle control commands
@@ -661,16 +780,32 @@ impl AecInputBridge {
                     AecControlCommand::StartRecording => {
                         if !recording_active {
                             // Start the appropriate capture
-                            if using_aec {
-                                if let Some(ref mut aec) = aec_capture {
-                                    aec.start();
+                            match audio_source {
+                                AudioSource::SystemAudio => {
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        if let Some(ref mut sck) = sck_capture {
+                                            if let Err(e) = sck.start() {
+                                                error!("[AecInput] Failed to start system audio: {}", e);
+                                            } else {
+                                                let _ = Self::send_log(&mut node, &node_id, "INFO", "🔊 Recording STARTED (system audio)");
+                                            }
+                                        }
+                                    }
                                 }
-                                let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Recording STARTED with AEC");
-                            } else {
-                                if let Err(e) = cpal_capture.start() {
-                                    error!("Failed to start CPAL: {}", e);
+                                AudioSource::Microphone => {
+                                    if using_aec {
+                                        if let Some(ref mut aec) = aec_capture {
+                                            aec.start();
+                                        }
+                                        let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Recording STARTED with AEC");
+                                    } else {
+                                        if let Err(e) = cpal_capture.start() {
+                                            error!("Failed to start CPAL: {}", e);
+                                        }
+                                        let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Recording STARTED without AEC");
+                                    }
                                 }
-                                let _ = Self::send_log(&mut node, &node_id, "INFO", "🎙️ Recording STARTED without AEC");
                             }
                             recording_active = true;
                             is_recording.store(true, Ordering::Release);
@@ -682,11 +817,15 @@ impl AecInputBridge {
                     }
                     AecControlCommand::StopRecording => {
                         if recording_active {
-                            // Stop both captures (one will be inactive anyway)
+                            // Stop all capture sources
                             if let Some(ref mut aec) = aec_capture {
                                 aec.stop();
                             }
                             cpal_capture.stop();
+                            #[cfg(target_os = "macos")]
+                            if let Some(ref mut sck) = sck_capture {
+                                sck.stop();
+                            }
                             recording_active = false;
                             is_recording.store(false, Ordering::Release);
                             if let Some(ref ss) = shared_state {
@@ -737,6 +876,72 @@ impl AecInputBridge {
                         }
                         info!("AEC enabled: {} (using_aec: {})", enabled, using_aec);
                     }
+                    AecControlCommand::SetAudioSource(new_source) => {
+                        if new_source == audio_source {
+                            continue;
+                        }
+                        // Stop the currently active capture before switching.
+                        if recording_active {
+                            match audio_source {
+                                AudioSource::SystemAudio => {
+                                    #[cfg(target_os = "macos")]
+                                    if let Some(ref mut sck) = sck_capture {
+                                        sck.stop();
+                                    }
+                                }
+                                AudioSource::Microphone => {
+                                    if using_aec {
+                                        if let Some(ref mut aec) = aec_capture { aec.stop(); }
+                                    } else {
+                                        cpal_capture.stop();
+                                    }
+                                }
+                            }
+                        }
+                        audio_source = new_source.clone();
+                        if let Some(ref ss) = shared_state {
+                            ss.translation_audio_source.set(new_source.clone());
+                        }
+                        // Start the new source if we were recording.
+                        if recording_active {
+                            match audio_source {
+                                AudioSource::SystemAudio => {
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        if let Some(ref mut sck) = sck_capture {
+                                            if let Err(e) = sck.start() {
+                                                error!("[AecInput] Failed to start system audio: {}", e);
+                                                let _ = Self::send_log(&mut node, &node_id, "ERROR",
+                                                    &format!("System audio start failed: {}", e));
+                                            } else {
+                                                let _ = Self::send_log(&mut node, &node_id, "INFO",
+                                                    "🔊 Switched to system audio capture");
+                                            }
+                                        } else {
+                                            error!("[AecInput] ScreenCaptureKit not available");
+                                            let _ = Self::send_log(&mut node, &node_id, "ERROR",
+                                                "System audio unavailable — ScreenCaptureKit permission denied");
+                                        }
+                                    }
+                                }
+                                AudioSource::Microphone => {
+                                    if using_aec {
+                                        if let Some(ref mut aec) = aec_capture { aec.start(); }
+                                        let _ = Self::send_log(&mut node, &node_id, "INFO",
+                                            "🎙️ Switched to microphone (AEC ON)");
+                                    } else {
+                                        if let Err(e) = cpal_capture.start() {
+                                            error!("Failed to start CPAL: {}", e);
+                                        }
+                                        let _ = Self::send_log(&mut node, &node_id, "INFO",
+                                            "🎙️ Switched to microphone");
+                                    }
+                                }
+                            }
+                        }
+                        last_applied_source = audio_source.clone();
+                        info!("[AecInput] Audio source switched to {:?}", audio_source);
+                    }
                 }
             }
 
@@ -752,6 +957,33 @@ impl AecInputBridge {
                 static AUDIO_DEBUG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                 let debug_count = AUDIO_DEBUG_COUNTER.fetch_add(1, Ordering::Relaxed);
 
+                // For system audio, ScreenCaptureKit delivers f32 samples directly
+                // (already at 16 kHz mono) with no hardware VAD signal.  We collect
+                // all available samples in one call and let the energy VAD below decide.
+                #[cfg(target_os = "macos")]
+                if audio_source == AudioSource::SystemAudio {
+                    if let Some(ref sck) = sck_capture {
+                        if let Some(samples) = sck.get_audio() {
+                            let rms: f32 = {
+                                let sq: f32 = samples.iter().map(|s| s * s).sum();
+                                (sq / samples.len() as f32).sqrt()
+                            };
+                            let vad = rms > vad_state.start_rms_threshold;
+                            all_audio.extend(samples);
+                            vad_results.push(vad);
+                        }
+                    }
+                    // Skip the microphone polling loop below.
+                    // Fall through to the VAD / segmentation logic which is source-agnostic.
+                }
+
+                // Microphone path (AEC or CPAL)
+                #[cfg(not(target_os = "macos"))]
+                let is_system_audio = false;
+                #[cfg(target_os = "macos")]
+                let is_system_audio = audio_source == AudioSource::SystemAudio;
+
+                if !is_system_audio {
                 for _ in 0..100 {
                     // Get audio from the appropriate capture source
                     let audio_result = if using_aec {
@@ -770,6 +1002,7 @@ impl AecInputBridge {
                         }
                         None => break,
                     }
+                }
                 }
 
                 // Log audio stats every 100 iterations (~1 second)

@@ -15,10 +15,12 @@ mod asr_listener;
 mod audio_input;
 mod audio_player;
 mod prompt_input;
+#[cfg(target_os = "macos")]
+mod screencapture_input;
 mod system_log;
 mod translation_listener;
 
-pub use aec_input::{AecControlCommand, AecInputBridge};
+pub use aec_input::{AecControlCommand, AecInputBridge, AudioSource};
 pub use asr_listener::AsrListenerBridge;
 pub use audio_input::AudioInputBridge;
 pub use audio_player::AudioPlayerBridge;

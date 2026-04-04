@@ -8005,6 +8005,10 @@ pub struct TTSScreen {
     dora_start_attempt_at: Option<std::time::Instant>,
     #[rust]
     dora_start_in_flight: bool,
+    /// TTS dataflow was stopped to make room for live translation.
+    /// Auto-restart is suppressed while this is true.
+    #[rust]
+    tts_paused_for_translation: bool,
 
     #[rust]
     backend_switching: bool,
@@ -8124,6 +8128,8 @@ pub struct TTSScreen {
     /// Whether retroactive sentence-merge optimization is enabled
     #[rust]
     translation_merge_enabled: bool,
+    /// Audio source for translation: false = microphone, true = system audio
+    #[rust]
 
     // Model picker modal
     #[rust]
@@ -8377,7 +8383,7 @@ impl Widget for TTSScreen {
             self.translation_metrics_timer = Timer::default();
             self.translation_last_logged_fingerprint = None;
             self.translation_audio_devices = Vec::new();
-            self.translation_device_idx = 0;
+            self.translation_device_idx = 1; // 0 = System Audio, 1 = System Default Mic
             self.translation_overlay_fullscreen = false;
             self.translation_overlay_opacity = 0.85;
             self.translation_overlay_font_size_preset = "normal".to_string();
@@ -8434,7 +8440,7 @@ impl Widget for TTSScreen {
             self.start_runtime_initialization(cx);
         }
 
-        if !self.dora_started {
+        if !self.dora_started && !self.tts_paused_for_translation {
             let can_start_dataflow = match self.runtime_init_state {
                 RuntimeInitState::Idle | RuntimeInitState::Ready => true,
                 RuntimeInitState::Running | RuntimeInitState::Failed => false,
@@ -8849,21 +8855,32 @@ impl Widget for TTSScreen {
         }
 
         // 更改 input source — dropdown selection
+        // Index layout: 0 = System Audio, 1 = System Default Mic, 2..N = CPAL devices
         if let Some(idx) = self
             .view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
             .changed(&actions)
         {
             self.translation_device_idx = idx;
-            let device_for_bridge = if idx == 0 {
-                None
-            } else if idx <= self.translation_audio_devices.len() {
-                Some(self.translation_audio_devices[idx.saturating_sub(1)].clone())
+            if idx == 0 {
+                // System Audio via ScreenCaptureKit
+                self.send_audio_source_to_bridge(true);
+                if let Some(shared) = self.translation_shared_state() {
+                    shared.translation_input_device.set(None);
+                }
             } else {
-                None
-            };
-            if let Some(shared) = self.translation_shared_state() {
-                shared.translation_input_device.set(device_for_bridge);
+                // Microphone — idx 1 = default, idx 2..N = CPAL device
+                self.send_audio_source_to_bridge(false);
+                let device_for_bridge = if idx == 1 {
+                    None
+                } else if idx - 1 <= self.translation_audio_devices.len() {
+                    self.translation_audio_devices.get(idx - 2).cloned()
+                } else {
+                    None
+                };
+                if let Some(shared) = self.translation_shared_state() {
+                    shared.translation_input_device.set(device_for_bridge);
+                }
             }
         }
 
@@ -11820,6 +11837,7 @@ impl TTSScreen {
         self.update_translation_anchor_position_dropdown(cx);
         self.populate_translation_input_dropdown(cx);
         self.update_translation_merge_buttons(cx);
+        self.populate_translation_input_dropdown(cx);
         self.sync_translation_overlay_locale();
 
         self.view
@@ -15119,6 +15137,13 @@ impl TTSScreen {
     fn start_translation_dataflow(&mut self, cx: &mut Cx) {
         Self::ensure_bundle_bin_on_path();
 
+        // Pause TTS dataflow to free the ASR process before starting translation.
+        if self.dora_started {
+            self.tts_paused_for_translation = true;
+            self.stop_dora(cx);
+            self.add_translation_log(cx, &format!("[INFO] {}", self.tr("已暂停 TTS 数据流", "TTS dataflow paused")));
+        }
+
         // Reset in-page translation log view each run to avoid stale scroll/content
         // bleeding through the semi-transparent overlay.
         self.translation_log_lines.clear();
@@ -15338,6 +15363,14 @@ impl TTSScreen {
 
         // Stop metrics timer
         cx.stop_timer(self.translation_metrics_timer);
+
+        // Resume TTS dataflow if it was paused for translation.
+        if self.tts_paused_for_translation {
+            self.tts_paused_for_translation = false;
+            // dora_started is already false after stop_dora; clearing the pause flag
+            // lets the event-loop auto-start block restart TTS on the next tick.
+            self.add_log(cx, "[INFO] [tts] Resuming TTS dataflow after translation stop...");
+        }
     }
 
     /// Poll translation updates and mirror completed entries to the log.
@@ -15491,6 +15524,15 @@ impl TTSScreen {
         self.view
             .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.merge_disabled_btn))
             .apply_over(cx, live! { draw_bg: { active: (off) } draw_text: { active: (off) } });
+    }
+
+    fn send_audio_source_to_bridge(&self, use_system_audio: bool) {
+        use moxin_dora_bridge::widgets::AudioSource;
+        let source = if use_system_audio { AudioSource::SystemAudio } else { AudioSource::Microphone };
+        // Write to shared state — the AEC bridge polls this and switches source live.
+        if let Some(shared) = self.translation_shared_state() {
+            shared.translation_audio_source.set(source);
+        }
     }
 
     /// Keep translation settings labels in one line across locales.
@@ -15652,17 +15694,18 @@ impl TTSScreen {
         }
         self.translation_audio_devices = names;
 
-        let mut labels = vec![self
-            .tr("系统默认麦克风", "System Default Microphone")
-            .to_string()];
+        // Index 0 = System Audio, 1 = System Default Mic, 2..N = CPAL devices
+        let mut labels = vec![
+            self.tr("系统音频", "System Audio").to_string(),
+            self.tr("系统默认麦克风", "System Default Microphone").to_string(),
+        ];
         labels.extend(self.translation_audio_devices.clone());
 
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
             .set_labels(cx, labels);
-        let selected_idx = self
-            .translation_device_idx
-            .min(self.translation_audio_devices.len());
+        let total = self.translation_audio_devices.len() + 2;
+        let selected_idx = self.translation_device_idx.min(total.saturating_sub(1));
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
             .set_selected_item(cx, selected_idx);

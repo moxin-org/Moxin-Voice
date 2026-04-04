@@ -57,6 +57,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use crate::data::{AudioData, ChatMessage, LogEntry, TranslationUpdate};
+use crate::widgets::AudioSource;
 
 /// Thread-safe vector with dirty tracking and maximum size enforcement.
 ///
@@ -686,6 +687,9 @@ pub struct SharedDoraState {
 
     /// Current translation overlay anchor position preset percentage.
     pub translation_anchor_position_preset: DirtyValue<String>,
+
+    /// Selected audio source for translation input (mic or system audio).
+    pub translation_audio_source: DirtyValue<AudioSource>,
 }
 
 /// Global singleton — all crates share the same SharedDoraState instance.
@@ -714,6 +718,7 @@ impl SharedDoraState {
                     translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
                     translation_font_size_preset: DirtyValue::new("normal".to_string()),
                     translation_anchor_position_preset: DirtyValue::new("50".to_string()),
+                    translation_audio_source: DirtyValue::new(AudioSource::Microphone),
                 })
             })
             .clone()
@@ -737,6 +742,7 @@ impl SharedDoraState {
             translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
             translation_font_size_preset: DirtyValue::new("normal".to_string()),
             translation_anchor_position_preset: DirtyValue::new("50".to_string()),
+            translation_audio_source: DirtyValue::new(AudioSource::Microphone),
         })
     }
 
@@ -795,6 +801,7 @@ impl Default for SharedDoraState {
             translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
             translation_font_size_preset: DirtyValue::new("normal".to_string()),
             translation_anchor_position_preset: DirtyValue::new("50".to_string()),
+            translation_audio_source: DirtyValue::new(AudioSource::Microphone),
         }
     }
 }

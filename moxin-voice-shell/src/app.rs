@@ -231,14 +231,9 @@ impl AppMain for App {
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(*window_id));
                 if let Some(main_window_id) = self.main_window_id {
                     #[cfg(target_os = "macos")]
-                    {
-                        cx.push_unique_platform_op(CxOsOp::Deminiaturize(main_window_id));
-                        cx.push_unique_platform_op(CxOsOp::NormalizeWindow(main_window_id));
-                    }
+                    cx.push_unique_platform_op(CxOsOp::Deminiaturize(main_window_id));
                     #[cfg(not(target_os = "macos"))]
-                    {
-                        cx.push_unique_platform_op(CxOsOp::RestoreWindow(main_window_id));
-                    }
+                    cx.push_unique_platform_op(CxOsOp::RestoreWindow(main_window_id));
                 }
             }
         }
@@ -323,16 +318,9 @@ impl MatchEvent for App {
             if let Some(window_id) = self.translation_window_id {
                 if window_visible {
                     #[cfg(target_os = "macos")]
-                    {
-                        // On macOS, RestoreWindow may reopen in prior zoom/fullscreen state.
-                        // Deminiaturize + Normalize keeps overlay in its configured size.
-                        cx.push_unique_platform_op(CxOsOp::Deminiaturize(window_id));
-                        cx.push_unique_platform_op(CxOsOp::NormalizeWindow(window_id));
-                    }
+                    cx.push_unique_platform_op(CxOsOp::Deminiaturize(window_id));
                     #[cfg(not(target_os = "macos"))]
-                    {
-                        cx.push_unique_platform_op(CxOsOp::RestoreWindow(window_id));
-                    }
+                    cx.push_unique_platform_op(CxOsOp::RestoreWindow(window_id));
                 } else {
                     cx.push_unique_platform_op(CxOsOp::MinimizeWindow(window_id));
                 }

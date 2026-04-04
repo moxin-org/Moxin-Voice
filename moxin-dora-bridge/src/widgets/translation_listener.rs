@@ -187,10 +187,12 @@ impl TranslationListenerBridge {
                                     }));
                                 }
                             } else if session_status == "replace_last" {
-                                // Retroactive merge: pop history[N] (the just-added second
-                                // sentence) and update history[N-1] (the first sentence) with
-                                // the combined source + merged translation — atomically, so
-                                // there are no ordering hazards between separate events.
+                                // Retroactive merge: keep history[N] (the latest sentence) visible
+                                // at the bottom, remove history[N-1] (the older sentence), and
+                                // update history[N] with the combined source + merged translation.
+                                // This way the merged result appears where the user is already
+                                // looking (the bottom), rather than disappearing and reappearing
+                                // at a higher position.
                                 let combined_source = metadata
                                     .parameters
                                     .iter()
@@ -198,16 +200,26 @@ impl TranslationListenerBridge {
                                     .and_then(|(_, v)| {
                                         if let Parameter::String(s) = v { Some(s.clone()) } else { None }
                                     });
-                                history.pop(); // remove history[N]
-                                if let Some(prev) = history.last_mut() {
-                                    if let Some(src) = combined_source {
-                                        prev.source_text = src;
+                                let last_idx = history.len().saturating_sub(1);
+                                if last_idx >= 1 {
+                                    // Remove N-1 (the older entry), update N (latest) in-place.
+                                    history.remove(last_idx - 1);
+                                    if let Some(latest) = history.last_mut() {
+                                        if let Some(src) = combined_source {
+                                            latest.source_text = src;
+                                        }
+                                        latest.translation = text.clone();
+                                        info!(
+                                            "[TranslationListener] replace_last: [{}] -> [{}]",
+                                            latest.source_text, text
+                                        );
                                     }
-                                    prev.translation = text.clone();
-                                    info!(
-                                        "[TranslationListener] replace_last: [{}] -> [{}]",
-                                        prev.source_text, text
-                                    );
+                                } else if let Some(only) = history.last_mut() {
+                                    // Only one entry — just update it.
+                                    if let Some(src) = combined_source {
+                                        only.source_text = src;
+                                    }
+                                    only.translation = text.clone();
                                 }
                                 pending_source_text.clear();
                                 current_source_text.clear();

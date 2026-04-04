@@ -122,7 +122,7 @@ pub use data::{AudioData, ChatMessage, ControlCommand, DoraData, LogEntry, Trans
 pub use dispatcher::{DynamicNodeDispatcher, WidgetBinding};
 pub use error::{BridgeError, BridgeResult};
 pub use shared_state::{SharedDoraState, DoraStatus, ChatState, AudioState, DirtyVec, DirtyValue, MicState};
-pub use widgets::{AecControlCommand, TranslationListenerBridge};
+pub use widgets::{AecControlCommand, AudioSource, TranslationListenerBridge};
 pub use parser::{DataflowParser, EnvRequirement, LogSource, ParsedDataflow, ParsedNode};
 
 /// Prefix for Moxin built-in dynamic nodes in dataflow YAML

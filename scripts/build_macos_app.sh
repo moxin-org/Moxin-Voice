@@ -374,6 +374,8 @@ cat > "$PLIST_PATH" <<EOF
   <true/>
   <key>NSMicrophoneUsageDescription</key>
   <string>This app needs microphone access for voice cloning and recording.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>This app needs screen capture access to capture system audio for live translation.</string>
 EOF
 
 if [[ -n "$ICON_FILE_NAME" ]]; then

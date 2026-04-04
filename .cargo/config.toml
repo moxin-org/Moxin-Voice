@@ -1,0 +1,10 @@
+# Workspace-level Cargo configuration
+
+[target.aarch64-apple-darwin]
+# screencapturekit crate's build.rs does not add /usr/lib/swift to rpath.
+# On macOS 13+, libswift_Concurrency.dylib lives in the shared dyld cache
+# under /usr/lib/swift/. Adding this rpath lets dyld resolve it from the
+# cache without loading a separate CLT copy (which would cause duplicates).
+rustflags = [
+    "-C", "link-arg=-Wl,-rpath,/usr/lib/swift",
+]
