@@ -154,19 +154,6 @@ fn should_force_finalize_by_size(text: &str, src_lang: &str) -> bool {
     }
 }
 
-fn translation_looks_complete(text: &str, generated_tokens: usize) -> bool {
-    if generated_tokens < 8 {
-        return false;
-    }
-    let t = text.trim_end();
-    t.ends_with('.')
-        || t.ends_with('!')
-        || t.ends_with('?')
-        || t.ends_with('。')
-        || t.ends_with('！')
-        || t.ends_with('？')
-}
-
 // ── Model path resolution ────────────────────────────────────────────────────
 
 fn resolve_model_path() -> PathBuf {
@@ -412,10 +399,6 @@ fn translate_and_emit(
                     full_translation.push_str(&text);
                 }
             }
-        }
-
-        if translation_looks_complete(&full_translation, generated) {
-            break;
         }
 
         if generated >= token_budget {
