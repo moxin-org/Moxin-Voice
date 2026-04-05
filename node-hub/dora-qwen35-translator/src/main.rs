@@ -854,8 +854,15 @@ fn main() -> Result<()> {
                     let chunk: String = if let Some((pc_qid, pc_chars)) = progressive_committed.take() {
                         if question_id == pc_qid {
                             if is_progressive {
-                                // Same burst still in-flight — restore the marker and skip.
+                                // Same burst still in-flight — restore the marker and skip translation.
+                                // But still forward the evolving tail to the UI so the ASR display
+                                // doesn't freeze while translation of the committed prefix is running.
                                 progressive_committed = Some((pc_qid, pc_chars));
+                                let tail: String = raw_chunk.chars().skip(pc_chars).collect();
+                                let tail = tail.trim().to_string();
+                                if !tail.is_empty() {
+                                    let _ = send_source(&mut node, &tail, "streaming", question_id);
+                                }
                                 continue;
                             } else {
                                 // mode=final: strip the already-translated prefix.
