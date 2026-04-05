@@ -659,6 +659,10 @@ fn main() -> Result<()> {
     // same qid may still arrive from the pipeline.  Track the ended qid so we can
     // drop those late-arriving chunks instead of creating a spurious new session.
     let mut already_ended_qid: Option<i64> = None;
+    // Tracks a progressive chunk that was proactively committed mid-burst.
+    // Format: (question_id, committed_char_count).
+    // Used to strip the already-translated prefix when mode=final arrives for the same burst.
+    let mut progressive_committed: Option<(Option<i64>, usize)> = None;
     // Helper macro: finalize a session, then attempt retroactive merge with previous segment.
     // Defined as a macro to avoid borrow-checker issues with the mutable captures.
     // Retroactive merge: remember the last completed segment for possible merging.
@@ -820,12 +824,12 @@ fn main() -> Result<()> {
                         Some(a) if a.len() > 0 => a,
                         _ => continue,
                     };
-                    let chunk = arr.value(0).trim().to_string();
-                    if chunk.is_empty() {
+                    let raw_chunk = arr.value(0).trim().to_string();
+                    if raw_chunk.is_empty() {
                         continue;
                     }
-                    if should_drop_low_info_chunk(&chunk, &src_lang) {
-                        tracing::debug!("Dropping low-info ASR chunk: {}", chunk);
+                    if should_drop_low_info_chunk(&raw_chunk, &src_lang) {
+                        tracing::debug!("Dropping low-info ASR chunk: {}", raw_chunk);
                         continue;
                     }
 
@@ -835,13 +839,49 @@ fn main() -> Result<()> {
                             tracing::info!(
                                 "Dropping stale chunk for already-ended qid={}: {}",
                                 ended_qid,
-                                &chunk[..chunk.char_indices().nth(40).map(|(i,_)|i).unwrap_or(chunk.len())]
+                                &raw_chunk[..raw_chunk.char_indices().nth(40).map(|(i,_)|i).unwrap_or(raw_chunk.len())]
                             );
                             continue;
                         }
                         // Different qid → clear the marker
                         already_ended_qid = None;
                     }
+
+                    let now = Instant::now();
+
+                    // If a progressive chunk was proactively committed, handle prefix stripping
+                    // for the subsequent mode=final chunk (which contains the full burst text).
+                    let chunk: String = if let Some((pc_qid, pc_chars)) = progressive_committed.take() {
+                        if question_id == pc_qid {
+                            if is_progressive {
+                                // Same burst still in-flight — restore the marker and skip.
+                                progressive_committed = Some((pc_qid, pc_chars));
+                                continue;
+                            } else {
+                                // mode=final: strip the already-translated prefix.
+                                let remainder: String = raw_chunk.chars().skip(pc_chars).collect();
+                                let remainder = remainder.trim().to_string();
+                                tracing::info!(
+                                    "Progressive prefix strip: skip={} chars, remainder={} chars",
+                                    pc_chars, remainder.chars().count()
+                                );
+                                if remainder.is_empty() || should_drop_low_info_chunk(&remainder, &src_lang) {
+                                    // Entire burst was already translated; just clear burst state.
+                                    if let Some(session) = pending.as_mut() {
+                                        session.current_burst_text = None;
+                                        session.last_chunk_at = now;
+                                    }
+                                    continue;
+                                }
+                                remainder
+                            }
+                        } else {
+                            // Different qid — committed marker is stale, discard it.
+                            raw_chunk
+                        }
+                    } else {
+                        raw_chunk
+                    };
 
                     tracing::info!(
                         "Received ASR chunk (mode={:?}): {}",
@@ -854,7 +894,6 @@ fn main() -> Result<()> {
                         transcription_mode,
                         &chunk[..chunk.char_indices().nth(120).map(|(i,_)|i).unwrap_or(chunk.len())]
                     );
-                    let now = Instant::now();
 
                     match pending.as_mut() {
                         Some(session) => {
@@ -902,9 +941,44 @@ fn main() -> Result<()> {
                         }
                     }
 
-                    // Progressive: only forward source_text for ASR display.
-                    // Translation is deferred until sentence finalization.
+                    // Progressive: forward source_text for ASR display; also check for
+                    // proactive sentence-boundary commit to reduce translation latency.
                     if is_progressive {
+                        // Check for proactive commit on sentence boundary or size limit.
+                        let should_commit = if let Some(session) = pending.as_ref() {
+                            let eff = effective_text(session, &src_lang);
+                            let char_count = eff.chars().count();
+                            // Use a higher threshold than final mode (15 vs 10 for Chinese,
+                            // 40 vs 24 for non-Chinese) to avoid over-splitting mid-burst.
+                            let min_chars = if normalize_lang(&src_lang) == "Chinese" { 15 } else { 40 };
+                            (char_count >= min_chars && ends_with_hard_sentence_boundary(&eff))
+                                || should_force_finalize_by_size(&eff, &src_lang)
+                        } else {
+                            false
+                        };
+
+                        if should_commit {
+                            let (committed_chars, committed_qid, had_question_ended) = {
+                                let session = pending.as_ref().unwrap();
+                                let eff = effective_text(session, &src_lang);
+                                (eff.chars().count(), session.question_id, session.question_ended_at.is_some())
+                            };
+                            tracing::info!(
+                                "Proactive progressive commit: {} chars, had_qe={}",
+                                committed_chars, had_question_ended
+                            );
+                            finalize!("proactive_progressive_commit");
+                            progressive_committed = Some((committed_qid, committed_chars));
+                            // If the consumed session already had question_ended set, transfer
+                            // it as a deferred marker so the remainder gets finalized promptly.
+                            if had_question_ended {
+                                if let Some(qid) = committed_qid {
+                                    deferred_ended_qid = Some(qid);
+                                }
+                            }
+                            continue;
+                        }
+
                         if let Some(session) = pending.as_ref() {
                             let text_snapshot = effective_text(session, &src_lang);
                             let qid = session.question_id;
