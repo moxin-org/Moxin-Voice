@@ -145,6 +145,63 @@ fn ends_with_hard_sentence_boundary(text: &str) -> bool {
         || trimmed.ends_with(';')
 }
 
+/// Find the last boundary character from `boundaries` in `text` that has a non-empty
+/// tail after it, with the head having at least `min_head_chars` chars.
+/// Returns the byte offset where the tail starts, or None.
+fn find_last_boundary_split(text: &str, boundaries: &[char], min_head_chars: usize) -> Option<usize> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    for i in (0..chars.len()).rev() {
+        let (byte_idx, ch) = chars[i];
+        if boundaries.contains(&ch) {
+            if i + 1 < min_head_chars {
+                break;
+            }
+            let tail_start = byte_idx + ch.len_utf8();
+            if !text[tail_start..].trim().is_empty() {
+                return Some(tail_start);
+            }
+        }
+    }
+    None
+}
+
+fn find_last_sentence_boundary_split(text: &str, min_head_chars: usize) -> Option<usize> {
+    const HARD: &[char] = &['。', '！', '？', '.', '!', '?', '；', ';'];
+    find_last_boundary_split(text, HARD, min_head_chars)
+}
+
+/// Returns the byte offset within `uncommitted` up to which text can be committed.
+///
+/// Strategy (in priority order):
+/// 1. Hard boundary (。！？.!?；;) with min_chars threshold — always tried first.
+/// 2. Soft boundary (，、,) with a higher min_chars threshold — only when no hard
+///    boundary found AND uncommitted text is long enough. This handles long comma-
+///    separated Chinese speech where hard boundaries are rare.
+///
+/// `require_tail`: true = progressive mode (need non-empty text after boundary to
+///   confirm the speaker moved past it); false = final mode (boundary at end is valid).
+fn committable_end(uncommitted: &str, min_chars: usize, require_tail: bool) -> Option<usize> {
+    const HARD: &[char] = &['。', '！', '？', '.', '!', '?', '；', ';'];
+    const SOFT: &[char] = &['，', '、', ','];
+    // Soft boundary threshold: at least 30 chars before a comma commit.
+    // Keeps commits away from filler words (呃，呢，) that appear after short phrases.
+    let soft_min = (min_chars * 2).max(30);
+
+    if require_tail {
+        // Try hard boundary first; fall back to soft if text is long enough.
+        find_last_boundary_split(uncommitted, HARD, min_chars)
+            .or_else(|| find_last_boundary_split(uncommitted, SOFT, soft_min))
+    } else {
+        let u = uncommitted.trim_end();
+        if u.chars().count() >= min_chars && ends_with_hard_sentence_boundary(u) {
+            Some(u.len())
+        } else {
+            find_last_boundary_split(uncommitted, HARD, min_chars)
+                .or_else(|| find_last_boundary_split(uncommitted, SOFT, soft_min))
+        }
+    }
+}
+
 fn should_force_finalize_by_size(text: &str, src_lang: &str) -> bool {
     let char_count = text.chars().count();
     if normalize_lang(src_lang) == "Chinese" {
@@ -203,6 +260,7 @@ fn build_system_prompt(src_lang: &str, tgt_lang: &str) -> String {
     format!(
         "/no_think You are a professional conference interpreter. \
          Translate the following {src} text into {tgt}. \
+         Output ONLY in {tgt} — even if the source contains English technical terms or mixed languages. \
          Output only the translation — no explanations, no annotations, no parentheses. \
          Append \" [...]\" ONLY when the input is clearly an unfinished fragment; \
          for complete sentences, NEVER append \"[...]\" and NEVER repeat the translation.",
@@ -215,14 +273,21 @@ fn post_process_translation(raw: &str, source_is_complete: bool) -> String {
     let mut out = raw.trim().to_string();
 
     // For syntactically complete source text, fragment markers are usually noise.
+    // Strip "[...]" even when followed by trailing punctuation (e.g. "not particularly [...].")
     if source_is_complete {
         loop {
             let trimmed = out.trim_end();
-            if let Some(prefix) = trimmed.strip_suffix("[...]") {
-                out = prefix.trim_end().to_string();
-            } else {
-                break;
+            if let Some(marker_pos) = trimmed.rfind("[...]") {
+                let after_marker = &trimmed[marker_pos + "[...]".len()..];
+                let remainder_is_punct = after_marker
+                    .trim_end_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace())
+                    .is_empty();
+                if remainder_is_punct {
+                    out = trimmed[..marker_pos].trim_end().to_string();
+                    continue;
+                }
             }
+            break;
         }
     }
 
@@ -472,6 +537,10 @@ struct PendingSession {
     /// Set on `mode=progressive`, cleared when a `mode=final` for the same
     /// burst arrives.  Never appended to `text` directly.
     current_burst_text: Option<String>,
+    /// How many chars of `effective_text()` have already been committed to
+    /// translation (sentence-cursor model). Advances as sentences are committed
+    /// mid-session; finalize only translates the uncommitted remainder.
+    committed_chars: usize,
     started_at: Instant,
     last_chunk_at: Instant,
     last_source_emit_at: Instant,
@@ -503,9 +572,14 @@ fn finalize_pending_session(
         return None;
     };
     let question_id = session.question_id;
-    // Include any in-progress burst snapshot that hasn't been finalized yet.
-    let text_to_translate = effective_text(&session, src_lang);
-    if text_to_translate.trim().is_empty() {
+    // Only translate the uncommitted remainder (sentence-cursor model).
+    let full = effective_text(&session, src_lang);
+    let committed_byte = full.char_indices()
+        .nth(session.committed_chars)
+        .map(|(i, _)| i)
+        .unwrap_or(full.len());
+    let text_to_translate = full[committed_byte..].trim().to_string();
+    if text_to_translate.is_empty() {
         return None;
     }
 
@@ -589,8 +663,9 @@ fn main() -> Result<()> {
     // With question_id present, use longer timeout to avoid premature split.
     const IDLE_FINALIZE_WITH_QID_MS: u64 = 3200;
     const IDLE_FINALIZE_NO_QID_MS: u64 = 1400;
-    // Absolute cap for a single buffered session.
-    const FORCE_SEND_SECS: u64 = 8;
+    // Absolute cap for a single buffered session (safety net only — primary commits
+    // happen via sentence-cursor + soft boundary logic before this fires).
+    const FORCE_SEND_SECS: u64 = 20;
     const SOURCE_EMIT_INTERVAL_MS: u64 = 280;
     const SOURCE_EMIT_MIN_DELTA_CHARS: usize = 10;
     // Proactive commit to prevent endless backlog during fast continuous speech.
@@ -659,10 +734,6 @@ fn main() -> Result<()> {
     // same qid may still arrive from the pipeline.  Track the ended qid so we can
     // drop those late-arriving chunks instead of creating a spurious new session.
     let mut already_ended_qid: Option<i64> = None;
-    // Tracks a progressive chunk that was proactively committed mid-burst.
-    // Format: (question_id, committed_char_count).
-    // Used to strip the already-translated prefix when mode=final arrives for the same burst.
-    let mut progressive_committed: Option<(Option<i64>, usize)> = None;
     // Helper macro: finalize a session, then attempt retroactive merge with previous segment.
     // Defined as a macro to avoid borrow-checker issues with the mutable captures.
     // Retroactive merge: remember the last completed segment for possible merging.
@@ -746,6 +817,84 @@ fn main() -> Result<()> {
                         source_text: src,
                         completed_at: Instant::now(),
                     });
+                }
+            }
+        }};
+    }
+
+    // commit_sentence! — translate the next committable sentence in the pending session
+    // without closing the session (sentence-cursor model).
+    // `$require_tail`: true = progressive (need text after boundary to confirm it's done),
+    //                  false = final (boundary at end of text is also valid).
+    macro_rules! commit_sentence {
+        ($require_tail:expr) => {{
+            let min_chars = if normalize_lang(&src_lang) == "Chinese" {
+                MIN_CHARS_FOR_PUNCT_COMMIT_ZH
+            } else {
+                MIN_CHARS_FOR_PUNCT_COMMIT_NON_ZH
+            };
+            // Only commit when no in-progress burst (for final mode).
+            // For progressive mode, current_burst_text IS the effective content.
+            let can_commit = pending.as_ref().map(|s| {
+                if !$require_tail { s.current_burst_text.is_none() } else { true }
+            }).unwrap_or(false);
+
+            if can_commit {
+                let commit_info = pending.as_ref().and_then(|session| {
+                    let eff = effective_text(session, &src_lang);
+                    let committed_byte = eff.char_indices()
+                        .nth(session.committed_chars)
+                        .map(|(i, _)| i)
+                        .unwrap_or(eff.len());
+                    let uncommitted = &eff[committed_byte..];
+                    // Also force-commit if uncommitted portion is very long.
+                    let force = should_force_finalize_by_size(uncommitted.trim(), &src_lang);
+                    let end_byte = if force {
+                        Some(uncommitted.trim_end().len())
+                    } else {
+                        committable_end(uncommitted, min_chars, $require_tail)
+                    };
+                    end_byte.map(|eb| {
+                        let slice = &uncommitted[..eb];
+                        let to_translate = slice.trim().to_string();
+                        let new_committed = session.committed_chars + slice.chars().count();
+                        (to_translate, new_committed, session.question_id)
+                    })
+                });
+
+                if let Some((to_translate, new_committed, qid)) = commit_info {
+                    if !to_translate.is_empty() {
+                        eprintln!(
+                            "[translator-sentence-commit] qid={:?} chars={} text={}",
+                            qid,
+                            to_translate.chars().count(),
+                            &to_translate[..to_translate.char_indices().nth(80).map(|(i,_)|i).unwrap_or(to_translate.len())]
+                        );
+                        tracing::info!(
+                            "Sentence commit: {} chars: {}",
+                            to_translate.chars().count(),
+                            &to_translate[..to_translate.char_indices().nth(80).map(|(i,_)|i).unwrap_or(to_translate.len())]
+                        );
+                        let _ = send_source(&mut node, &to_translate, "complete", qid);
+                        match translate_and_emit(
+                            &mut node, &mut tokenizer, &mut model,
+                            &chat_template, &model_id, &system_prompt,
+                            &to_translate, force_disable_thinking, temperature, max_tokens,
+                            qid, &eos_tokens, "complete", false, None,
+                        ) {
+                            Ok(_) => {
+                                if let Some(s) = pending.as_mut() {
+                                    s.committed_chars = new_committed;
+                                    // Reset the age clock so max_age_timeout counts from
+                                    // the last successful commit, not the session start.
+                                    s.started_at = Instant::now();
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Sentence commit translation failed: {e}");
+                            }
+                        }
+                    }
                 }
             }
         }};
@@ -849,46 +998,7 @@ fn main() -> Result<()> {
 
                     let now = Instant::now();
 
-                    // If a progressive chunk was proactively committed, handle prefix stripping
-                    // for the subsequent mode=final chunk (which contains the full burst text).
-                    let chunk: String = if let Some((pc_qid, pc_chars)) = progressive_committed.take() {
-                        if question_id == pc_qid {
-                            if is_progressive {
-                                // Same burst still in-flight — restore the marker and skip translation.
-                                // But still forward the evolving tail to the UI so the ASR display
-                                // doesn't freeze while translation of the committed prefix is running.
-                                progressive_committed = Some((pc_qid, pc_chars));
-                                let tail: String = raw_chunk.chars().skip(pc_chars).collect();
-                                let tail = tail.trim().to_string();
-                                if !tail.is_empty() {
-                                    let _ = send_source(&mut node, &tail, "streaming", question_id);
-                                }
-                                continue;
-                            } else {
-                                // mode=final: strip the already-translated prefix.
-                                let remainder: String = raw_chunk.chars().skip(pc_chars).collect();
-                                let remainder = remainder.trim().to_string();
-                                tracing::info!(
-                                    "Progressive prefix strip: skip={} chars, remainder={} chars",
-                                    pc_chars, remainder.chars().count()
-                                );
-                                if remainder.is_empty() || should_drop_low_info_chunk(&remainder, &src_lang) {
-                                    // Entire burst was already translated; just clear burst state.
-                                    if let Some(session) = pending.as_mut() {
-                                        session.current_burst_text = None;
-                                        session.last_chunk_at = now;
-                                    }
-                                    continue;
-                                }
-                                remainder
-                            }
-                        } else {
-                            // Different qid — committed marker is stale, discard it.
-                            raw_chunk
-                        }
-                    } else {
-                        raw_chunk
-                    };
+                    let chunk = raw_chunk;
 
                     tracing::info!(
                         "Received ASR chunk (mode={:?}): {}",
@@ -910,6 +1020,7 @@ fn main() -> Result<()> {
                                     question_id,
                                     text: if is_progressive { String::new() } else { chunk.clone() },
                                     current_burst_text: if is_progressive { Some(chunk.clone()) } else { None },
+                                    committed_chars: 0,
                                     started_at: now,
                                     last_chunk_at: now,
                                     last_source_emit_at: now,
@@ -939,6 +1050,7 @@ fn main() -> Result<()> {
                                 question_id,
                                 text: if is_progressive { String::new() } else { chunk.clone() },
                                 current_burst_text: if is_progressive { Some(chunk.clone()) } else { None },
+                                committed_chars: 0,
                                 started_at: now,
                                 last_chunk_at: now,
                                 last_source_emit_at: now,
@@ -948,58 +1060,32 @@ fn main() -> Result<()> {
                         }
                     }
 
-                    // Progressive: forward source_text for ASR display; also check for
-                    // proactive sentence-boundary commit to reduce translation latency.
+                    // Sentence-cursor model: commit completed sentences on every chunk.
+                    // Progressive: need non-empty tail after boundary (confirms sentence is done).
+                    // Final: boundary at end of text is also valid (burst is finished).
                     if is_progressive {
-                        // Check for proactive commit on sentence boundary or size limit.
-                        let should_commit = if let Some(session) = pending.as_ref() {
-                            let eff = effective_text(session, &src_lang);
-                            let char_count = eff.chars().count();
-                            // Use a higher threshold than final mode (15 vs 10 for Chinese,
-                            // 40 vs 24 for non-Chinese) to avoid over-splitting mid-burst.
-                            let min_chars = if normalize_lang(&src_lang) == "Chinese" { 15 } else { 40 };
-                            (char_count >= min_chars && ends_with_hard_sentence_boundary(&eff))
-                                || should_force_finalize_by_size(&eff, &src_lang)
-                        } else {
-                            false
-                        };
-
-                        if should_commit {
-                            let (committed_chars, committed_qid, had_question_ended) = {
-                                let session = pending.as_ref().unwrap();
-                                let eff = effective_text(session, &src_lang);
-                                (eff.chars().count(), session.question_id, session.question_ended_at.is_some())
-                            };
-                            tracing::info!(
-                                "Proactive progressive commit: {} chars, had_qe={}",
-                                committed_chars, had_question_ended
-                            );
-                            finalize!("proactive_progressive_commit");
-                            progressive_committed = Some((committed_qid, committed_chars));
-                            // If the consumed session already had question_ended set, transfer
-                            // it as a deferred marker so the remainder gets finalized promptly.
-                            if had_question_ended {
-                                if let Some(qid) = committed_qid {
-                                    deferred_ended_qid = Some(qid);
-                                }
-                            }
-                            continue;
-                        }
-
+                        commit_sentence!(true);
+                        // Emit uncommitted tail as streaming source_text for ASR display.
                         if let Some(session) = pending.as_ref() {
-                            let text_snapshot = effective_text(session, &src_lang);
-                            let qid = session.question_id;
-                            let current_len = text_snapshot.chars().count();
-                            let _ = send_source(&mut node, &text_snapshot, "streaming", qid);
-                            if let Some(s) = pending.as_mut() {
-                                s.last_source_emit_at = now;
-                                s.last_source_emit_len = current_len;
+                            let eff = effective_text(session, &src_lang);
+                            let committed_byte = eff.char_indices()
+                                .nth(session.committed_chars)
+                                .map(|(i, _)| i)
+                                .unwrap_or(eff.len());
+                            let tail = eff[committed_byte..].trim();
+                            if !tail.is_empty() {
+                                let qid = session.question_id;
+                                let _ = send_source(&mut node, tail, "streaming", qid);
+                                if let Some(s) = pending.as_mut() {
+                                    s.last_source_emit_at = now;
+                                    s.last_source_emit_len = tail.chars().count();
+                                }
                             }
                         }
                         continue;
                     }
 
-                    // Check deferred question_ended first.
+                    // mode=final: check deferred question_ended first.
                     if let Some(session) = pending.as_ref() {
                         if let Some(deferred_qid) = deferred_ended_qid {
                             if session.question_id == Some(deferred_qid) {
@@ -1011,43 +1097,29 @@ fn main() -> Result<()> {
                                 deferred_ended_qid = None;
                                 finalize!("deferred_question_ended");
                                 already_ended_qid = Some(deferred_qid);
+                                continue;
                             }
                         }
                     }
 
-                    // Proactive finalization on sentence boundary — only for non-progressive mode.
-                    // During progressive mode the speech is still ongoing; don't finalize early.
-                    let should_finalize_now = pending.as_ref().map(|session| {
-                        if session.current_burst_text.is_some() {
-                            return false;
-                        }
-                        let txt = session.text.trim();
-                        let min_chars = if normalize_lang(&src_lang) == "Chinese" {
-                            MIN_CHARS_FOR_PUNCT_COMMIT_ZH
-                        } else {
-                            MIN_CHARS_FOR_PUNCT_COMMIT_NON_ZH
-                        };
-                        (txt.chars().count() >= min_chars && ends_with_hard_sentence_boundary(txt))
-                            || should_force_finalize_by_size(txt, &src_lang)
-                    }).unwrap_or(false);
+                    // Try to commit completed sentences (boundary at end is valid since burst is done).
+                    commit_sentence!(false);
 
-                    if should_finalize_now {
-                        // finalize sends its own source_text("complete") — skip
-                        // the intermediate source_text("streaming") to avoid
-                        // triggering a redundant clear in the listener.
-                        finalize!("proactive_boundary_commit");
-                    } else if let Some(session) = pending.as_mut() {
-                        // Emit intermediate source_text only when NOT finalizing.
-                        let current_len = session.text.chars().count();
-                        let delta = current_len.saturating_sub(session.last_source_emit_len);
-                        let due_by_time = now.duration_since(session.last_source_emit_at)
-                            >= Duration::from_millis(SOURCE_EMIT_INTERVAL_MS);
-                        let due_by_delta = delta >= SOURCE_EMIT_MIN_DELTA_CHARS;
-                        let due_by_boundary = ends_with_hard_sentence_boundary(&session.text);
-                        if due_by_time || due_by_delta || due_by_boundary {
-                            let _ = send_source(&mut node, &session.text, "streaming", session.question_id);
-                            session.last_source_emit_at = now;
-                            session.last_source_emit_len = current_len;
+                    // Emit uncommitted tail as streaming for ongoing display.
+                    if let Some(session) = pending.as_ref() {
+                        let eff = effective_text(session, &src_lang);
+                        let committed_byte = eff.char_indices()
+                            .nth(session.committed_chars)
+                            .map(|(i, _)| i)
+                            .unwrap_or(eff.len());
+                        let tail = eff[committed_byte..].trim().to_string();
+                        if !tail.is_empty() {
+                            let qid = session.question_id;
+                            let _ = send_source(&mut node, &tail, "streaming", qid);
+                            if let Some(s) = pending.as_mut() {
+                                s.last_source_emit_at = now;
+                                s.last_source_emit_len = tail.chars().count();
+                            }
                         }
                     }
                     continue;

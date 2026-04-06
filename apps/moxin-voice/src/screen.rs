@@ -8389,6 +8389,7 @@ impl Widget for TTSScreen {
             self.translation_overlay_font_size_preset = "normal".to_string();
             self.translation_overlay_anchor_position_preset = "50".to_string();
             self.translation_merge_enabled = true;
+            self.update_translation_merge_buttons(cx);
 
             // Add initial log entries
             self.log_entries
@@ -15214,6 +15215,16 @@ impl TTSScreen {
             _ => (4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32),
         };
         let max_segment_ms = 8000_i32;
+
+        // System audio (ScreenCaptureKit) has a much cleaner signal than a microphone:
+        // no breath noise, no room echo, no handling noise.  Use lower RMS thresholds
+        // so quiet speech / video audio isn't gated out by the VAD.
+        let is_system_audio = self.translation_device_idx == 0;
+        let (start_rms_threshold, end_rms_threshold) = if is_system_audio {
+            (start_rms_threshold * 0.3, end_rms_threshold * 0.3)
+        } else {
+            (start_rms_threshold, end_rms_threshold)
+        };
 
         // Resolve absolute binary paths for dev (target/release or target/debug)
         // and DMG distribution (binary sibling to current_exe).

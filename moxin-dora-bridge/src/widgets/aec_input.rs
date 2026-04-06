@@ -1143,6 +1143,10 @@ impl AecInputBridge {
                         if vad_state.audio_segment_buffer.len() >= vad_state.max_segment_size {
                             audio_segment = Some(vad_state.audio_segment_buffer.clone());
                             vad_state.audio_segment_buffer.clear();
+                            // Clear speech_buffer too so the next VAD segment's pre-roll
+                            // doesn't re-include audio from the tail of this segment,
+                            // which would cause ASR to produce overlapping content.
+                            vad_state.speech_buffer.clear();
                             vad_state.is_speaking = false;
                             vad_state.last_progressive_send_at = None;
                             speech_ended = true;
