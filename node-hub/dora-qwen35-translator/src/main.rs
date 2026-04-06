@@ -165,41 +165,97 @@ fn find_last_boundary_split(text: &str, boundaries: &[char], min_head_chars: usi
     None
 }
 
-fn find_last_sentence_boundary_split(text: &str, min_head_chars: usize) -> Option<usize> {
-    const HARD: &[char] = &['。', '！', '？', '.', '!', '?', '；', ';'];
-    find_last_boundary_split(text, HARD, min_head_chars)
-}
+const MIN_CHARS_FOR_PUNCT_COMMIT_ZH: usize = 10;
+const MIN_CHARS_FOR_PUNCT_COMMIT_NON_ZH: usize = 24;
+const DEFERRED_QUESTION_ENDED_ASR_IDLE_MS: u64 = 3000;
+const PROGRESSIVE_IMMEDIATE_TAIL_CHARS_ZH: usize = 8;
+const PROGRESSIVE_IMMEDIATE_TAIL_CHARS_NON_ZH: usize = 20;
 
 /// Returns the byte offset within `uncommitted` up to which text can be committed.
 ///
-/// Strategy (in priority order):
+/// Strategy:
 /// 1. Hard boundary (。！？.!?；;) with min_chars threshold — always tried first.
-/// 2. Soft boundary (，、,) with a higher min_chars threshold — only when no hard
-///    boundary found AND uncommitted text is long enough. This handles long comma-
-///    separated Chinese speech where hard boundaries are rare.
+/// 2. No soft comma-based boundary commits. Spoken conference content produced too
+///    many premature commits when commas were treated as sentence boundaries.
 ///
 /// `require_tail`: true = progressive mode (need non-empty text after boundary to
 ///   confirm the speaker moved past it); false = final mode (boundary at end is valid).
-fn committable_end(uncommitted: &str, min_chars: usize, require_tail: bool) -> Option<usize> {
+fn committable_end(
+    uncommitted: &str,
+    min_chars: usize,
+    require_tail: bool,
+    allow_terminal_boundary: bool,
+) -> Option<usize> {
     const HARD: &[char] = &['。', '！', '？', '.', '!', '?', '；', ';'];
-    const SOFT: &[char] = &['，', '、', ','];
-    // Soft boundary threshold: at least 30 chars before a comma commit.
-    // Keeps commits away from filler words (呃，呢，) that appear after short phrases.
-    let soft_min = (min_chars * 2).max(30);
 
     if require_tail {
-        // Try hard boundary first; fall back to soft if text is long enough.
         find_last_boundary_split(uncommitted, HARD, min_chars)
-            .or_else(|| find_last_boundary_split(uncommitted, SOFT, soft_min))
     } else {
         let u = uncommitted.trim_end();
-        if u.chars().count() >= min_chars && ends_with_hard_sentence_boundary(u) {
+        if allow_terminal_boundary
+            && u.chars().count() >= min_chars
+            && ends_with_hard_sentence_boundary(u)
+        {
             Some(u.len())
         } else {
             find_last_boundary_split(uncommitted, HARD, min_chars)
-                .or_else(|| find_last_boundary_split(uncommitted, SOFT, soft_min))
         }
     }
+}
+
+fn should_finalize_deferred_question_ended(
+    _question_ended_elapsed: Duration,
+    idle_since_last_asr_update: Duration,
+    has_active_burst: bool,
+) -> bool {
+    if !has_active_burst {
+        return true;
+    }
+
+    idle_since_last_asr_update >= Duration::from_millis(DEFERRED_QUESTION_ENDED_ASR_IDLE_MS)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProgressiveCommitCandidate {
+    text: String,
+    new_committed_chars: usize,
+    question_id: Option<i64>,
+}
+
+fn should_commit_progressive_candidate(
+    previous: Option<&ProgressiveCommitCandidate>,
+    current: &ProgressiveCommitCandidate,
+) -> bool {
+    previous
+        .map(|candidate| {
+            candidate.text == current.text
+                && candidate.new_committed_chars == current.new_committed_chars
+                && candidate.question_id == current.question_id
+        })
+        .unwrap_or(false)
+}
+
+fn should_commit_progressive_immediately(
+    uncommitted: &str,
+    end_byte: usize,
+    src_lang: &str,
+) -> bool {
+    let tail = uncommitted[end_byte..].trim();
+    let tail_chars = tail.chars().count();
+    let threshold = if normalize_lang(src_lang) == "Chinese" {
+        PROGRESSIVE_IMMEDIATE_TAIL_CHARS_ZH
+    } else {
+        PROGRESSIVE_IMMEDIATE_TAIL_CHARS_NON_ZH
+    };
+
+    tail_chars >= threshold
+}
+
+fn should_allow_terminal_final_commit(
+    previous: Option<&ProgressiveCommitCandidate>,
+    current: &ProgressiveCommitCandidate,
+) -> bool {
+    should_commit_progressive_candidate(previous, current)
 }
 
 fn should_force_finalize_by_size(text: &str, src_lang: &str) -> bool {
@@ -545,6 +601,7 @@ struct PendingSession {
     last_chunk_at: Instant,
     last_source_emit_at: Instant,
     last_source_emit_len: usize,
+    pending_progressive_commit: Option<ProgressiveCommitCandidate>,
     /// Set when `question_ended` arrives but `current_burst_text` is still active
     /// (ASR is still processing the last audio segment).  Finalization is delayed
     /// until ASR sends `mode=final` for the current burst (clearing
@@ -668,10 +725,6 @@ fn main() -> Result<()> {
     const FORCE_SEND_SECS: u64 = 20;
     const SOURCE_EMIT_INTERVAL_MS: u64 = 280;
     const SOURCE_EMIT_MIN_DELTA_CHARS: usize = 10;
-    // Proactive commit to prevent endless backlog during fast continuous speech.
-    const MIN_CHARS_FOR_PUNCT_COMMIT_ZH: usize = 10;
-    const MIN_CHARS_FOR_PUNCT_COMMIT_NON_ZH: usize = 24;
-
     tracing::info!("Translation: {} → {}", src_lang, tgt_lang);
 
     let system_prompt = build_system_prompt(&src_lang, &tgt_lang);
@@ -728,7 +781,7 @@ fn main() -> Result<()> {
 
     let mut pending: Option<PendingSession> = None;
     // Deferred question_ended: when question_ended arrives before the ASR text,
-    // remember it so we can finalize immediately when the matching text arrives.
+    // remember it so the matching burst can be sealed once the ASR text appears.
     let mut deferred_ended_qid: Option<i64> = None;
     // After question_ended fires and finalizes a session, stale ASR chunks for the
     // same qid may still arrive from the pipeline.  Track the ended qid so we can
@@ -847,23 +900,87 @@ fn main() -> Result<()> {
                         .map(|(i, _)| i)
                         .unwrap_or(eff.len());
                     let uncommitted = &eff[committed_byte..];
+                    let trimmed_len = uncommitted.trim_end().len();
                     // Also force-commit if uncommitted portion is very long.
                     let force = should_force_finalize_by_size(uncommitted.trim(), &src_lang);
                     let end_byte = if force {
-                        Some(uncommitted.trim_end().len())
+                        Some(trimmed_len)
                     } else {
-                        committable_end(uncommitted, min_chars, $require_tail)
+                        let end_without_terminal =
+                            committable_end(uncommitted, min_chars, $require_tail, false);
+                        if $require_tail {
+                            end_without_terminal
+                        } else {
+                            let end_with_terminal =
+                                committable_end(uncommitted, min_chars, false, true);
+                            match end_with_terminal {
+                                Some(eb) if eb == trimmed_len => {
+                                    let slice = &uncommitted[..eb];
+                                    let candidate = ProgressiveCommitCandidate {
+                                        text: slice.trim().to_string(),
+                                        new_committed_chars: session.committed_chars
+                                            + slice.chars().count(),
+                                        question_id: session.question_id,
+                                    };
+                                    let previous =
+                                        session.pending_progressive_commit.as_ref();
+                                    if should_allow_terminal_final_commit(previous, &candidate) {
+                                        Some(eb)
+                                    } else {
+                                        end_without_terminal
+                                    }
+                                }
+                                other => other,
+                            }
+                        }
                     };
                     end_byte.map(|eb| {
                         let slice = &uncommitted[..eb];
                         let to_translate = slice.trim().to_string();
                         let new_committed = session.committed_chars + slice.chars().count();
-                        (to_translate, new_committed, session.question_id)
+                        (
+                            to_translate,
+                            new_committed,
+                            session.question_id,
+                            should_commit_progressive_immediately(
+                                uncommitted,
+                                eb,
+                                &src_lang,
+                            ),
+                        )
                     })
                 });
 
-                if let Some((to_translate, new_committed, qid)) = commit_info {
+                let has_commit_info = commit_info.is_some();
+                if let Some((to_translate, new_committed, qid, immediate_progressive_commit)) = commit_info {
                     if !to_translate.is_empty() {
+                        if $require_tail {
+                            let candidate = ProgressiveCommitCandidate {
+                                text: to_translate.clone(),
+                                new_committed_chars: new_committed,
+                                question_id: qid,
+                            };
+                            if !immediate_progressive_commit {
+                                let previous = pending
+                                    .as_ref()
+                                    .and_then(|s| s.pending_progressive_commit.as_ref());
+                                if !should_commit_progressive_candidate(previous, &candidate) {
+                                    if let Some(s) = pending.as_mut() {
+                                        s.pending_progressive_commit = Some(candidate);
+                                    }
+                                    tracing::debug!(
+                                        "Deferring progressive sentence commit until boundary repeats"
+                                    );
+                                    continue;
+                                }
+                            }
+                            if let Some(s) = pending.as_mut() {
+                                s.pending_progressive_commit = None;
+                            }
+                        } else if let Some(s) = pending.as_mut() {
+                            s.pending_progressive_commit = None;
+                        }
+
                         eprintln!(
                             "[translator-sentence-commit] qid={:?} chars={} text={}",
                             qid,
@@ -885,6 +1002,7 @@ fn main() -> Result<()> {
                             Ok(_) => {
                                 if let Some(s) = pending.as_mut() {
                                     s.committed_chars = new_committed;
+                                    s.pending_progressive_commit = None;
                                     // Reset the age clock so max_age_timeout counts from
                                     // the last successful commit, not the session start.
                                     s.started_at = Instant::now();
@@ -894,6 +1012,11 @@ fn main() -> Result<()> {
                                 tracing::error!("Sentence commit translation failed: {e}");
                             }
                         }
+                    }
+                }
+                if $require_tail && !has_commit_info {
+                    if let Some(s) = pending.as_mut() {
+                        s.pending_progressive_commit = None;
                     }
                 }
             }
@@ -917,17 +1040,28 @@ fn main() -> Result<()> {
 
             if let Some(qe_at) = question_ended_at {
                 // Delayed question_ended: wait for ASR to finish the current burst.
-                // Finalize as soon as ASR sends mode=final (burst_done) OR deadline expires.
+                // Finalize as soon as ASR sends mode=final (burst_done) OR the
+                // ASR stream itself has been idle long enough since the last update.
                 let burst_done = !has_active_burst;
-                let deadline_expired = qe_at.elapsed() >= Duration::from_millis(1500);
-                if burst_done || deadline_expired {
-                    let reason = if burst_done { "question_ended_asr_final" } else { "question_ended_deadline" };
+                let should_finalize = should_finalize_deferred_question_ended(
+                    qe_at.elapsed(),
+                    idle_elapsed,
+                    has_active_burst,
+                );
+                if should_finalize {
+                    let reason = if burst_done {
+                        "question_ended_asr_final"
+                    } else {
+                        "question_ended_asr_idle"
+                    };
                     tracing::info!(
-                        "Delayed question_ended finalizing (reason={}, burst_done={}, elapsed_ms={})",
-                        reason, burst_done, qe_at.elapsed().as_millis()
+                        "Delayed question_ended finalizing (reason={}, burst_done={}, qe_elapsed_ms={}, asr_idle_ms={})",
+                        reason,
+                        burst_done,
+                        qe_at.elapsed().as_millis(),
+                        idle_elapsed.as_millis()
                     );
                     finalize!(reason);
-                    // Now safe to block stale chunks — translation has started.
                     already_ended_qid = session_qid;
                 }
             } else if !has_active_burst && idle_elapsed >= Duration::from_millis(idle_threshold_ms) {
@@ -1025,15 +1159,13 @@ fn main() -> Result<()> {
                                     last_chunk_at: now,
                                     last_source_emit_at: now,
                                     last_source_emit_len: 0,
+                                    pending_progressive_commit: None,
                                     question_ended_at: None,
                                 });
                             } else if is_progressive {
-                                // Progressive snapshot of current burst — keep finalized text,
-                                // just update the in-progress burst view.
                                 session.current_burst_text = Some(chunk.clone());
                                 session.last_chunk_at = now;
                             } else {
-                                // Final or legacy chunk: append to finalized text, clear burst.
                                 let sep = if normalize_lang(&src_lang) == "Chinese" {
                                     ""
                                 } else {
@@ -1043,6 +1175,7 @@ fn main() -> Result<()> {
                                 session.text.push_str(&chunk);
                                 session.last_chunk_at = now;
                                 session.current_burst_text = None;
+                                session.pending_progressive_commit = None;
                             }
                         }
                         None => {
@@ -1055,6 +1188,7 @@ fn main() -> Result<()> {
                                 last_chunk_at: now,
                                 last_source_emit_at: now,
                                 last_source_emit_len: 0,
+                                pending_progressive_commit: None,
                                 question_ended_at: None,
                             });
                         }
@@ -1065,7 +1199,7 @@ fn main() -> Result<()> {
                     // Final: boundary at end of text is also valid (burst is finished).
                     if is_progressive {
                         commit_sentence!(true);
-                        // Emit uncommitted tail as streaming source_text for ASR display.
+
                         if let Some(session) = pending.as_ref() {
                             let eff = effective_text(session, &src_lang);
                             let committed_byte = eff.char_indices()
@@ -1085,7 +1219,6 @@ fn main() -> Result<()> {
                         continue;
                     }
 
-                    // mode=final: check deferred question_ended first.
                     if let Some(session) = pending.as_ref() {
                         if let Some(deferred_qid) = deferred_ended_qid {
                             if session.question_id == Some(deferred_qid) {
@@ -1102,10 +1235,8 @@ fn main() -> Result<()> {
                         }
                     }
 
-                    // Try to commit completed sentences (boundary at end is valid since burst is done).
                     commit_sentence!(false);
 
-                    // Emit uncommitted tail as streaming for ongoing display.
                     if let Some(session) = pending.as_ref() {
                         let eff = effective_text(session, &src_lang);
                         let committed_byte = eff.char_indices()
@@ -1165,18 +1296,20 @@ fn main() -> Result<()> {
                     if has_active_burst {
                         // ASR is still processing the last audio segment — its progressive
                         // snapshot is incomplete.  Set a deadline so the timer loop
-                        // finalizes once ASR sends mode=final (or 1.5s hard cap).
+                        // finalizes once ASR sends mode=final or the ASR stream has
+                        // been idle long enough after the last progressive update.
                         // Do NOT set already_ended_qid yet so ASR final can still arrive.
                         if let Some(session) = pending.as_mut() {
                             if session.question_ended_at.is_none() {
                                 session.question_ended_at = Some(Instant::now());
                                 tracing::info!(
                                     "question_ended deferred: ASR burst still active for qid={:?}, \
-                                     will finalize on ASR final (max 1500ms)",
-                                    ended_question_id
+                                     will finalize on ASR final or after {}ms of ASR inactivity",
+                                    ended_question_id,
+                                    DEFERRED_QUESTION_ENDED_ASR_IDLE_MS
                                 );
                                 eprintln!(
-                                    "[translator-qe-defer] qid={:?} waiting for ASR final",
+                                    "[translator-qe-defer] qid={:?} waiting for ASR final or idle fallback",
                                     ended_question_id
                                 );
                             }
@@ -1185,7 +1318,6 @@ fn main() -> Result<()> {
                         // No active burst — ASR already delivered final for everything.
                         // Finalize immediately for minimum latency.
                         finalize!("question_ended");
-                        // Mark this qid as ended so stale ASR chunks are dropped.
                         already_ended_qid = ended_question_id;
                     }
                     deferred_ended_qid = None;
@@ -1202,4 +1334,129 @@ fn main() -> Result<()> {
 
     tracing::info!("dora-qwen35-translator stopped");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn chinese_progressive_does_not_commit_on_soft_comma_only() {
+        let text = "我们在云端统一管理边缘节点和应用发布策略，在边缘侧执行推理任务并持续回传运行指标";
+
+        assert_eq!(
+            committable_end(text, MIN_CHARS_FOR_PUNCT_COMMIT_ZH, true, false),
+            None
+        );
+    }
+
+    #[test]
+    fn deferred_question_ended_waits_for_recent_asr_activity() {
+        assert!(
+            !should_finalize_deferred_question_ended(
+                Duration::from_secs(4),
+                Duration::from_secs(1),
+                true,
+            )
+        );
+    }
+
+    #[test]
+    fn deferred_question_ended_finalizes_after_asr_has_been_idle_long_enough() {
+        assert!(should_finalize_deferred_question_ended(
+            Duration::from_secs(4),
+            Duration::from_secs(3),
+            true,
+        ));
+    }
+
+    #[test]
+    fn deferred_question_ended_finalizes_immediately_when_burst_is_done() {
+        assert!(should_finalize_deferred_question_ended(
+            Duration::from_millis(200),
+            Duration::from_millis(200),
+            false,
+        ));
+    }
+
+    #[test]
+    fn progressive_candidate_requires_a_second_matching_snapshot() {
+        let candidate = ProgressiveCommitCandidate {
+            text: "我们今天主要介绍 KubeEdge。".to_string(),
+            new_committed_chars: 18,
+            question_id: Some(42),
+        };
+
+        assert!(!should_commit_progressive_candidate(None, &candidate));
+    }
+
+    #[test]
+    fn progressive_candidate_commits_when_same_boundary_reappears() {
+        let previous = ProgressiveCommitCandidate {
+            text: "我们今天主要介绍 KubeEdge。".to_string(),
+            new_committed_chars: 18,
+            question_id: Some(42),
+        };
+        let current = ProgressiveCommitCandidate {
+            text: "我们今天主要介绍 KubeEdge。".to_string(),
+            new_committed_chars: 18,
+            question_id: Some(42),
+        };
+
+        assert!(should_commit_progressive_candidate(Some(&previous), &current));
+    }
+
+    #[test]
+    fn progressive_candidate_resets_when_boundary_text_changes() {
+        let previous = ProgressiveCommitCandidate {
+            text: "我们今天主要介绍 KubeEdge。".to_string(),
+            new_committed_chars: 18,
+            question_id: Some(42),
+        };
+        let current = ProgressiveCommitCandidate {
+            text: "我们今天主要介绍 KubeEdge 项目。".to_string(),
+            new_committed_chars: 20,
+            question_id: Some(42),
+        };
+
+        assert!(!should_commit_progressive_candidate(Some(&previous), &current));
+    }
+
+    #[test]
+    fn progressive_high_confidence_boundary_can_commit_immediately() {
+        let text = "我们今天主要介绍 KubeEdge。然后继续讨论它在边缘 AI 场景中的应用价值";
+        let end = committable_end(text, MIN_CHARS_FOR_PUNCT_COMMIT_ZH, true, false).unwrap();
+
+        assert!(should_commit_progressive_immediately(text, end, "zh"));
+    }
+
+    #[test]
+    fn progressive_short_tail_still_requires_confirmation() {
+        let text = "我们今天主要介绍 KubeEdge。然后";
+        let end = committable_end(text, MIN_CHARS_FOR_PUNCT_COMMIT_ZH, true, false).unwrap();
+
+        assert!(!should_commit_progressive_immediately(text, end, "zh"));
+    }
+
+    #[test]
+    fn final_terminal_boundary_is_not_trusted_without_progressive_confirmation() {
+        let text = "大家下午好，我叫鲍月，然后来自华为，现在也是CoolEdge社区的Maintainer。然后今天CoolEdge社区。";
+
+        assert_eq!(
+            committable_end(text, MIN_CHARS_FOR_PUNCT_COMMIT_ZH, false, false),
+            text.find("然后今天").map(|idx| idx)
+        );
+    }
+
+    #[test]
+    fn final_terminal_boundary_can_commit_when_progressive_already_confirmed_it() {
+        let candidate = ProgressiveCommitCandidate {
+            text: "我们今天主要介绍 KubeEdge。".to_string(),
+            new_committed_chars: 18,
+            question_id: Some(42),
+        };
+
+        assert!(should_allow_terminal_final_commit(Some(&candidate), &candidate));
+    }
 }
