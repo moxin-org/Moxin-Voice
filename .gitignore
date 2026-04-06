@@ -22,6 +22,7 @@ Cargo.lock
 
 # Claude Code
 .claude/
+.worktrees/
 
 # OS files
 Thumbs.db
