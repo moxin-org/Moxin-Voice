@@ -63,6 +63,7 @@ struct VadState {
     last_speech_end_time: Option<Instant>,
     question_end_sent: bool,
     current_question_id: u32,
+    current_burst_id: u32,
     /// Progressive ASR: timestamp of last progressive audio_segment send
     last_progressive_send_at: Option<Instant>,
     /// Progressive ASR: interval in ms between progressive sends (0 = disabled)
@@ -128,6 +129,7 @@ impl Default for VadState {
             last_speech_end_time: None,
             question_end_sent: false,
             current_question_id: rand::random::<u32>() % 900000 + 100000,
+            current_burst_id: rand::random::<u32>() % 900000 + 100000,
             last_progressive_send_at: None,
             progressive_interval_ms,
         }
@@ -1097,6 +1099,7 @@ impl AecInputBridge {
                             vad_state.is_speaking = true;
                             speech_started = true;
                             vad_state.question_end_sent = false;
+                            vad_state.current_burst_id = rand::random::<u32>() % 900000 + 100000;
 
                             // Start segment buffer
                             vad_state.audio_segment_buffer.clear();
@@ -1105,8 +1108,9 @@ impl AecInputBridge {
                             }
 
                             info!(
-                                "Speech started (question_id={})",
-                                vad_state.current_question_id
+                                "Speech started (question_id={}, burst_id={})",
+                                vad_state.current_question_id,
+                                vad_state.current_burst_id
                             );
                             // Reset progressive timer when speech starts
                             vad_state.last_progressive_send_at = Some(Instant::now());
@@ -1131,6 +1135,7 @@ impl AecInputBridge {
                                         &mut node,
                                         &snapshot,
                                         vad_state.current_question_id,
+                                        vad_state.current_burst_id,
                                     ) {
                                         warn!("Failed to send progressive audio_segment: {}", e);
                                     }
@@ -1203,8 +1208,9 @@ impl AecInputBridge {
                         &node_id,
                         "INFO",
                         &format!(
-                            "🎤 NEW SPEECH STARTED - question_id={}",
-                            vad_state.current_question_id
+                            "🎤 NEW SPEECH STARTED - question_id={}, burst_id={}",
+                            vad_state.current_question_id,
+                            vad_state.current_burst_id
                         ),
                     );
                 }
@@ -1230,22 +1236,29 @@ impl AecInputBridge {
                 // Send audio segment for ASR
                 if let Some(segment) = audio_segment {
                     if let Err(e) =
-                        Self::send_audio_segment(&mut node, &segment, vad_state.current_question_id)
+                        Self::send_audio_segment(
+                            &mut node,
+                            &segment,
+                            vad_state.current_question_id,
+                            vad_state.current_burst_id,
+                        )
                     {
                         warn!("Failed to send audio_segment: {}", e);
                     } else {
                         info!(
-                            "Sent audio segment: {} samples (question_id={})",
+                            "Sent audio segment: {} samples (question_id={}, burst_id={})",
                             segment.len(),
-                            vad_state.current_question_id
+                            vad_state.current_question_id,
+                            vad_state.current_burst_id
                         );
                         let _ = Self::send_log(
                             &mut node,
                             &node_id,
                             "INFO",
                             &format!(
-                                "🎵 AUDIO_SEGMENT sent with question_id={} ({} samples)",
+                                "🎵 AUDIO_SEGMENT sent with question_id={}, burst_id={} ({} samples)",
                                 vad_state.current_question_id,
+                                vad_state.current_burst_id,
                                 segment.len()
                             ),
                         );
@@ -1336,6 +1349,7 @@ impl AecInputBridge {
         node: &mut DoraNode,
         samples: &[f32],
         question_id: u32,
+        burst_id: u32,
     ) -> BridgeResult<()> {
         let data = samples.to_vec().into_arrow();
         let output_id: DataId = "audio_segment".to_string().into();
@@ -1344,6 +1358,10 @@ impl AecInputBridge {
         params.insert(
             "question_id".to_string(),
             Parameter::Integer(question_id as i64),
+        );
+        params.insert(
+            "burst_id".to_string(),
+            Parameter::Integer(burst_id as i64),
         );
         params.insert("sample_rate".to_string(), Parameter::Integer(16000));
         params.insert(
@@ -1362,6 +1380,7 @@ impl AecInputBridge {
         node: &mut DoraNode,
         samples: &[f32],
         question_id: u32,
+        burst_id: u32,
     ) -> BridgeResult<()> {
         let data = samples.to_vec().into_arrow();
         let output_id: DataId = "audio_segment".to_string().into();
@@ -1370,6 +1389,10 @@ impl AecInputBridge {
         params.insert(
             "question_id".to_string(),
             Parameter::Integer(question_id as i64),
+        );
+        params.insert(
+            "burst_id".to_string(),
+            Parameter::Integer(burst_id as i64),
         );
         params.insert("sample_rate".to_string(), Parameter::Integer(16000));
         params.insert(
