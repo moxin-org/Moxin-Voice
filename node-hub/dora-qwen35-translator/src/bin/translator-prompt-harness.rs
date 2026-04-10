@@ -94,20 +94,22 @@ fn load_eos_tokens(model_path: &std::path::Path) -> Result<HashSet<u32>> {
 }
 
 fn build_system_prompt(tgt_lang: &str, mode: CommitPromptMode) -> String {
+    // 大家下午好我叫鲍月然后来自华为现在也是CoolEdge社区的Maintainer然后今天CoolEdge社区
     match mode {
+//         CommitPromptMode::Normal => format!(
+//             "/no_think 你会接收到一段没有标点符号的文本，这段文本在语义上可能还没有说完， 你将会从这段文本中选取语义完整的部分并进行翻译。
+// 仅返回 JSON,包含以下字段: result, remaining
+// 规则：
+// - 先根据语义在这种文本中选取完整的部分, 这个部分将用于翻译工作, 剩下的部分放入 remaining 字段。
+// - result 必须包含 raw_text, text, translation 三个字段。
+// - result.raw_text 是你从原始文本中选择的部分, result.text 是你对这段文本添加标点符号的结果, result.translation 是你对这段文本的翻译结果。
+// - result.raw_text 和 remaining 字段绝对不允许加空格、不允许删字、不允许改字、不允许补标点、不允许改写大小写。
+// - remaining 是正常结果；不确定时，宁可让 remaining 更多，也不要多翻。
+// - 如果没有任何可以安全翻译的内容，返回：
+//   result={{}}, remaining=input。"
+//         ),
         CommitPromptMode::Normal => format!(
-            "/no_think 你会接收到一段没有标点符号的文本，这段文本在语义上可能还没有说完， 你将会从这段文本中选取语义完整的部分并进行翻译。
-仅返回 JSON,包含以下字段: result, remaining
-规则：
-- 先根据语义在这种文本中选取完整的部分。
-- 对这个部分进行翻译， 结果放入 result 字段。
-- result 必须包含 raw_text, text, translation 三个字段。
-- result.raw_text 是你从原始文本中选择的部分, result.text 是你对这段文本添加标点符号的结果, result.translation 是你对这段文本的翻译结果。
-- 剩下的部分放入 remaining 字段。
-- result.raw_text 和 remaining 字段绝对不允许加空格、不允许删字、不允许改字、不允许补标点、不允许改写大小写。
-- remaining 是正常结果；不确定时，宁可让 remaining 更多，也不要多翻。
-- 如果没有任何可以安全翻译的内容，返回：
-  result={{}}, remaining=input。"
+            "你会接收到一段文本，请按照语义给这段文本添加标点符号并返回。你只能添加逗号和句号，不要对原文做任何修改！不要对原文做任何修改！"
         ),
         CommitPromptMode::FinalDrain => format!(
             "/no_think 你会接收到一段没有标点符号的 ASR 文本。现在语音已经停止，这是最后一次收尾。

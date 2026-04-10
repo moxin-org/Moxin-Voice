@@ -1088,6 +1088,7 @@ impl AecInputBridge {
                 let mut speech_started = false;
                 let mut speech_ended = false;
                 let mut audio_segment: Option<Vec<f32>> = None;
+                let mut segment_reason: Option<&'static str> = None;
 
                 if vad_result {
                     // Speech detected
@@ -1147,6 +1148,7 @@ impl AecInputBridge {
                         // Check max size
                         if vad_state.audio_segment_buffer.len() >= vad_state.max_segment_size {
                             audio_segment = Some(vad_state.audio_segment_buffer.clone());
+                            segment_reason = Some("max_segment");
                             vad_state.audio_segment_buffer.clear();
                             // Clear speech_buffer too so the next VAD segment's pre-roll
                             // doesn't re-include audio from the tail of this segment,
@@ -1167,6 +1169,7 @@ impl AecInputBridge {
                             // Speech ended
                             if vad_state.audio_segment_buffer.len() >= vad_state.min_segment_size {
                                 audio_segment = Some(vad_state.audio_segment_buffer.clone());
+                                segment_reason = Some("speech_end");
                             }
 
                             vad_state.audio_segment_buffer.clear();
@@ -1241,6 +1244,7 @@ impl AecInputBridge {
                             &segment,
                             vad_state.current_question_id,
                             vad_state.current_burst_id,
+                            segment_reason.unwrap_or("speech_end"),
                         )
                     {
                         warn!("Failed to send audio_segment: {}", e);
@@ -1350,6 +1354,7 @@ impl AecInputBridge {
         samples: &[f32],
         question_id: u32,
         burst_id: u32,
+        segment_reason: &str,
     ) -> BridgeResult<()> {
         let data = samples.to_vec().into_arrow();
         let output_id: DataId = "audio_segment".to_string().into();
@@ -1367,6 +1372,10 @@ impl AecInputBridge {
         params.insert(
             "transcription_mode".to_string(),
             Parameter::String("final".to_string()),
+        );
+        params.insert(
+            "segment_reason".to_string(),
+            Parameter::String(segment_reason.to_string()),
         );
 
         node.send_output(output_id, params, data)

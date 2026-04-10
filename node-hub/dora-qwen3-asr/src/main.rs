@@ -1,8 +1,9 @@
 //! dora-qwen3-asr: Dora ASR node powered by qwen3-asr-mlx.
 //!
 //! Inputs:
-//!   audio  – Float32Array (16kHz mono PCM samples)
-//!            metadata: sample_rate (u32, default 16000), language (str, default "Chinese")
+//!   audio          – Float32Array (16kHz mono PCM samples)
+//!                    metadata: sample_rate (u32, default 16000), language (str, default "Chinese")
+//!   question_ended – marker from upstream VAD; forwarded as a transcription metadata flag
 //!
 //! Outputs:
 //!   transcription – StringArray (single element: transcribed text)
@@ -49,14 +50,14 @@ fn normalize_language(lang: &str) -> String {
     }
 }
 
-fn send_transcription(
-    node: &mut DoraNode,
-    text: &str,
+fn build_transcription_meta(
     question_id: Option<i64>,
     burst_id: Option<i64>,
     transcription_mode: Option<&str>,
-) -> Result<()> {
-    let arr = vec![text.to_string()].into_arrow();
+    segment_reason: Option<&str>,
+    question_ended: bool,
+    question_ended_only: bool,
+) -> BTreeMap<String, dora_node_api::Parameter> {
     let mut meta = BTreeMap::new();
     if let Some(qid) = question_id {
         meta.insert(
@@ -76,8 +77,78 @@ fn send_transcription(
             dora_node_api::Parameter::String(mode.to_string()),
         );
     }
+    if let Some(reason) = segment_reason {
+        meta.insert(
+            "segment_reason".to_string(),
+            dora_node_api::Parameter::String(reason.to_string()),
+        );
+    }
+    if question_ended {
+        meta.insert(
+            "question_ended".to_string(),
+            dora_node_api::Parameter::Bool(true),
+        );
+    }
+    if question_ended_only {
+        meta.insert(
+            "question_ended_only".to_string(),
+            dora_node_api::Parameter::Bool(true),
+        );
+    }
+    meta
+}
+
+fn send_transcription(
+    node: &mut DoraNode,
+    text: &str,
+    question_id: Option<i64>,
+    burst_id: Option<i64>,
+    transcription_mode: Option<&str>,
+    segment_reason: Option<&str>,
+    question_ended: bool,
+    question_ended_only: bool,
+) -> Result<()> {
+    let arr = vec![text.to_string()].into_arrow();
+    let meta = build_transcription_meta(
+        question_id,
+        burst_id,
+        transcription_mode,
+        segment_reason,
+        question_ended,
+        question_ended_only,
+    );
     node.send_output("transcription".into(), meta, arr)
         .map_err(|e| anyhow!("send_output(transcription) failed: {}", e))
+}
+
+fn send_question_ended_marker(
+    node: &mut DoraNode,
+    question_id: Option<i64>,
+    burst_id: Option<i64>,
+) -> Result<()> {
+    send_transcription(
+        node,
+        "",
+        question_id,
+        burst_id,
+        Some("marker"),
+        None,
+        true,
+        true,
+    )
+}
+
+fn should_emit_question_ended_marker_before_question(
+    pending_question_ended_qid: Option<i64>,
+    last_emitted_question_id: Option<i64>,
+    next_question_id: Option<i64>,
+) -> bool {
+    match pending_question_ended_qid {
+        Some(pending_qid) => {
+            Some(pending_qid) == last_emitted_question_id && Some(pending_qid) != next_question_id
+        }
+        None => false,
+    }
 }
 
 fn send_log(node: &mut DoraNode, msg: &str) -> Result<()> {
@@ -98,7 +169,11 @@ fn preview_text_for_log(text: &str, max_chars: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::preview_text_for_log;
+    use super::{
+        build_transcription_meta, preview_text_for_log,
+        should_emit_question_ended_marker_before_question,
+    };
+    use dora_node_api::Parameter;
 
     #[test]
     fn preview_text_for_log_handles_multibyte_without_panic() {
@@ -107,6 +182,56 @@ mod tests {
         assert!(!out.is_empty());
         assert!(s.starts_with(out));
         assert!(out.is_char_boundary(out.len()));
+    }
+
+    #[test]
+    fn build_transcription_meta_includes_question_ended_flag_only_when_requested() {
+        let meta = build_transcription_meta(
+            Some(123),
+            Some(456),
+            Some("final"),
+            Some("speech_end"),
+            true,
+            true,
+        );
+        assert!(matches!(meta.get("question_id"), Some(Parameter::Integer(123))));
+        assert!(matches!(meta.get("burst_id"), Some(Parameter::Integer(456))));
+        assert!(matches!(
+            meta.get("transcription_mode"),
+            Some(Parameter::String(mode)) if mode == "final"
+        ));
+        assert!(matches!(
+            meta.get("segment_reason"),
+            Some(Parameter::String(reason)) if reason == "speech_end"
+        ));
+        assert!(matches!(meta.get("question_ended"), Some(Parameter::Bool(true))));
+        assert!(matches!(
+            meta.get("question_ended_only"),
+            Some(Parameter::Bool(true))
+        ));
+
+        let meta = build_transcription_meta(Some(123), None, None, None, false, false);
+        assert!(!meta.contains_key("question_ended"));
+        assert!(!meta.contains_key("question_ended_only"));
+    }
+
+    #[test]
+    fn pending_question_ended_marker_emits_only_before_next_question() {
+        assert!(!should_emit_question_ended_marker_before_question(
+            None,
+            Some(123),
+            Some(456)
+        ));
+        assert!(!should_emit_question_ended_marker_before_question(
+            Some(123),
+            Some(123),
+            Some(123)
+        ));
+        assert!(should_emit_question_ended_marker_before_question(
+            Some(123),
+            Some(123),
+            Some(456)
+        ));
     }
 }
 
@@ -155,9 +280,35 @@ fn main() -> Result<()> {
         }
     };
 
+    let mut pending_question_ended_qid: Option<i64> = None;
+    let mut last_emitted_question_id: Option<i64> = None;
+    let mut last_emitted_burst_id: Option<i64> = None;
+
     while let Some(event) = events.recv() {
         match event {
             Event::Input { id, data, metadata } => {
+                if id.as_str() == "question_ended" {
+                    let question_id = metadata
+                        .parameters
+                        .get("question_id")
+                        .and_then(|p| match p {
+                            dora_node_api::Parameter::Integer(v) => Some(*v),
+                            _ => None,
+                        });
+                    tracing::info!(
+                        "Received question_ended marker from upstream (question_id={:?})",
+                        question_id
+                    );
+                    pending_question_ended_qid = question_id;
+                    let _ = send_log(
+                        &mut node,
+                        &format!(
+                            "Queued question_ended marker until next question transition (question_id={question_id:?})"
+                        ),
+                    );
+                    continue;
+                }
+
                 if id.as_str() != "audio" {
                     continue;
                 }
@@ -219,6 +370,39 @@ fn main() -> Result<()> {
                         dora_node_api::Parameter::String(s) => Some(s.clone()),
                         _ => None,
                     });
+                let segment_reason: Option<String> = metadata
+                    .parameters
+                    .get("segment_reason")
+                    .and_then(|p| match p {
+                        dora_node_api::Parameter::String(s) => Some(s.clone()),
+                        _ => None,
+                    });
+
+                if should_emit_question_ended_marker_before_question(
+                    pending_question_ended_qid,
+                    last_emitted_question_id,
+                    question_id,
+                ) {
+                    let pending_qid = pending_question_ended_qid.expect("checked above");
+                    tracing::info!(
+                        "Forwarding deferred question_ended via marker before new transcription (pending_qid={:?}, next_qid={:?}, burst_id={:?})",
+                        pending_qid,
+                        question_id,
+                        last_emitted_burst_id
+                    );
+                    let _ = send_log(
+                        &mut node,
+                        &format!(
+                            "Forwarding deferred question_ended marker before new transcription (pending_qid={pending_qid}, next_qid={question_id:?}, burst_id={last_emitted_burst_id:?})"
+                        ),
+                    );
+                    send_question_ended_marker(
+                        &mut node,
+                        Some(pending_qid),
+                        last_emitted_burst_id,
+                    )?;
+                    pending_question_ended_qid = None;
+                }
 
                 let duration_secs = samples.len() as f32 / sample_rate.max(1) as f32;
                 tracing::info!(
@@ -246,7 +430,18 @@ fn main() -> Result<()> {
                             let msg = format!("Resample failed: {}", e);
                             tracing::error!("{}", msg);
                             let _ = send_log(&mut node, &msg);
-                            let _ = send_transcription(&mut node, "", question_id, burst_id, transcription_mode.as_deref());
+                            let _ = send_transcription(
+                                &mut node,
+                                "",
+                                question_id,
+                                burst_id,
+                                transcription_mode.as_deref(),
+                                segment_reason.as_deref(),
+                                false,
+                                false,
+                            );
+                            last_emitted_question_id = question_id;
+                            last_emitted_burst_id = burst_id;
                             continue;
                         }
                     }
@@ -275,14 +470,36 @@ fn main() -> Result<()> {
                             ),
                         );
 
-                        send_transcription(&mut node, &text, question_id, burst_id, transcription_mode.as_deref())?;
+                        send_transcription(
+                            &mut node,
+                            &text,
+                            question_id,
+                            burst_id,
+                            transcription_mode.as_deref(),
+                            segment_reason.as_deref(),
+                            false,
+                            false,
+                        )?;
+                        last_emitted_question_id = question_id;
+                        last_emitted_burst_id = burst_id;
                     }
                     Err(e) => {
                         let msg = format!("Transcription failed: {:#}", e);
                         tracing::error!("{}", msg);
                         let _ = send_log(&mut node, &msg);
                         // Send empty transcription on error (matching dora-asr behavior)
-                        let _ = send_transcription(&mut node, "", question_id, burst_id, transcription_mode.as_deref());
+                        let _ = send_transcription(
+                            &mut node,
+                            "",
+                            question_id,
+                            burst_id,
+                            transcription_mode.as_deref(),
+                            segment_reason.as_deref(),
+                            false,
+                            false,
+                        );
+                        last_emitted_question_id = question_id;
+                        last_emitted_burst_id = burst_id;
                     }
                 }
             }

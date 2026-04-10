@@ -1,7 +1,6 @@
 //! dora-qwen35-translator: real-time translation Dora node powered by qwen3.5-35B-mlx.
 //!
-//! The translator treats upstream ASR as a text provider, not as a sentence
-//! segmentation authority.
+//! The translator treats upstream ASR as a text provider.
 //!
 //! Pipeline position:
 //!   dora-qwen3-asr + mic bridge
@@ -9,17 +8,16 @@
 //!      → [source_text, translation]
 //!
 //! # Inputs
-//!   text           – StringArray (single element: latest ASR text chunk)
-//!   question_ended – Optional upstream silence marker; ignored by commit logic
+//!   text – StringArray (single element: latest ASR text chunk)
 //!
 //! # Outputs
 //!   source_text  – current transcript tail or committed sentence
 //!   translation  – translated committed sentence
 //!   log          – status / debug messages
 //!
-//! Internally, the node keeps a continuously growing transcript buffer, merges
-//! new text chunks into that buffer, and only commits translations when it can
-//! identify a stable, meaningful span.
+//! Internally, the node maintains a continuously growing transcript buffer.
+//! Same-burst chunks replace the active burst, new bursts seal the previous
+//! one, and only sealed text participates in periodic translation commits.
 
 mod transcript_buffer;
 
@@ -34,7 +32,6 @@ use mlx_lm_utils::tokenizer::{
 use mlx_rs::ops::indexing::{IndexOp, NewAxis};
 use mlx_rs::transforms::eval;
 use qwen3_5_35b_mlx::{load_model, Generate};
-use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -189,101 +186,71 @@ fn load_eos_tokens(model_path: &std::path::Path) -> Result<HashSet<u32>> {
 
 // ── Translation system prompt ─────────────────────────────────────────────────
 
-const MIN_RAW_TAIL_CHARS: usize = 12;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CommitPromptMode {
-    Normal,
-    FinalDrain,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct StructuredResult {
-    #[serde(default)]
-    raw_text: String,
-    #[serde(default)]
-    text: String,
-    #[serde(default)]
-    translation: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct StructuredTranslation {
-    #[serde(default)]
-    result: StructuredResult,
-    #[serde(default)]
-    remaining: String,
-}
+const COMMIT_THRESHOLD_CHARS: usize = 10;
+const COMMIT_TICK_MS: u64 = 500;
+const IDLE_FLUSH_MS_DEFAULT: u64 = 9000;
 
 #[derive(Debug)]
 struct TranslationTask {
-    key: String,
-    raw_tail: String,
+    source_text: String,
     system_prompt: String,
     user_prompt: String,
 }
 
 #[derive(Debug)]
 struct TranslationResponse {
-    key: String,
-    raw_tail: String,
+    source_text: String,
     output: Result<String, String>,
 }
 
-fn build_system_prompt(tgt_lang: &str, mode: CommitPromptMode) -> String {
-    match mode {
-        CommitPromptMode::Normal => format!(
-            "/no_think 你会接收到一段没有标点符号的 ASR 文本，这段文本在语义上可能还没有说完。
-
-仅返回 JSON，包含以下字段：
-result, remaining
-
-规则：
-- 先判断输入前缀中，是否存在“现在就可以独立展示和翻译”的完整语义部分。
-- 只有这部分才放进 result，其余全部放进 remaining。
-- result 必须包含 raw_text, text, translation 三个字段。
-- result.raw_text 和 remaining 都是机器字段，必须直接从输入中逐字符复制。
-- 对 result.raw_text 和 remaining：绝对不允许加空格、不允许删字、不允许改字、不允许补标点、不允许改写大小写。
-- 只有 result.text 可以整理、补标点、提升可读性。
-- result.raw_text + remaining 必须严格等于输入文本。
-- result.text 必须是补全自然标点后的源语言句子，适合直接展示。
-- result.translation 必须是 result.text 的自然流畅的 {tgt} 翻译。
-- 如果后半句还有继续说下去的可能，必须保留在 remaining，绝对不要为了清空 remaining 而强行翻译残句。
-- remaining 是正常结果；不确定时，宁可让 remaining 更多，也不要多翻。
-- 如果没有任何可以安全翻译的内容，返回：
-  result={{}}, remaining=input。",
-            tgt = lang_display(tgt_lang),
-        ),
-        CommitPromptMode::FinalDrain => format!(
-            "/no_think 你会接收到一段没有标点符号的 ASR 文本。现在语音已经停止，这是最后一次收尾。
-
-仅返回 JSON，包含以下字段：
-result, remaining
-
-规则：
-- result 必须包含 raw_text, text, translation 三个字段。
-- result.raw_text 和 remaining 都是机器字段，必须直接从输入中逐字符复制。
-- 对 result.raw_text 和 remaining：绝对不允许加空格、不允许删字、不允许改字、不允许补标点、不允许改写大小写。
-- 只有 result.text 可以整理、补标点、提升可读性。
-- result.raw_text + remaining 必须严格等于输入文本。
-- result.text 必须是补全自然标点后的源语言句子，适合直接展示。
-- result.translation 必须是 result.text 的自然流畅的 {tgt} 翻译。
-- 优先提交完整句子。
-- 如果尾巴明显没说完，保留在 remaining。
-- 只有在收尾场景下，你才可以把最后一个不完全但已经适合展示的尾部片段放进 result。
-- 如果没有任何可以安全翻译的内容，返回：
-  result={{}}, remaining=input。",
-            tgt = lang_display(tgt_lang),
-        ),
-    }
+fn build_system_prompt(tgt_lang: &str) -> String {
+    format!(
+        "/no_think 将用户提供的文本翻译成{tgt}。只输出译文，不要解释，不要重复原文。",
+        tgt = lang_display(tgt_lang)
+    )
 }
 
-fn build_analysis_user_prompt(raw_tail: &str) -> String {
-    format!("Input:\n{raw_tail}\n\nReturn JSON only.",)
+fn build_translation_user_prompt(source_text: &str) -> String {
+    format!("Input:\n{source_text}")
 }
 
 fn format_commit_prompt_debug(system_prompt: &str, user_prompt: &str) -> String {
     format!("system_prompt=\n{system_prompt}\n\nuser_prompt=\n{user_prompt}")
+}
+
+fn strip_hard_cut_terminal_punctuation(chunk: &str) -> String {
+    let trimmed = chunk.trim_end();
+    let mut out = trimmed.to_string();
+    if matches!(out.chars().last(), Some('。' | '.' | '！' | '!' | '？' | '?')) {
+        out.pop();
+    }
+    out
+}
+
+fn find_commit_boundary_from_tail(text: &str) -> Option<usize> {
+    text.char_indices()
+        .rev()
+        .find_map(|(idx, ch)| match ch {
+            '，' | ',' | '。' | '.' | '！' | '!' | '？' | '?' | '；' | ';' => {
+                Some(idx + ch.len_utf8())
+            }
+            _ => None,
+        })
+}
+
+fn should_trigger_idle_flush(
+    elapsed_since_last_chunk: Option<Duration>,
+    has_buffered_text: bool,
+    translation_pending: bool,
+    flush_requested: bool,
+    idle_flush_ms: u64,
+) -> bool {
+    !translation_pending
+        && !flush_requested
+        && has_buffered_text
+        && elapsed_since_last_chunk
+            .map(|elapsed| elapsed >= Duration::from_millis(idle_flush_ms))
+            .unwrap_or(false)
 }
 
 fn supports_enable_thinking(chat_template: &str) -> bool {
@@ -489,63 +456,32 @@ fn generate_text_completion(
     Ok(full_translation.trim().to_string())
 }
 
-fn extract_json_object(raw: &str) -> Result<&str> {
-    let start = raw
-        .find('{')
-        .ok_or_else(|| anyhow!("No JSON object start found"))?;
-    let end = raw
-        .rfind('}')
-        .ok_or_else(|| anyhow!("No JSON object end found"))?;
-    if end < start {
-        return Err(anyhow!("Malformed JSON object boundaries"));
-    }
-    Ok(&raw[start..=end])
-}
-
-fn validate_structured_translation(raw_tail: &str, response: &StructuredTranslation) -> Result<()> {
-    if raw_tail != format!("{}{}", response.result.raw_text, response.remaining) {
-        return Err(anyhow!(
-            "result.raw_text + remaining does not equal raw input"
-        ));
-    }
-
-    if !response.result.raw_text.trim().is_empty()
-        && (response.result.text.trim().is_empty() || response.result.translation.trim().is_empty())
-    {
-        return Err(anyhow!("result.text or result.translation is empty"));
-    }
-
-    Ok(())
-}
-
 fn submit_translation_task(
     request_tx: &mpsc::Sender<TranslationTask>,
-    transcript: &TranscriptBuffer,
+    source_text: &str,
     tgt_lang: &str,
-    mode: CommitPromptMode,
-) -> Result<String> {
-    let raw_tail = transcript.raw_uncommitted_tail().to_string();
-    let key = format!("mode={mode:?}\nraw_tail=\n{raw_tail}");
-    let system_prompt = build_system_prompt(tgt_lang, mode);
-    let user_prompt = build_analysis_user_prompt(&raw_tail);
+    transcript: &TranscriptBuffer,
+) -> Result<()> {
+    let source_text = source_text.to_string();
+    let system_prompt = build_system_prompt(tgt_lang);
+    let user_prompt = build_translation_user_prompt(&source_text);
 
     tracing::info!(
-        "Entering commit attempt\n{}\nraw_tail=\n{}\nprompt=\n{}",
+        "Entering commit attempt\n{}\nsource_text=\n{}\nprompt=\n{}",
         transcript.debug_snapshot(),
-        raw_tail,
+        source_text,
         format_commit_prompt_debug(&system_prompt, &user_prompt)
     );
 
     request_tx
         .send(TranslationTask {
-            key: key.clone(),
-            raw_tail,
+            source_text,
             system_prompt,
             user_prompt,
         })
         .map_err(|e| anyhow!("failed to send translation task to worker: {e}"))?;
 
-    Ok(key)
+    Ok(())
 }
 
 fn handle_translation_response(
@@ -554,92 +490,43 @@ fn handle_translation_response(
     response: TranslationResponse,
 ) -> bool {
     let TranslationResponse {
-        key: _,
-        raw_tail,
+        source_text,
         output,
     } = response;
 
-    if raw_tail.is_empty() {
+    if source_text.is_empty() {
         return false;
     }
 
-    let model_output = match output {
+    let translation = match output {
         Ok(output) => output,
         Err(e) => {
-            tracing::error!("Structured translation generation failed: {e}");
+            tracing::error!("Translation generation failed: {e}");
             let _ = send_log(
                 node,
-                &format!("Structured translation generation failed: {e}"),
+                &format!("Translation generation failed: {e}"),
             );
             return false;
         }
     };
-    tracing::info!("Structured translation raw output\n{}", model_output);
-
-    let parsed = match extract_json_object(&model_output).and_then(|json| {
-        serde_json::from_str::<StructuredTranslation>(json).map_err(|e| anyhow!(e))
-    }) {
-        Ok(parsed) => parsed,
-        Err(e) => {
-            tracing::warn!(
-                "Failed to parse structured translation output: {e}\nraw_tail=\n{}\nraw_output=\n{}",
-                raw_tail,
-                model_output
-            );
-            let _ = send_log(
-                node,
-                &format!("Failed to parse structured translation output: {e}"),
-            );
-            return false;
-        }
-    };
-
-    if let Err(e) = validate_structured_translation(&raw_tail, &parsed) {
-        tracing::warn!(
-            "Structured translation validation failed: {e}\nraw_tail=\n{}\nparsed={:#?}",
-            raw_tail,
-            parsed
-        );
-        let _ = send_log(
-            node,
-            &format!("Structured translation validation failed: {e}"),
-        );
+    if translation.trim().is_empty() {
         return false;
     }
 
-    if parsed.result.raw_text.is_empty() {
-        return false;
-    }
-
-    tracing::info!(
-        "Structured commit: 1 result, {} raw chars",
-        parsed.result.raw_text.chars().count()
-    );
-
-    tracing::info!(
-        "Sentence commit: {} chars\n{}",
-        parsed.result.text.chars().count(),
-        parsed.result.text
-    );
-    let _ = send_source(node, &parsed.result.text, "complete", None);
-    let _ = send_translation_chunk(node, &parsed.result.translation, "complete", None);
-
-    match transcript.commit_raw_prefix(&parsed.result.raw_text) {
+    match transcript.consume_stable_prefix(&source_text) {
         Ok(()) => {
             tracing::info!(
-                "Committed raw prefix\ncommitted_prefix=\n{}\nupdated_committed_raw_pos={}\n{}",
-                parsed.result.raw_text,
-                transcript.committed_raw_pos(),
+                "Committed stable prefix\nsource_text=\n{}\n{}",
+                source_text,
                 transcript.debug_snapshot()
             );
+            let _ = send_source(node, &source_text, "complete", None);
+            let _ = send_translation_chunk(node, &translation, "complete", None);
             true
         }
         Err(e) => {
-            tracing::error!("Failed to advance committed raw prefix: {e}");
-            let _ = send_log(
-                node,
-                &format!("Failed to advance committed raw prefix: {e}"),
-            );
+            tracing::error!("Failed to consume committed stable prefix: {e}");
+            let _ = send_log(node, &format!("Failed to consume committed stable prefix: {e}"));
             false
         }
     }
@@ -726,8 +613,7 @@ fn translation_worker_loop(
 
         if response_tx
             .send(TranslationResponse {
-                key: task.key,
-                raw_tail: task.raw_tail,
+                source_text: task.source_text,
                 output,
             })
             .is_err()
@@ -762,6 +648,10 @@ fn main() -> Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(256);
+    let idle_flush_ms: u64 = std::env::var("TRANSLATOR_IDLE_FLUSH_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(IDLE_FLUSH_MS_DEFAULT);
     tracing::info!("Translation: {} → {}", src_lang, tgt_lang);
 
     let model_path = resolve_model_path();
@@ -801,46 +691,34 @@ fn main() -> Result<()> {
         }
     }
 
-    tracing::info!("Buffer merge mode active: upstream modes are ignored for commit decisions");
-    let _ = send_log(
-        &mut node,
-        "Buffer merge mode active: upstream modes are ignored for commit decisions",
-    );
+    tracing::info!("Buffer merge mode active");
+    let _ = send_log(&mut node, "Buffer merge mode active");
 
     let mut transcript = TranscriptBuffer::new();
     let mut current_burst_id: Option<i64> = None;
-    let mut pending_translation_key: Option<String> = None;
-    let mut last_analyzed_key: Option<String> = None;
+    let mut translation_pending = false;
+    let mut flush_requested = false;
     let mut stopping = false;
+    let mut last_asr_chunk_at: Option<Instant> = None;
 
     loop {
         while let Ok(response) = response_rx.try_recv() {
-            let response_key = response.key.clone();
             let did_commit = handle_translation_response(&mut node, &mut transcript, response);
-            pending_translation_key = None;
-
-            let mode = if stopping {
-                CommitPromptMode::FinalDrain
-            } else {
-                CommitPromptMode::Normal
-            };
-            let current_analyze_key = format!(
-                "mode={mode:?}\nraw_tail=\n{}",
-                transcript.raw_uncommitted_tail()
-            );
+            translation_pending = false;
 
             if did_commit {
-                last_analyzed_key = None;
                 let tail = transcript.uncommitted_tail();
                 if !tail.is_empty() {
                     let _ = send_source(&mut node, &tail, "streaming", current_burst_id);
                 }
-            } else if current_analyze_key == response_key {
-                last_analyzed_key = Some(response_key);
+            }
+
+            if flush_requested && transcript.stable_buffer().trim().is_empty() {
+                flush_requested = false;
             }
         }
 
-        let event = events.recv_timeout(Duration::from_millis(100));
+        let event = events.recv_timeout(Duration::from_millis(COMMIT_TICK_MS));
 
         match event {
             None => {}
@@ -867,93 +745,144 @@ fn main() -> Result<()> {
                     if burst_id.is_some() {
                         current_burst_id = burst_id;
                     }
+                    let transcription_mode = metadata
+                        .parameters
+                        .get("transcription_mode")
+                        .and_then(|p| match p {
+                            dora_node_api::Parameter::String(v) => Some(v.as_str()),
+                            _ => None,
+                        })
+                        .unwrap_or("progressive");
+                    let segment_reason = metadata
+                        .parameters
+                        .get("segment_reason")
+                        .and_then(|p| match p {
+                            dora_node_api::Parameter::String(v) => Some(v.as_str()),
+                            _ => None,
+                        });
 
                     let arr = match data.as_any().downcast_ref::<StringArray>() {
                         Some(a) if a.len() > 0 => a,
                         _ => continue,
                     };
                     let chunk = arr.value(0).trim().to_string();
-                    if chunk.is_empty() {
-                        continue;
+                    let chunk_is_usable = !chunk.is_empty()
+                        && !should_drop_low_info_chunk(&chunk, &src_lang);
+
+                    if chunk_is_usable {
+                        tracing::info!(
+                            "Received ASR chunk\nburst_id={:?}\nmode={}\nsegment_reason={:?}\nchunk=\n{}",
+                            current_burst_id,
+                            transcription_mode,
+                            segment_reason,
+                            chunk
+                        );
+                    } else {
+                        tracing::info!(
+                            "Ignoring non-usable ASR chunk\nburst_id={:?}\nmode={}\nsegment_reason={:?}\nchunk_is_empty={}",
+                            current_burst_id,
+                            transcription_mode,
+                            segment_reason,
+                            chunk.is_empty()
+                        );
                     }
-                    if should_drop_low_info_chunk(&chunk, &src_lang) {
-                        tracing::debug!("Dropping low-info ASR chunk: {}", chunk);
+
+                    if !chunk_is_usable {
                         continue;
                     }
 
-                    tracing::info!(
-                        "Received ASR chunk\nburst_id={:?}\nchunk=\n{}",
-                        current_burst_id,
+                    last_asr_chunk_at = Some(Instant::now());
+                    let chunk_for_buffer = if segment_reason == Some("max_segment") {
+                        strip_hard_cut_terminal_punctuation(&chunk)
+                    } else {
                         chunk
-                    );
+                    };
 
-                    let changed = transcript.update_from_chunk(burst_id, &chunk);
+                    let mut changed = transcript.update_from_chunk(burst_id, &chunk_for_buffer);
+                    if transcription_mode == "final" && transcript.seal_active_burst() {
+                        changed = true;
+                    }
+
                     tracing::info!(
                         "Transcript state after chunk (changed={})\n{}",
                         changed,
                         transcript.debug_snapshot()
                     );
-                    if changed {
-                        last_analyzed_key = None;
-                    }
 
                     let tail = transcript.uncommitted_tail();
                     if !tail.is_empty() {
                         let _ = send_source(&mut node, &tail, "streaming", current_burst_id);
                     }
-                } else if id.as_str() == "question_ended" {
-                    tracing::debug!("Ignoring question_ended in buffer merge mode");
                 }
             }
             Some(Event::Stop(_)) => {
                 tracing::info!("Stop event received, draining pending translation work");
                 stopping = true;
+                flush_requested = true;
                 if transcript.seal_active_burst() {
                     tracing::info!(
                         "Active burst sealed on stop\n{}",
                         transcript.debug_snapshot()
                     );
-                    last_analyzed_key = None;
                 }
             }
             _ => {}
         }
 
-        let min_chars = if stopping { 1 } else { MIN_RAW_TAIL_CHARS };
-        let raw_tail = transcript.raw_uncommitted_tail().to_string();
-        let mode = if stopping {
-            CommitPromptMode::FinalDrain
-        } else {
-            CommitPromptMode::Normal
-        };
-        let analyze_key = format!("mode={mode:?}\nraw_tail=\n{raw_tail}");
-        if pending_translation_key.is_none()
-            && transcript.has_pending_raw_text(min_chars)
-            && last_analyzed_key.as_deref() != Some(analyze_key.as_str())
-        {
-            match submit_translation_task(&request_tx, &transcript, &tgt_lang, mode) {
-                Ok(key) => {
-                    pending_translation_key = Some(key);
+        if should_trigger_idle_flush(
+            last_asr_chunk_at.map(|instant| instant.elapsed()),
+            !transcript.buffer().trim().is_empty(),
+            translation_pending,
+            flush_requested,
+            idle_flush_ms,
+        ) {
+            tracing::info!(
+                "Idle flush triggered after {}ms without new ASR chunk",
+                idle_flush_ms
+            );
+            flush_requested = true;
+            if transcript.seal_active_burst() {
+                tracing::info!(
+                    "Active burst sealed on idle flush\n{}",
+                    transcript.debug_snapshot()
+                );
+            }
+        }
+
+        if !translation_pending {
+            let next_source = if flush_requested {
+                let stable = transcript.stable_buffer().trim();
+                if stable.is_empty() {
+                    None
+                } else {
+                    Some(stable.to_string())
                 }
-                Err(e) => {
-                    let _ = worker_handle.join();
-                    return Err(anyhow!("Failed to submit translation task: {e}"));
+            } else if transcript.has_stable_text(COMMIT_THRESHOLD_CHARS) {
+                let stable = transcript.stable_buffer();
+                find_commit_boundary_from_tail(stable).map(|end| stable[..end].to_string())
+            } else {
+                None
+            };
+
+            if let Some(source_text) = next_source {
+                match submit_translation_task(&request_tx, &source_text, &tgt_lang, &transcript) {
+                    Ok(()) => {
+                        translation_pending = true;
+                    }
+                    Err(e) => {
+                        let _ = worker_handle.join();
+                        return Err(anyhow!("Failed to submit translation task: {e}"));
+                    }
                 }
             }
         }
 
-        if stopping {
-            let raw_tail = transcript.raw_uncommitted_tail().to_string();
-            let final_key = format!(
-                "mode={:?}\nraw_tail=\n{}",
-                CommitPromptMode::FinalDrain,
-                raw_tail
-            );
-            let drained =
-                raw_tail.is_empty() || last_analyzed_key.as_deref() == Some(final_key.as_str());
-            if pending_translation_key.is_none() && drained {
-                break;
-            }
+        if stopping
+            && !translation_pending
+            && transcript.stable_buffer().trim().is_empty()
+            && transcript.active_burst_text().is_empty()
+        {
+            break;
         }
     }
 
@@ -969,100 +898,99 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_system_prompt, extract_json_object, format_commit_prompt_debug,
-        validate_structured_translation, CommitPromptMode, StructuredResult, StructuredTranslation,
+        build_system_prompt, find_commit_boundary_from_tail, format_commit_prompt_debug,
+        should_trigger_idle_flush, strip_hard_cut_terminal_punctuation,
     };
+    use std::time::Duration;
 
     #[test]
-    fn extract_json_object_ignores_wrapper_text() {
-        let raw = "```json\n{\"result\":{\"raw_text\":\"abc\",\"text\":\"甲。\",\"translation\":\"A.\"},\"remaining\":\"def\"}\n```";
-        let json = extract_json_object(raw).expect("json object should be extracted");
+    fn strip_hard_cut_terminal_punctuation_removes_single_sentence_mark() {
         assert_eq!(
-            json,
-            "{\"result\":{\"raw_text\":\"abc\",\"text\":\"甲。\",\"translation\":\"A.\"},\"remaining\":\"def\"}"
+            strip_hard_cut_terminal_punctuation("我们一八年开源的。"),
+            "我们一八年开源的"
+        );
+        assert_eq!(
+            strip_hard_cut_terminal_punctuation("我们一八年开源的！"),
+            "我们一八年开源的"
+        );
+        assert_eq!(
+            strip_hard_cut_terminal_punctuation("我们一八年开源的"),
+            "我们一八年开源的"
         );
     }
 
     #[test]
-    fn validate_structured_translation_accepts_prefix_partition() {
-        let response = StructuredTranslation {
-            result: StructuredResult {
-                raw_text: "大家下午好我叫鲍月然后来自华为".into(),
-                text: "大家下午好，我叫鲍月。然后来自华为。".into(),
-                translation: "Good afternoon, I'm Bao Yue. I'm from Huawei.".into(),
-            },
-            remaining: "现在也是CoolEdge".into(),
-        };
-
-        validate_structured_translation(
-            "大家下午好我叫鲍月然后来自华为现在也是CoolEdge",
-            &response,
-        )
-        .expect("valid structured translation should pass");
+    fn find_commit_boundary_from_tail_prefers_last_comma() {
+        let text = "大家下午好，我叫鲍月，然后来自华为，现在也是CoolEdge";
+        let end = find_commit_boundary_from_tail(text).expect("boundary should exist");
+        assert_eq!(&text[..end], "大家下午好，我叫鲍月，然后来自华为，");
     }
 
     #[test]
-    fn validate_structured_translation_rejects_sentence_prefix_mismatch() {
-        let response = StructuredTranslation {
-            result: StructuredResult {
-                raw_text: "大家下午好我叫鲍月".into(),
-                text: "大家下午好，我叫鲍月。".into(),
-                translation: "Good afternoon, I'm Bao Yue.".into(),
-            },
-            remaining: "现在也是CoolEdge".into(),
-        };
-
-        let err = validate_structured_translation(
-            "大家下午好我叫鲍月然后来自华为现在也是CoolEdge",
-            &response,
-        )
-        .expect_err("mismatched raw_text + remaining partition should fail");
-        assert!(err
-            .to_string()
-            .contains("result.raw_text + remaining does not equal raw input"));
+    fn find_commit_boundary_from_tail_falls_back_to_sentence_end() {
+        let text = "这是我们一八年开源的。然后继续";
+        let end = find_commit_boundary_from_tail(text).expect("boundary should exist");
+        assert_eq!(&text[..end], "这是我们一八年开源的。");
     }
 
     #[test]
-    fn validate_structured_translation_accepts_sentence_without_terminal_punctuation() {
-        let response = StructuredTranslation {
-            result: StructuredResult {
-                raw_text: "大家下午好我叫鲍月".into(),
-                text: "大家下午好，我叫鲍月".into(),
-                translation: "Good afternoon, I'm Bao Yue.".into(),
-            },
-            remaining: "".into(),
-        };
-
-        validate_structured_translation("大家下午好我叫鲍月", &response)
-            .expect("content quality should not be rejected by structural validator");
+    fn find_commit_boundary_from_tail_returns_none_without_supported_separator() {
+        assert!(find_commit_boundary_from_tail("大家下午好我叫鲍月然后来自华为").is_none());
     }
 
     #[test]
-    fn build_system_prompt_is_language_agnostic_and_conservative() {
-        let prompt = build_system_prompt("en", CommitPromptMode::Normal);
-        assert!(prompt.contains("你会接收到一段没有标点符号的 ASR 文本"));
-        assert!(prompt.contains("result, remaining"));
-        assert!(prompt.contains("绝对不要为了清空 remaining 而强行翻译残句"));
-        assert!(prompt.contains("result.raw_text 和 remaining 都是机器字段"));
-        assert!(prompt.contains("绝对不允许加空格、不允许删字、不允许改字"));
-    }
-
-    #[test]
-    fn build_system_prompt_final_drain_mentions_final_fragment() {
-        let prompt = build_system_prompt("zh", CommitPromptMode::FinalDrain);
-        assert!(prompt.contains("现在语音已经停止，这是最后一次收尾"));
-        assert!(prompt.contains("最后一个不完全但已经适合展示的尾部片段放进 result"));
-        assert!(prompt.contains("result.raw_text 和 remaining 都是机器字段"));
+    fn build_system_prompt_is_plain_translation_only() {
+        let prompt = build_system_prompt("en");
+        assert!(prompt.contains("只输出译文"));
+        assert!(prompt.contains("English"));
     }
 
     #[test]
     fn format_commit_prompt_debug_keeps_full_prompt_sections() {
         let debug = format_commit_prompt_debug(
-            "You are a translator.",
-            "Input:\n大家下午好我叫鲍月然后来自华为\n\nReturn JSON only.",
+            "Translate to English. Output translation only.",
+            "Input:\n大家下午好，我叫鲍月，然后来自华为，",
         );
-        assert!(debug.contains("system_prompt=\nYou are a translator."));
-        assert!(debug.contains("user_prompt=\nInput:\n大家下午好我叫鲍月然后来自华为"));
-        assert!(debug.contains("Return JSON only."));
+        assert!(debug.contains("system_prompt=\nTranslate to English. Output translation only."));
+        assert!(debug.contains("user_prompt=\nInput:\n大家下午好，我叫鲍月，然后来自华为，"));
+    }
+
+    #[test]
+    fn should_trigger_idle_flush_only_after_threshold_with_buffered_text() {
+        assert!(!should_trigger_idle_flush(
+            Some(Duration::from_millis(800)),
+            true,
+            false,
+            false,
+            1100
+        ));
+        assert!(should_trigger_idle_flush(
+            Some(Duration::from_millis(1200)),
+            true,
+            false,
+            false,
+            1100
+        ));
+        assert!(!should_trigger_idle_flush(
+            Some(Duration::from_millis(1200)),
+            false,
+            false,
+            false,
+            1100
+        ));
+        assert!(!should_trigger_idle_flush(
+            Some(Duration::from_millis(1200)),
+            true,
+            true,
+            false,
+            1100
+        ));
+        assert!(!should_trigger_idle_flush(
+            Some(Duration::from_millis(1200)),
+            true,
+            false,
+            true,
+            1100
+        ));
     }
 }

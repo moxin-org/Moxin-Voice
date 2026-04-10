@@ -25,6 +25,7 @@ nodes:
     path: __ASR_BIN_PATH__
     inputs:
       audio: moxin-mic-input/audio_segment
+      question_ended: moxin-mic-input/question_ended
     outputs:
       - transcription
       - log
@@ -36,7 +37,6 @@ nodes:
     path: __TRANSLATOR_BIN_PATH__
     inputs:
       text: asr/transcription
-      question_ended: moxin-mic-input/question_ended
     outputs:
       - source_text
       - translation
