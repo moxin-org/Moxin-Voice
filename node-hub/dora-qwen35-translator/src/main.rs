@@ -28,21 +28,28 @@ use arrow::array::{Array, StringArray};
 use dora_node_api::{DoraNode, Event, IntoArrow};
 use minijinja::{context, Environment};
 use minijinja_contrib::pycompat::unknown_method_callback;
-use mlx_rs::ops::indexing::{IndexOp, NewAxis};
-use mlx_rs::transforms::eval;
 use mlx_lm_utils::tokenizer::{
     load_model_chat_template_from_file, ApplyChatTemplateArgs, Conversation, Tokenizer,
 };
+use mlx_rs::ops::indexing::{IndexOp, NewAxis};
+use mlx_rs::transforms::eval;
 use qwen3_5_35b_mlx::{load_model, Generate};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 use transcript_buffer::TranscriptBuffer;
 
 // ── Dora output helper ───────────────────────────────────────────────────────
 
-fn send_str(node: &mut DoraNode, output: &str, value: &str, meta: BTreeMap<String, dora_node_api::Parameter>) -> Result<()> {
+fn send_str(
+    node: &mut DoraNode,
+    output: &str,
+    value: &str,
+    meta: BTreeMap<String, dora_node_api::Parameter>,
+) -> Result<()> {
     let arr = vec![value.to_string()].into_arrow();
     node.send_output(output.into(), meta, arr)
         .map_err(|e| anyhow!("send_output({output}) failed: {e}"))
@@ -59,7 +66,10 @@ fn send_source(
     question_id: Option<i64>,
 ) -> Result<()> {
     let mut meta = BTreeMap::new();
-    meta.insert("session_status".into(), dora_node_api::Parameter::String(status.into()));
+    meta.insert(
+        "session_status".into(),
+        dora_node_api::Parameter::String(status.into()),
+    );
     if let Some(qid) = question_id {
         meta.insert(
             "question_id".to_string(),
@@ -76,7 +86,10 @@ fn send_translation_chunk(
     question_id: Option<i64>,
 ) -> Result<()> {
     let mut meta = BTreeMap::new();
-    meta.insert("session_status".into(), dora_node_api::Parameter::String(status.into()));
+    meta.insert(
+        "session_status".into(),
+        dora_node_api::Parameter::String(status.into()),
+    );
     if let Some(qid) = question_id {
         meta.insert(
             "question_id".to_string(),
@@ -91,14 +104,14 @@ fn send_translation_chunk(
 fn normalize_lang(raw: &str) -> &'static str {
     match raw.trim().to_lowercase().as_str() {
         "zh" | "zh-cn" | "chinese" | "cn" => "Chinese",
-        "en" | "en-us" | "english"         => "English",
-        "fr" | "french"                    => "French",
-        "ja" | "jp" | "japanese"           => "Japanese",
-        "ko" | "korean"                    => "Korean",
-        "de" | "german"                    => "German",
-        "es" | "spanish"                   => "Spanish",
-        "ru" | "russian"                   => "Russian",
-        _                                  => "English",   // safe fallback
+        "en" | "en-us" | "english" => "English",
+        "fr" | "french" => "French",
+        "ja" | "jp" | "japanese" => "Japanese",
+        "ko" | "korean" => "Korean",
+        "de" | "german" => "German",
+        "es" | "spanish" => "Spanish",
+        "ru" | "russian" => "Russian",
+        _ => "English", // safe fallback
     }
 }
 
@@ -119,8 +132,7 @@ fn should_drop_low_info_chunk(chunk: &str, src_lang: &str) -> bool {
     // triggered by breath/noise and should not be translated as standalone text.
     if normalize_lang(src_lang) == "Chinese" {
         const FILLERS: &[&str] = &[
-            "嗯", "啊", "呃", "额", "唔", "哦", "噢", "哎", "哈",
-            "嗯嗯", "啊啊", "呃呃",
+            "嗯", "啊", "呃", "额", "唔", "哦", "噢", "哎", "哈", "嗯嗯", "啊啊", "呃呃",
         ];
         if FILLERS.contains(&t) {
             return true;
@@ -149,9 +161,11 @@ fn resolve_model_path() -> PathBuf {
 fn load_eos_tokens(model_path: &std::path::Path) -> Result<HashSet<u32>> {
     let config_path = model_path.join("config.json");
     let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path)?)?;
-    let eos_value = config
-        .get("eos_token_id")
-        .or_else(|| config.get("text_config").and_then(|v| v.get("eos_token_id")));
+    let eos_value = config.get("eos_token_id").or_else(|| {
+        config
+            .get("text_config")
+            .and_then(|v| v.get("eos_token_id"))
+    });
 
     let eos_tokens = match eos_value {
         Some(serde_json::Value::Array(ids)) => ids
@@ -199,6 +213,21 @@ struct StructuredTranslation {
     result: StructuredResult,
     #[serde(default)]
     remaining: String,
+}
+
+#[derive(Debug)]
+struct TranslationTask {
+    key: String,
+    raw_tail: String,
+    system_prompt: String,
+    user_prompt: String,
+}
+
+#[derive(Debug)]
+struct TranslationResponse {
+    key: String,
+    raw_tail: String,
+    output: Result<String, String>,
 }
 
 fn build_system_prompt(tgt_lang: &str, mode: CommitPromptMode) -> String {
@@ -250,15 +279,11 @@ result, remaining
 }
 
 fn build_analysis_user_prompt(raw_tail: &str) -> String {
-    format!(
-        "Input:\n{raw_tail}\n\nReturn JSON only.",
-    )
+    format!("Input:\n{raw_tail}\n\nReturn JSON only.",)
 }
 
 fn format_commit_prompt_debug(system_prompt: &str, user_prompt: &str) -> String {
-    format!(
-        "system_prompt=\n{system_prompt}\n\nuser_prompt=\n{user_prompt}"
-    )
+    format!("system_prompt=\n{system_prompt}\n\nuser_prompt=\n{user_prompt}")
 }
 
 fn supports_enable_thinking(chat_template: &str) -> bool {
@@ -280,8 +305,14 @@ fn render_prompt_with_enable_thinking(
         .map_err(|e| anyhow!("Failed to load compiled chat_template: {e}"))?;
 
     let messages = vec![
-        Conversation { role: "system", content: system_prompt },
-        Conversation { role: "user", content: user_text },
+        Conversation {
+            role: "system",
+            content: system_prompt,
+        },
+        Conversation {
+            role: "user",
+            content: user_text,
+        },
     ];
 
     let rendered = template
@@ -312,15 +343,23 @@ fn build_prompt_token_ids(
                 return Ok(encoding.get_ids().to_vec());
             }
             Err(e) => {
-                tracing::warn!("No-think template render failed, fallback to default template path: {e}");
+                tracing::warn!(
+                    "No-think template render failed, fallback to default template path: {e}"
+                );
             }
         }
     }
 
     // Fallback: single-turn conversation.
     let conversations: Vec<Conversation<&str, &str>> = vec![
-        Conversation { role: "system", content: system_prompt },
-        Conversation { role: "user", content: user_text },
+        Conversation {
+            role: "system",
+            content: system_prompt,
+        },
+        Conversation {
+            role: "user",
+            content: user_text,
+        },
     ];
     let args = ApplyChatTemplateArgs {
         conversations: vec![conversations.into()],
@@ -342,7 +381,6 @@ fn build_prompt_token_ids(
 }
 
 fn generate_text_completion(
-    node: &mut DoraNode,
     tokenizer: &mut Tokenizer,
     model: &mut qwen3_5_35b_mlx::Model,
     chat_template: &str,
@@ -384,22 +422,17 @@ fn generate_text_completion(
     let token_budget = max_tokens;
     for token_result in generator {
         if t_start.elapsed().as_secs_f32() >= MAX_TRANSLATION_SECS {
-            let msg = format!(
+            tracing::warn!(
                 "Generation timeout after {:.2}s, forcing finalize",
                 t_start.elapsed().as_secs_f32()
             );
-            tracing::warn!("{}", msg);
-            let _ = send_log(node, &msg);
             break;
         }
 
         let token = match token_result {
             Ok(t) => t,
             Err(e) => {
-                let msg = format!("Generation error: {e}");
-                tracing::error!("{}", msg);
-                let _ = send_log(node, &msg);
-                break;
+                return Err(anyhow!("Generation error: {e}"));
             }
         };
 
@@ -445,22 +478,24 @@ fn generate_text_completion(
         generated,
         full_translation
     );
-    let _ = send_log(node, &format!(
-        "Translated in {:.2}s ({} tokens)",
-        elapsed, generated
-    ));
 
     // Release Metal buffer pool accumulated during KV-cache inference.
     // Equivalent to Python's mx.metal.clear_cache(); prevents memory pressure
     // from building up across successive translations.
-    unsafe { mlx_sys::mlx_clear_cache(); }
+    unsafe {
+        mlx_sys::mlx_clear_cache();
+    }
 
     Ok(full_translation.trim().to_string())
 }
 
 fn extract_json_object(raw: &str) -> Result<&str> {
-    let start = raw.find('{').ok_or_else(|| anyhow!("No JSON object start found"))?;
-    let end = raw.rfind('}').ok_or_else(|| anyhow!("No JSON object end found"))?;
+    let start = raw
+        .find('{')
+        .ok_or_else(|| anyhow!("No JSON object start found"))?;
+    let end = raw
+        .rfind('}')
+        .ok_or_else(|| anyhow!("No JSON object end found"))?;
     if end < start {
         return Err(anyhow!("Malformed JSON object boundaries"));
     }
@@ -469,7 +504,9 @@ fn extract_json_object(raw: &str) -> Result<&str> {
 
 fn validate_structured_translation(raw_tail: &str, response: &StructuredTranslation) -> Result<()> {
     if raw_tail != format!("{}{}", response.result.raw_text, response.remaining) {
-        return Err(anyhow!("result.raw_text + remaining does not equal raw input"));
+        return Err(anyhow!(
+            "result.raw_text + remaining does not equal raw input"
+        ));
     }
 
     if !response.result.raw_text.trim().is_empty()
@@ -481,63 +518,67 @@ fn validate_structured_translation(raw_tail: &str, response: &StructuredTranslat
     Ok(())
 }
 
-fn try_commit_once(
-    node: &mut DoraNode,
-    transcript: &mut TranscriptBuffer,
-    tokenizer: &mut Tokenizer,
-    model: &mut qwen3_5_35b_mlx::Model,
-    chat_template: &str,
-    model_id: &str,
+fn submit_translation_task(
+    request_tx: &mpsc::Sender<TranslationTask>,
+    transcript: &TranscriptBuffer,
     tgt_lang: &str,
     mode: CommitPromptMode,
-    force_disable_thinking: bool,
-    temperature: f32,
-    max_tokens: usize,
-    min_raw_tail_chars: usize,
-    eos_tokens: &HashSet<u32>,
-) -> bool {
-    if !transcript.has_pending_raw_text(min_raw_tail_chars) {
-        return false;
-    }
-
+) -> Result<String> {
     let raw_tail = transcript.raw_uncommitted_tail().to_string();
-    if raw_tail.is_empty() {
-        return false;
-    }
-
+    let key = format!("mode={mode:?}\nraw_tail=\n{raw_tail}");
     let system_prompt = build_system_prompt(tgt_lang, mode);
     let user_prompt = build_analysis_user_prompt(&raw_tail);
+
     tracing::info!(
         "Entering commit attempt\n{}\nraw_tail=\n{}\nprompt=\n{}",
         transcript.debug_snapshot(),
         raw_tail,
         format_commit_prompt_debug(&system_prompt, &user_prompt)
     );
-    let model_output = match generate_text_completion(
-        node,
-        tokenizer,
-        model,
-        chat_template,
-        model_id,
-        &system_prompt,
-        &user_prompt,
-        force_disable_thinking,
-        temperature,
-        max_tokens,
-        eos_tokens,
-        ) {
+
+    request_tx
+        .send(TranslationTask {
+            key: key.clone(),
+            raw_tail,
+            system_prompt,
+            user_prompt,
+        })
+        .map_err(|e| anyhow!("failed to send translation task to worker: {e}"))?;
+
+    Ok(key)
+}
+
+fn handle_translation_response(
+    node: &mut DoraNode,
+    transcript: &mut TranscriptBuffer,
+    response: TranslationResponse,
+) -> bool {
+    let TranslationResponse {
+        key: _,
+        raw_tail,
+        output,
+    } = response;
+
+    if raw_tail.is_empty() {
+        return false;
+    }
+
+    let model_output = match output {
         Ok(output) => output,
         Err(e) => {
             tracing::error!("Structured translation generation failed: {e}");
-            let _ = send_log(node, &format!("Structured translation generation failed: {e}"));
+            let _ = send_log(
+                node,
+                &format!("Structured translation generation failed: {e}"),
+            );
             return false;
         }
     };
     tracing::info!("Structured translation raw output\n{}", model_output);
 
-    let parsed = match extract_json_object(&model_output)
-        .and_then(|json| serde_json::from_str::<StructuredTranslation>(json).map_err(|e| anyhow!(e)))
-    {
+    let parsed = match extract_json_object(&model_output).and_then(|json| {
+        serde_json::from_str::<StructuredTranslation>(json).map_err(|e| anyhow!(e))
+    }) {
         Ok(parsed) => parsed,
         Err(e) => {
             tracing::warn!(
@@ -545,7 +586,10 @@ fn try_commit_once(
                 raw_tail,
                 model_output
             );
-            let _ = send_log(node, &format!("Failed to parse structured translation output: {e}"));
+            let _ = send_log(
+                node,
+                &format!("Failed to parse structured translation output: {e}"),
+            );
             return false;
         }
     };
@@ -556,7 +600,10 @@ fn try_commit_once(
             raw_tail,
             parsed
         );
-        let _ = send_log(node, &format!("Structured translation validation failed: {e}"));
+        let _ = send_log(
+            node,
+            &format!("Structured translation validation failed: {e}"),
+        );
         return false;
     }
 
@@ -589,8 +636,103 @@ fn try_commit_once(
         }
         Err(e) => {
             tracing::error!("Failed to advance committed raw prefix: {e}");
-            let _ = send_log(node, &format!("Failed to advance committed raw prefix: {e}"));
+            let _ = send_log(
+                node,
+                &format!("Failed to advance committed raw prefix: {e}"),
+            );
             false
+        }
+    }
+}
+
+fn translation_worker_loop(
+    model_path: PathBuf,
+    temperature: f32,
+    max_tokens: usize,
+    ready_tx: mpsc::Sender<Result<(), String>>,
+    request_rx: mpsc::Receiver<TranslationTask>,
+    response_tx: mpsc::Sender<TranslationResponse>,
+) {
+    let init = || -> Result<(
+        Tokenizer,
+        qwen3_5_35b_mlx::Model,
+        String,
+        String,
+        bool,
+        HashSet<u32>,
+    )> {
+        let tokenizer_file = model_path.join("tokenizer.json");
+        let tokenizer_config_file = model_path.join("tokenizer_config.json");
+
+        let tokenizer = Tokenizer::from_file(&tokenizer_file)
+            .map_err(|e| anyhow!("Failed to load tokenizer: {e:?}"))?;
+
+        let chat_template = match load_model_chat_template_from_file(&tokenizer_config_file)? {
+            Some(t) => t,
+            None => {
+                let jinja_path = model_path.join("chat_template.jinja");
+                std::fs::read_to_string(&jinja_path).map_err(|_| {
+                    anyhow!("Chat template not found in tokenizer_config.json or chat_template.jinja")
+                })?
+            }
+        };
+
+        let model =
+            load_model(&model_path).map_err(|e| anyhow!("Failed to load Qwen3.5 model: {e}"))?;
+        let eos_tokens = load_eos_tokens(&model_path)?;
+        let model_id = model_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("qwen3.5")
+            .to_string();
+        let force_disable_thinking = model_id.to_lowercase().contains("qwen3");
+
+        Ok((
+            tokenizer,
+            model,
+            chat_template,
+            model_id,
+            force_disable_thinking,
+            eos_tokens,
+        ))
+    };
+
+    let (mut tokenizer, mut model, chat_template, model_id, force_disable_thinking, eos_tokens) =
+        match init() {
+            Ok(state) => {
+                let _ = ready_tx.send(Ok(()));
+                state
+            }
+            Err(e) => {
+                let _ = ready_tx.send(Err(e.to_string()));
+                return;
+            }
+        };
+
+    while let Ok(task) = request_rx.recv() {
+        let output = generate_text_completion(
+            &mut tokenizer,
+            &mut model,
+            &chat_template,
+            &model_id,
+            &task.system_prompt,
+            &task.user_prompt,
+            force_disable_thinking,
+            temperature,
+            max_tokens,
+            &eos_tokens,
+        )
+        .map_err(|e| e.to_string());
+
+        if response_tx
+            .send(TranslationResponse {
+                key: task.key,
+                raw_tail: task.raw_tail,
+                output,
+            })
+            .is_err()
+        {
+            break;
         }
     }
 }
@@ -607,8 +749,8 @@ fn main() -> Result<()> {
 
     tracing::info!("dora-qwen35-translator starting");
 
-    let (mut node, mut events) = DoraNode::init_from_env()
-        .map_err(|e| anyhow!("Failed to init Dora node: {e}"))?;
+    let (mut node, mut events) =
+        DoraNode::init_from_env().map_err(|e| anyhow!("Failed to init Dora node: {e}"))?;
 
     let src_lang = std::env::var("SRC_LANG").unwrap_or_else(|_| "zh".into());
     let tgt_lang = std::env::var("TGT_LANG").unwrap_or_else(|_| "en".into());
@@ -629,44 +771,36 @@ fn main() -> Result<()> {
         &format!("Loading Qwen3.5 model from {}", model_path.display()),
     );
 
-    let tokenizer_file = model_path.join("tokenizer.json");
-    let tokenizer_config_file = model_path.join("tokenizer_config.json");
+    let (request_tx, request_rx) = mpsc::channel();
+    let (response_tx, response_rx) = mpsc::channel();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let worker_model_path = model_path.clone();
+    let worker_handle = thread::spawn(move || {
+        translation_worker_loop(
+            worker_model_path,
+            temperature,
+            max_tokens,
+            ready_tx,
+            request_rx,
+            response_tx,
+        )
+    });
 
-    let mut tokenizer = Tokenizer::from_file(&tokenizer_file)
-        .map_err(|e| anyhow!("Failed to load tokenizer: {e:?}"))?;
-
-    let chat_template = match load_model_chat_template_from_file(&tokenizer_config_file)? {
-        Some(t) => t,
-        None => {
-            let jinja_path = model_path.join("chat_template.jinja");
-            std::fs::read_to_string(&jinja_path).map_err(|_| {
-                anyhow!("Chat template not found in tokenizer_config.json or chat_template.jinja")
-            })?
+    match ready_rx.recv() {
+        Ok(Ok(())) => {
+            tracing::info!("Qwen3.5 model loaded");
+            let _ = send_log(&mut node, "Qwen3.5 model loaded - ready to translate");
         }
-    };
+        Ok(Err(e)) => {
+            let _ = worker_handle.join();
+            return Err(anyhow!("Failed to initialize translation worker: {e}"));
+        }
+        Err(e) => {
+            let _ = worker_handle.join();
+            return Err(anyhow!("Translation worker did not report readiness: {e}"));
+        }
+    }
 
-    let mut model =
-        load_model(&model_path).map_err(|e| anyhow!("Failed to load Qwen3.5 model: {e}"))?;
-    let eos_tokens = load_eos_tokens(&model_path)?;
-
-    tracing::info!("Qwen3.5 model loaded");
-    let _ = send_log(&mut node, "Qwen3.5 model loaded — ready to translate");
-
-    let model_id = model_path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("qwen3.5")
-        .to_string();
-    let force_disable_thinking = model_id.to_lowercase().contains("qwen3");
-    tracing::info!(
-        "Prompt mode: {}, template_switch_supported={}",
-        if force_disable_thinking {
-            "qwen3-no-think"
-        } else {
-            "default"
-        },
-        supports_enable_thinking(&chat_template)
-    );
     tracing::info!("Buffer merge mode active: upstream modes are ignored for commit decisions");
     let _ = send_log(
         &mut node,
@@ -675,20 +809,43 @@ fn main() -> Result<()> {
 
     let mut transcript = TranscriptBuffer::new();
     let mut current_burst_id: Option<i64> = None;
-    let mut translate_idle = true;
+    let mut pending_translation_key: Option<String> = None;
     let mut last_analyzed_key: Option<String> = None;
     let mut stopping = false;
 
     loop {
+        while let Ok(response) = response_rx.try_recv() {
+            let response_key = response.key.clone();
+            let did_commit = handle_translation_response(&mut node, &mut transcript, response);
+            pending_translation_key = None;
+
+            let mode = if stopping {
+                CommitPromptMode::FinalDrain
+            } else {
+                CommitPromptMode::Normal
+            };
+            let current_analyze_key = format!(
+                "mode={mode:?}\nraw_tail=\n{}",
+                transcript.raw_uncommitted_tail()
+            );
+
+            if did_commit {
+                last_analyzed_key = None;
+                let tail = transcript.uncommitted_tail();
+                if !tail.is_empty() {
+                    let _ = send_source(&mut node, &tail, "streaming", current_burst_id);
+                }
+            } else if current_analyze_key == response_key {
+                last_analyzed_key = Some(response_key);
+            }
+        }
+
         let event = events.recv_timeout(Duration::from_millis(100));
 
         match event {
             None => {}
             Some(Event::Input {
-                id,
-                data,
-                metadata,
-                ..
+                id, data, metadata, ..
             }) => {
                 if id.as_str() == "text" {
                     let burst_id = metadata
@@ -698,13 +855,15 @@ fn main() -> Result<()> {
                             dora_node_api::Parameter::Integer(v) => Some(*v),
                             _ => None,
                         })
-                        .or_else(|| metadata
-                        .parameters
-                        .get("question_id")
-                        .and_then(|p| match p {
-                            dora_node_api::Parameter::Integer(v) => Some(*v),
-                            _ => None,
-                        }));
+                        .or_else(|| {
+                            metadata
+                                .parameters
+                                .get("question_id")
+                                .and_then(|p| match p {
+                                    dora_node_api::Parameter::Integer(v) => Some(*v),
+                                    _ => None,
+                                })
+                        });
                     if burst_id.is_some() {
                         current_burst_id = burst_id;
                     }
@@ -750,7 +909,10 @@ fn main() -> Result<()> {
                 tracing::info!("Stop event received, draining pending translation work");
                 stopping = true;
                 if transcript.seal_active_burst() {
-                    tracing::info!("Active burst sealed on stop\n{}", transcript.debug_snapshot());
+                    tracing::info!(
+                        "Active burst sealed on stop\n{}",
+                        transcript.debug_snapshot()
+                    );
                     last_analyzed_key = None;
                 }
             }
@@ -765,53 +927,40 @@ fn main() -> Result<()> {
             CommitPromptMode::Normal
         };
         let analyze_key = format!("mode={mode:?}\nraw_tail=\n{raw_tail}");
-        if translate_idle
+        if pending_translation_key.is_none()
             && transcript.has_pending_raw_text(min_chars)
             && last_analyzed_key.as_deref() != Some(analyze_key.as_str())
         {
-            translate_idle = false;
-            if !translate_idle {
-                let did_commit = try_commit_once(
-                    &mut node,
-                    &mut transcript,
-                    &mut tokenizer,
-                    &mut model,
-                    &chat_template,
-                    &model_id,
-                    &tgt_lang,
-                    mode,
-                    force_disable_thinking,
-                    temperature,
-                    max_tokens,
-                    min_chars,
-                    &eos_tokens,
-                );
-                translate_idle = true;
-                if did_commit {
-                    last_analyzed_key = None;
-                } else {
-                    last_analyzed_key = Some(analyze_key);
+            match submit_translation_task(&request_tx, &transcript, &tgt_lang, mode) {
+                Ok(key) => {
+                    pending_translation_key = Some(key);
                 }
-
-                if did_commit {
-                    let tail = transcript.uncommitted_tail();
-                    if !tail.is_empty() {
-                        let _ = send_source(&mut node, &tail, "streaming", current_burst_id);
-                    }
+                Err(e) => {
+                    let _ = worker_handle.join();
+                    return Err(anyhow!("Failed to submit translation task: {e}"));
                 }
             }
         }
 
         if stopping {
             let raw_tail = transcript.raw_uncommitted_tail().to_string();
-            let final_key = format!("mode={:?}\nraw_tail=\n{}", CommitPromptMode::FinalDrain, raw_tail);
-            let drained = raw_tail.is_empty()
-                || last_analyzed_key.as_deref() == Some(final_key.as_str());
-            if translate_idle && drained {
+            let final_key = format!(
+                "mode={:?}\nraw_tail=\n{}",
+                CommitPromptMode::FinalDrain,
+                raw_tail
+            );
+            let drained =
+                raw_tail.is_empty() || last_analyzed_key.as_deref() == Some(final_key.as_str());
+            if pending_translation_key.is_none() && drained {
                 break;
             }
         }
     }
+
+    drop(request_tx);
+    worker_handle
+        .join()
+        .map_err(|_| anyhow!("Translation worker thread panicked"))?;
 
     tracing::info!("dora-qwen35-translator stopped");
     Ok(())
