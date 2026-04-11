@@ -56,12 +56,11 @@ fn send_log(node: &mut DoraNode, msg: &str) -> Result<()> {
     send_str(node, "log", msg, BTreeMap::new())
 }
 
-fn send_source(
-    node: &mut DoraNode,
-    text: &str,
+fn build_session_meta(
     status: &str,
     question_id: Option<i64>,
-) -> Result<()> {
+    commit_id: Option<i64>,
+) -> BTreeMap<String, dora_node_api::Parameter> {
     let mut meta = BTreeMap::new();
     meta.insert(
         "session_status".into(),
@@ -73,7 +72,28 @@ fn send_source(
             dora_node_api::Parameter::Integer(qid),
         );
     }
-    send_str(node, "source_text", text, meta)
+    if let Some(commit_id) = commit_id {
+        meta.insert(
+            "commit_id".to_string(),
+            dora_node_api::Parameter::Integer(commit_id),
+        );
+    }
+    meta
+}
+
+fn send_source(
+    node: &mut DoraNode,
+    text: &str,
+    status: &str,
+    question_id: Option<i64>,
+    commit_id: Option<i64>,
+) -> Result<()> {
+    send_str(
+        node,
+        "source_text",
+        text,
+        build_session_meta(status, question_id, commit_id),
+    )
 }
 
 fn send_translation_chunk(
@@ -81,16 +101,14 @@ fn send_translation_chunk(
     chunk: &str,
     status: &str,
     question_id: Option<i64>,
+    commit_id: Option<i64>,
+    source_text: Option<&str>,
 ) -> Result<()> {
-    let mut meta = BTreeMap::new();
-    meta.insert(
-        "session_status".into(),
-        dora_node_api::Parameter::String(status.into()),
-    );
-    if let Some(qid) = question_id {
+    let mut meta = build_session_meta(status, question_id, commit_id);
+    if let Some(source_text) = source_text {
         meta.insert(
-            "question_id".to_string(),
-            dora_node_api::Parameter::Integer(qid),
+            "source_text".to_string(),
+            dora_node_api::Parameter::String(source_text.to_string()),
         );
     }
     send_str(node, "translation", chunk, meta)
@@ -487,6 +505,7 @@ fn submit_translation_task(
 fn handle_translation_response(
     node: &mut DoraNode,
     transcript: &mut TranscriptBuffer,
+    next_commit_id: &mut i64,
     response: TranslationResponse,
 ) -> bool {
     let TranslationResponse {
@@ -515,13 +534,23 @@ fn handle_translation_response(
 
     match transcript.consume_stable_prefix(&source_text) {
         Ok(()) => {
+            let commit_id = *next_commit_id;
+            *next_commit_id += 1;
             tracing::info!(
-                "Committed stable prefix\nsource_text=\n{}\n{}",
+                "Committed stable prefix\ncommit_id={}\nsource_text=\n{}\n{}",
+                commit_id,
                 source_text,
                 transcript.debug_snapshot()
             );
-            let _ = send_source(node, &source_text, "complete", None);
-            let _ = send_translation_chunk(node, &translation, "complete", None);
+            let _ = send_source(node, &source_text, "complete", None, Some(commit_id));
+            let _ = send_translation_chunk(
+                node,
+                &translation,
+                "complete",
+                None,
+                Some(commit_id),
+                Some(&source_text),
+            );
             true
         }
         Err(e) => {
@@ -700,16 +729,22 @@ fn main() -> Result<()> {
     let mut flush_requested = false;
     let mut stopping = false;
     let mut last_asr_chunk_at: Option<Instant> = None;
+    let mut next_commit_id: i64 = 1;
 
     loop {
         while let Ok(response) = response_rx.try_recv() {
-            let did_commit = handle_translation_response(&mut node, &mut transcript, response);
+            let did_commit = handle_translation_response(
+                &mut node,
+                &mut transcript,
+                &mut next_commit_id,
+                response,
+            );
             translation_pending = false;
 
             if did_commit {
                 let tail = transcript.uncommitted_tail();
                 if !tail.is_empty() {
-                    let _ = send_source(&mut node, &tail, "streaming", current_burst_id);
+                    let _ = send_source(&mut node, &tail, "streaming", current_burst_id, None);
                 }
             }
 
@@ -811,7 +846,7 @@ fn main() -> Result<()> {
 
                     let tail = transcript.uncommitted_tail();
                     if !tail.is_empty() {
-                        let _ = send_source(&mut node, &tail, "streaming", current_burst_id);
+                        let _ = send_source(&mut node, &tail, "streaming", current_burst_id, None);
                     }
                 }
             }
@@ -899,6 +934,7 @@ fn main() -> Result<()> {
 mod tests {
     use super::{
         build_system_prompt, find_commit_boundary_from_tail, format_commit_prompt_debug,
+        build_session_meta,
         should_trigger_idle_flush, strip_hard_cut_terminal_punctuation,
     };
     use std::time::Duration;
@@ -943,6 +979,23 @@ mod tests {
         let prompt = build_system_prompt("en");
         assert!(prompt.contains("只输出译文"));
         assert!(prompt.contains("English"));
+    }
+
+    #[test]
+    fn build_session_meta_includes_commit_id_when_present() {
+        let meta = build_session_meta("complete", Some(42), Some(7));
+        assert_eq!(
+            meta.get("session_status"),
+            Some(&dora_node_api::Parameter::String("complete".into()))
+        );
+        assert_eq!(
+            meta.get("question_id"),
+            Some(&dora_node_api::Parameter::Integer(42))
+        );
+        assert_eq!(
+            meta.get("commit_id"),
+            Some(&dora_node_api::Parameter::Integer(7))
+        );
     }
 
     #[test]

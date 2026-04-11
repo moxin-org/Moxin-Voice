@@ -13,6 +13,7 @@ use dora_node_api::{
     DoraNode, Event, Parameter,
 };
 use parking_lot::RwLock;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread;
 use tracing::{debug, error, info, warn};
@@ -29,6 +30,114 @@ pub struct TranslationListenerBridge {
     stop_sender: Option<Sender<()>>,
     /// Worker thread handle
     worker_handle: Option<thread::JoinHandle<()>>,
+}
+
+#[derive(Debug, Default)]
+struct TranslationDisplayState {
+    history: Vec<SentenceUnit>,
+    pending_source_text: String,
+    current_source_text: String,
+    pending_completed_sources: HashMap<i64, String>,
+    pending_completed_translations: HashMap<i64, String>,
+    finalized_commit_ids: HashSet<i64>,
+}
+
+impl TranslationDisplayState {
+    fn handle_source_text(
+        &mut self,
+        session_status: &str,
+        text: String,
+        commit_id: Option<i64>,
+        max_history: usize,
+    ) -> bool {
+        match session_status {
+            "streaming" => {
+                self.current_source_text = text.clone();
+                self.pending_source_text = text;
+                false
+            }
+            "complete" => {
+                if let Some(commit_id) = commit_id {
+                    if self.finalized_commit_ids.contains(&commit_id) {
+                        return false;
+                    }
+                    self.pending_completed_sources.insert(commit_id, text);
+                    self.try_finalize_complete_pair(commit_id, max_history)
+                } else {
+                    // Legacy fallback if complete source arrives without commit_id.
+                    self.current_source_text = text;
+                    false
+                }
+            }
+            _ => {
+                self.current_source_text = text.clone();
+                self.pending_source_text = text;
+                false
+            }
+        }
+    }
+
+    fn handle_translation_complete(
+        &mut self,
+        text: String,
+        commit_id: Option<i64>,
+        source_text: Option<String>,
+        max_history: usize,
+    ) -> bool {
+        if let Some(commit_id) = commit_id {
+            if self.finalized_commit_ids.contains(&commit_id) {
+                return false;
+            }
+            if let Some(source_text) = source_text {
+                self.pending_completed_sources.remove(&commit_id);
+                self.pending_completed_translations.remove(&commit_id);
+                self.finalized_commit_ids.insert(commit_id);
+                self.push_completed_sentence(source_text, text, max_history);
+                return true;
+            }
+            self.pending_completed_translations.insert(commit_id, text);
+            self.try_finalize_complete_pair(commit_id, max_history)
+        } else {
+            self.push_completed_sentence(self.current_source_text.clone(), text, max_history);
+            true
+        }
+    }
+
+    fn try_finalize_complete_pair(&mut self, commit_id: i64, max_history: usize) -> bool {
+        let Some(source_text) = self.pending_completed_sources.remove(&commit_id) else {
+            return false;
+        };
+        let Some(translation) = self.pending_completed_translations.remove(&commit_id) else {
+            self.pending_completed_sources.insert(commit_id, source_text);
+            return false;
+        };
+
+        self.finalized_commit_ids.insert(commit_id);
+        self.push_completed_sentence(source_text, translation, max_history);
+        true
+    }
+
+    fn push_completed_sentence(
+        &mut self,
+        source_text: String,
+        translation: String,
+        max_history: usize,
+    ) {
+        self.history.push(SentenceUnit {
+            source_text: source_text.clone(),
+            translation,
+        });
+        if self.history.len() > max_history {
+            self.history.remove(0);
+        }
+
+        if self.pending_source_text == source_text {
+            self.pending_source_text.clear();
+        }
+        if self.current_source_text == source_text {
+            self.current_source_text.clear();
+        }
+    }
 }
 
 impl TranslationListenerBridge {
@@ -81,13 +190,7 @@ impl TranslationListenerBridge {
         }
 
         const MAX_HISTORY: usize = 50;
-
-        // Completed sentence history (source + translation pairs).
-        let mut history: Vec<SentenceUnit> = Vec::new();
-        // Current in-progress ASR text (not yet translated).
-        let mut pending_source_text = String::new();
-        // Current source text for the sentence being translated.
-        let mut current_source_text = String::new();
+        let mut display = TranslationDisplayState::default();
 
         loop {
             if stop_receiver.try_recv().is_ok() {
@@ -128,19 +231,36 @@ impl TranslationListenerBridge {
                                     if let Parameter::String(s) = v { Some(s.clone()) } else { None }
                                 })
                                 .unwrap_or_else(|| "streaming".to_string());
+                            let commit_id = metadata
+                                .parameters
+                                .iter()
+                                .find(|(k, _)| k.as_str() == "commit_id")
+                                .and_then(|(_, v)| {
+                                    if let Parameter::Integer(v) = v {
+                                        Some(*v)
+                                    } else {
+                                        None
+                                    }
+                                });
 
-                            debug!("[TranslationListener] source_text ({}): {}", session_status, &text);
+                            debug!(
+                                "[TranslationListener] source_text ({}, commit_id={:?}): {}",
+                                session_status,
+                                commit_id,
+                                &text
+                            );
 
-                            {
-                                // Normal streaming update of pending display.
-                                current_source_text = text.clone();
-                                pending_source_text = text;
-                                if let Some(ref shared) = shared_state {
-                                    shared.translation.set(Some(TranslationUpdate {
-                                        history: history.clone(),
-                                        pending_source_text: pending_source_text.clone(),
-                                    }));
-                                }
+                            display.handle_source_text(
+                                &session_status,
+                                text,
+                                commit_id,
+                                MAX_HISTORY,
+                            );
+                            if let Some(ref shared) = shared_state {
+                                shared.translation.set(Some(TranslationUpdate {
+                                    history: display.history.clone(),
+                                    pending_source_text: display.pending_source_text.clone(),
+                                }));
                             }
                         } else if id == DataId::from("translation".to_owned()) {
                             let session_status = metadata
@@ -155,35 +275,58 @@ impl TranslationListenerBridge {
                                     }
                                 })
                                 .unwrap_or("complete");
+                            let commit_id = metadata
+                                .parameters
+                                .iter()
+                                .find(|(k, _)| k.as_str() == "commit_id")
+                                .and_then(|(_, v)| {
+                                    if let Parameter::Integer(v) = v {
+                                        Some(*v)
+                                    } else {
+                                        None
+                                    }
+                                });
+                            let source_text_meta = metadata
+                                .parameters
+                                .iter()
+                                .find(|(k, _)| k.as_str() == "source_text")
+                                .and_then(|(_, v)| {
+                                    if let Parameter::String(v) = v {
+                                        Some(v.clone())
+                                    } else {
+                                        None
+                                    }
+                                });
 
                             debug!(
-                                "[TranslationListener] translation ({}): {}",
-                                session_status, &text
+                                "[TranslationListener] translation ({}, commit_id={:?}, source_text_meta_present={}): {}",
+                                session_status,
+                                commit_id,
+                                source_text_meta.is_some(),
+                                &text
                             );
 
                             if session_status == "complete" {
-                                info!(
-                                    "[TranslationListener] Translation complete: [{}] -> [{}]",
-                                    current_source_text, text
+                                let completed = display.handle_translation_complete(
+                                    text,
+                                    commit_id,
+                                    source_text_meta,
+                                    MAX_HISTORY,
                                 );
-
-                                // Add completed sentence to history.
-                                history.push(SentenceUnit {
-                                    source_text: current_source_text.clone(),
-                                    translation: text,
-                                });
-                                // Cap history size.
-                                if history.len() > MAX_HISTORY {
-                                    history.remove(0);
+                                if completed {
+                                    if let Some(latest) = display.history.last() {
+                                        info!(
+                                            "[TranslationListener] Translation complete: [{}] -> [{}]",
+                                            latest.source_text,
+                                            latest.translation
+                                        );
+                                    }
                                 }
-                                // Clear pending since this sentence is done.
-                                pending_source_text.clear();
-                                current_source_text.clear();
 
                                 if let Some(ref shared) = shared_state {
                                     shared.translation.set(Some(TranslationUpdate {
-                                        history: history.clone(),
-                                        pending_source_text: String::new(),
+                                        history: display.history.clone(),
+                                        pending_source_text: display.pending_source_text.clone(),
                                     }));
                                 }
                             } else if session_status == "replace_last" {
@@ -200,11 +343,11 @@ impl TranslationListenerBridge {
                                     .and_then(|(_, v)| {
                                         if let Parameter::String(s) = v { Some(s.clone()) } else { None }
                                     });
-                                let last_idx = history.len().saturating_sub(1);
+                                let last_idx = display.history.len().saturating_sub(1);
                                 if last_idx >= 1 {
                                     // Remove N-1 (the older entry), update N (latest) in-place.
-                                    history.remove(last_idx - 1);
-                                    if let Some(latest) = history.last_mut() {
+                                    display.history.remove(last_idx - 1);
+                                    if let Some(latest) = display.history.last_mut() {
                                         if let Some(src) = combined_source {
                                             latest.source_text = src;
                                         }
@@ -214,18 +357,18 @@ impl TranslationListenerBridge {
                                             latest.source_text, text
                                         );
                                     }
-                                } else if let Some(only) = history.last_mut() {
+                                } else if let Some(only) = display.history.last_mut() {
                                     // Only one entry — just update it.
                                     if let Some(src) = combined_source {
                                         only.source_text = src;
                                     }
                                     only.translation = text.clone();
                                 }
-                                pending_source_text.clear();
-                                current_source_text.clear();
+                                display.pending_source_text.clear();
+                                display.current_source_text.clear();
                                 if let Some(ref shared) = shared_state {
                                     shared.translation.set(Some(TranslationUpdate {
-                                        history: history.clone(),
+                                        history: display.history.clone(),
                                         pending_source_text: String::new(),
                                     }));
                                 }
@@ -359,5 +502,76 @@ impl DoraBridge for TranslationListenerBridge {
 
     fn expected_outputs(&self) -> Vec<String> {
         vec![]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TranslationDisplayState;
+
+    #[test]
+    fn complete_pairing_uses_commit_id_instead_of_latest_streaming_source() {
+        let mut state = TranslationDisplayState::default();
+
+        state.handle_source_text("streaming", "旧句".to_string(), None, 50);
+        state.handle_source_text("complete", "旧句".to_string(), Some(1), 50);
+        state.handle_source_text("streaming", "新句，后半段".to_string(), None, 50);
+
+        let completed = state.handle_translation_complete(
+            "old translation".to_string(),
+            Some(1),
+            None,
+            50,
+        );
+        assert!(completed);
+
+        assert_eq!(state.history.len(), 1);
+        assert_eq!(state.history[0].source_text, "旧句");
+        assert_eq!(state.history[0].translation, "old translation");
+        assert_eq!(state.pending_source_text, "新句，后半段");
+    }
+
+    #[test]
+    fn finalized_commit_clears_pending_only_when_pending_matches_same_source() {
+        let mut state = TranslationDisplayState::default();
+
+        state.handle_source_text("streaming", "同一句".to_string(), None, 50);
+        state.handle_source_text("complete", "同一句".to_string(), Some(7), 50);
+
+        let completed = state.handle_translation_complete(
+            "same translation".to_string(),
+            Some(7),
+            None,
+            50,
+        );
+        assert!(completed);
+
+        assert!(state.pending_source_text.is_empty());
+        assert_eq!(state.history.len(), 1);
+        assert_eq!(state.history[0].source_text, "同一句");
+    }
+
+    #[test]
+    fn translation_complete_with_embedded_source_finalizes_without_separate_source_event() {
+        let mut state = TranslationDisplayState::default();
+
+        state.handle_source_text("streaming", "新句，后半段".to_string(), None, 50);
+
+        let completed = state.handle_translation_complete(
+            "old translation".to_string(),
+            Some(11),
+            Some("旧句".to_string()),
+            50,
+        );
+        assert!(completed);
+
+        assert_eq!(state.history.len(), 1);
+        assert_eq!(state.history[0].source_text, "旧句");
+        assert_eq!(state.history[0].translation, "old translation");
+        assert_eq!(state.pending_source_text, "新句，后半段");
+
+        let completed_again = state.handle_source_text("complete", "旧句".to_string(), Some(11), 50);
+        assert!(!completed_again);
+        assert_eq!(state.history.len(), 1);
     }
 }
