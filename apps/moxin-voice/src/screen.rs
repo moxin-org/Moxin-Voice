@@ -15242,7 +15242,12 @@ impl TTSScreen {
             shared
                 .translation_overlay_fullscreen
                 .set(self.translation_overlay_fullscreen);
+            shared
+                .translation_overlay_opacity
+                .set(self.translation_overlay_opacity);
         }
+        // Sync audio source from current dropdown selection
+        self.send_audio_source_to_bridge(self.translation_device_idx == 0);
 
         // Switch to running view
         self.translation_running = true;

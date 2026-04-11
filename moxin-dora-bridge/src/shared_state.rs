@@ -713,12 +713,12 @@ impl SharedDoraState {
                     translation_window_visible: DirtyValue::new(false),
                     translation_input_device: DirtyValue::new(None),
                     translation_overlay_fullscreen: DirtyValue::new(false),
-                    translation_overlay_opacity: DirtyValue::new(0.85),
+                    translation_overlay_opacity: DirtyValue::new(1.0),
                     translation_locale_en: DirtyValue::new(false),
                     translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
                     translation_font_size_preset: DirtyValue::new("normal".to_string()),
                     translation_anchor_position_preset: DirtyValue::new("50".to_string()),
-                    translation_audio_source: DirtyValue::new(AudioSource::Microphone),
+                    translation_audio_source: DirtyValue::new(AudioSource::SystemAudio),
                 })
             })
             .clone()
@@ -737,12 +737,12 @@ impl SharedDoraState {
             translation_window_visible: DirtyValue::new(false),
             translation_input_device: DirtyValue::new(None),
             translation_overlay_fullscreen: DirtyValue::new(false),
-            translation_overlay_opacity: DirtyValue::new(0.85),
+            translation_overlay_opacity: DirtyValue::new(1.0),
             translation_locale_en: DirtyValue::new(false),
             translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
             translation_font_size_preset: DirtyValue::new("normal".to_string()),
             translation_anchor_position_preset: DirtyValue::new("50".to_string()),
-            translation_audio_source: DirtyValue::new(AudioSource::Microphone),
+            translation_audio_source: DirtyValue::new(AudioSource::SystemAudio),
         })
     }
 
@@ -796,12 +796,12 @@ impl Default for SharedDoraState {
             translation_window_visible: DirtyValue::new(false),
             translation_input_device: DirtyValue::new(None),
             translation_overlay_fullscreen: DirtyValue::new(false),
-            translation_overlay_opacity: DirtyValue::new(0.85),
+            translation_overlay_opacity: DirtyValue::new(1.0),
             translation_locale_en: DirtyValue::new(false),
             translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
             translation_font_size_preset: DirtyValue::new("normal".to_string()),
             translation_anchor_position_preset: DirtyValue::new("50".to_string()),
-            translation_audio_source: DirtyValue::new(AudioSource::Microphone),
+            translation_audio_source: DirtyValue::new(AudioSource::SystemAudio),
         }
     }
 }
