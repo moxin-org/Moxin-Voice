@@ -5239,11 +5239,12 @@ live_design! {
                                 visible: false
                                 show_bg: true
                                 draw_bg: {
+                                    instance dark_mode: 0.0
                                     instance border_radius: 12.0
                                     fn pixel(self) -> vec4 {
                                         let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                                         sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                        sdf.fill(vec4(0.098, 0.725, 0.506, 0.15));
+                                        sdf.fill(mix(vec4(0.098, 0.725, 0.506, 0.15), vec4(0.098, 0.725, 0.506, 0.22), self.dark_mode));
                                         return sdf.result;
                                     }
                                 }
@@ -5265,8 +5266,11 @@ live_design! {
                                 translation_status_text = <Label> {
                                     width: Fit, height: Fit
                                     draw_text: {
+                                        instance dark_mode: 0.0
                                         text_style: <FONT_MEDIUM>{ font_size: 11.0 }
-                                        fn get_color(self) -> vec4 { return vec4(0.098, 0.725, 0.506, 1.0); }
+                                        fn get_color(self) -> vec4 {
+                                            return mix(vec4(0.098, 0.725, 0.506, 1.0), vec4(0.42, 0.90, 0.68, 1.0), self.dark_mode);
+                                        }
                                     }
                                     text: "运行中"
                                 }
@@ -5452,22 +5456,26 @@ live_design! {
                                             text: "紧凑"
                                             draw_bg: {
                                                 instance active: 1.0
+                                                instance dark_mode: 0.0
                                                 instance border_radius: 6.0
                                                 fn pixel(self) -> vec4 {
                                                     let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                                                     sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
                                                     let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    let inact = mix(vec4(0.0, 0.0, 0.0, 0.0), vec4(0.16, 0.20, 0.28, 0.0), self.dark_mode);
                                                     sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    let inactive_border = mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
+                                                    sdf.stroke(mix(inactive_border, vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
                                                     return sdf.result;
                                                 }
                                             }
                                             draw_text: {
                                                 instance active: 1.0
+                                                instance dark_mode: 0.0
                                                 text_style: <FONT_MEDIUM>{ font_size: 12.0 }
                                                 fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                    let normal = mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(0.68, 0.78, 0.98, 1.0), self.dark_mode);
+                                                    return mix(normal, vec4(1.0,1.0,1.0,1.0), self.active);
                                                 }
                                             }
                                         }
@@ -5478,22 +5486,26 @@ live_design! {
                                             text: "全屏"
                                             draw_bg: {
                                                 instance active: 0.0
+                                                instance dark_mode: 0.0
                                                 instance border_radius: 6.0
                                                 fn pixel(self) -> vec4 {
                                                     let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                                                     sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
                                                     let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
+                                                    let inact = mix(vec4(0.0, 0.0, 0.0, 0.0), vec4(0.16, 0.20, 0.28, 0.0), self.dark_mode);
                                                     sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    let inactive_border = mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
+                                                    sdf.stroke(mix(inactive_border, vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
                                                     return sdf.result;
                                                 }
                                             }
                                             draw_text: {
                                                 instance active: 0.0
+                                                instance dark_mode: 0.0
                                                 text_style: <FONT_MEDIUM>{ font_size: 12.0 }
                                                 fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
+                                                    let normal = mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(0.68, 0.78, 0.98, 1.0), self.dark_mode);
+                                                    return mix(normal, vec4(1.0,1.0,1.0,1.0), self.active);
                                                 }
                                             }
                                         }
@@ -5609,7 +5621,7 @@ live_design! {
                                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "浮窗透明度"
+                                            text: "浮窗不透明度"
                                         }
 
                                         opacity_dropdown = <SettingsDeviceDropDown> {
@@ -8308,11 +8320,11 @@ impl Widget for TTSScreen {
             self.translation_metrics_timer = Timer::default();
             self.translation_last_logged_fingerprint = None;
             self.translation_audio_devices = Vec::new();
-            self.translation_device_idx = 1; // 0 = System Audio, 1 = System Default Mic
-            self.translation_overlay_fullscreen = false;
-            self.translation_overlay_opacity = 0.85;
+            self.translation_device_idx = 0; // 0 = System Audio, 1 = System Default Mic
+            self.translation_overlay_fullscreen = true;
+            self.translation_overlay_opacity = 1.0;
             self.translation_overlay_font_size_preset = "normal".to_string();
-            self.translation_overlay_anchor_position_preset = "50".to_string();
+            self.translation_overlay_anchor_position_preset = "70".to_string();
             // Add initial log entries
             self.log_entries
                 .push("[INFO] [tts] Moxin TTS initialized".to_string());
@@ -8758,6 +8770,8 @@ impl Widget for TTSScreen {
             self.switch_page(cx, AppPage::Translation);
             self.populate_translation_input_dropdown(cx);
             self.update_translation_lang_dropdowns(cx);
+            self.update_translation_overlay_style_buttons(cx);
+            self.update_translation_anchor_position_dropdown(cx);
             self.update_translation_opacity_dropdown(cx);
         }
 
@@ -11705,7 +11719,7 @@ impl TTSScreen {
             .label(ids!(
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label
             ))
-            .set_text(cx, self.tr("浮窗透明度", "Overlay Opacity"));
+            .set_text(cx, self.tr("浮窗不透明度", "Overlay Opacity"));
         self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_start_btn
@@ -11723,10 +11737,11 @@ impl TTSScreen {
             .set_text(cx, self.tr("停止翻译", "Stop Translation"));
         self.update_translation_settings_layout_for_locale(cx);
         self.update_translation_lang_dropdowns(cx);
+        self.update_translation_overlay_style_buttons(cx);
         self.update_translation_font_size_dropdown(cx);
         self.update_translation_anchor_position_dropdown(cx);
         self.populate_translation_input_dropdown(cx);
-        self.populate_translation_input_dropdown(cx);
+        self.update_translation_opacity_dropdown(cx);
         self.sync_translation_overlay_locale();
 
         self.view
@@ -15502,7 +15517,7 @@ impl TTSScreen {
         let idx = opacity_values
             .iter()
             .position(|v| (*v - self.translation_overlay_opacity).abs() < 0.01)
-            .unwrap_or(2); // default to 85%
+            .unwrap_or(0); // default to 100%
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.opacity_dropdown))
             .set_selected_item(cx, idx);
@@ -17334,7 +17349,108 @@ impl TTSScreen {
         self.view
             .view(ids!(content_wrapper.audio_player_bar))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-        
+
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.page_header.page_title
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.page_header.translation_status_badge
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.translation_src_lang_label
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.translation_tgt_lang_label
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.translation_font_size_label
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.translation_anchor_position_label
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.font_size_dropdown
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.anchor_position_dropdown
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .drop_down(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.opacity_dropdown
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+        self.view
+            .view(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card
+            ))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_title
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+
         // Apply to global settings modal
         self.view.view(ids!(global_settings_modal.settings_dialog))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
