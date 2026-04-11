@@ -5631,78 +5631,6 @@ live_design! {
                                         }
                                     }
 
-                                    // 合并优化
-                                    setting_row_merge = <View> {
-                                        width: Fill, height: 52
-                                        flow: Right
-                                        align: {y: 0.5}
-                                        padding: {left: 16, right: 16}
-                                        spacing: 12
-
-                                        translation_merge_label = <Label> {
-                                            width: 90, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                                                }
-                                            }
-                                            text: "合并优化"
-                                        }
-
-                                        merge_enabled_btn = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "开启"
-                                            draw_bg: {
-                                                instance active: 1.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 1.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-
-                                        merge_disabled_btn = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "关闭"
-                                            draw_bg: {
-                                                instance active: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = vec4(0.0, 0.0, 0.0, 0.0);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    sdf.stroke(mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-                                    }
                                 } // End settings_card
 
                                 // Spacer
@@ -8125,9 +8053,6 @@ pub struct TTSScreen {
     /// Overlay anchor position preset percentage: "50" | "60" | ... | "100"
     #[rust]
     translation_overlay_anchor_position_preset: String,
-    /// Whether retroactive sentence-merge optimization is enabled
-    #[rust]
-    translation_merge_enabled: bool,
     /// Audio source for translation: false = microphone, true = system audio
     #[rust]
 
@@ -8388,9 +8313,6 @@ impl Widget for TTSScreen {
             self.translation_overlay_opacity = 0.85;
             self.translation_overlay_font_size_preset = "normal".to_string();
             self.translation_overlay_anchor_position_preset = "50".to_string();
-            self.translation_merge_enabled = true;
-            self.update_translation_merge_buttons(cx);
-
             // Add initial log entries
             self.log_entries
                 .push("[INFO] [tts] Moxin TTS initialized".to_string());
@@ -8907,24 +8829,6 @@ impl Widget for TTSScreen {
             if let Some(shared) = self.translation_shared_state() {
                 shared.translation_overlay_fullscreen.set(true);
             }
-        }
-
-        // Merge optimization toggle
-        if self
-            .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.merge_enabled_btn))
-            .clicked(&actions)
-        {
-            self.translation_merge_enabled = true;
-            self.update_translation_merge_buttons(cx);
-        }
-        if self
-            .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.merge_disabled_btn))
-            .clicked(&actions)
-        {
-            self.translation_merge_enabled = false;
-            self.update_translation_merge_buttons(cx);
         }
 
         // Overlay opacity dropdown
@@ -11803,21 +11707,6 @@ impl TTSScreen {
             ))
             .set_text(cx, self.tr("浮窗透明度", "Overlay Opacity"));
         self.view
-            .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.translation_merge_label
-            ))
-            .set_text(cx, self.tr("合并优化", "Merge Opt."));
-        self.view
-            .button(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.merge_enabled_btn
-            ))
-            .set_text(cx, self.tr("开启", "On"));
-        self.view
-            .button(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.merge_disabled_btn
-            ))
-            .set_text(cx, self.tr("关闭", "Off"));
-        self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_start_btn
             ))
@@ -11837,7 +11726,6 @@ impl TTSScreen {
         self.update_translation_font_size_dropdown(cx);
         self.update_translation_anchor_position_dropdown(cx);
         self.populate_translation_input_dropdown(cx);
-        self.update_translation_merge_buttons(cx);
         self.populate_translation_input_dropdown(cx);
         self.sync_translation_overlay_locale();
 
@@ -15241,11 +15129,9 @@ impl TTSScreen {
                 String::new()
             });
 
-        let merge_enabled_str = if self.translation_merge_enabled { "1" } else { "0" };
         let rendered = template_content
             .replace("__TRANSLATION_SRC_LANG__", &self.translation_src_lang)
             .replace("__TRANSLATION_TGT_LANG__", &self.translation_tgt_lang)
-            .replace("__TRANSLATION_MERGE_ENABLED__", merge_enabled_str)
             .replace("__ASR_BIN_PATH__", &asr_path)
             .replace("__TRANSLATOR_BIN_PATH__", &translator_path)
             .replace("__SPEECH_START_FRAMES__", &speech_start_frames.to_string())
@@ -15526,17 +15412,6 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { active: (full) } draw_text: { active: (full) } });
     }
 
-    fn update_translation_merge_buttons(&mut self, cx: &mut Cx) {
-        let on = if self.translation_merge_enabled { 1.0_f64 } else { 0.0 };
-        let off = 1.0 - on;
-        self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.merge_enabled_btn))
-            .apply_over(cx, live! { draw_bg: { active: (on) } draw_text: { active: (on) } });
-        self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.merge_disabled_btn))
-            .apply_over(cx, live! { draw_bg: { active: (off) } draw_text: { active: (off) } });
-    }
-
     fn send_audio_source_to_bridge(&self, use_system_audio: bool) {
         use moxin_dora_bridge::widgets::AudioSource;
         let source = if use_system_audio { AudioSource::SystemAudio } else { AudioSource::Microphone };
@@ -15571,9 +15446,6 @@ impl TTSScreen {
             self.view
                 .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label))
                 .apply_over(cx, live! { width: 160.0 });
-            self.view
-                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.translation_merge_label))
-                .apply_over(cx, live! { width: 160.0 });
             return;
         }
 
@@ -15597,9 +15469,6 @@ impl TTSScreen {
             .apply_over(cx, live! { width: 90.0 });
         self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label))
-            .apply_over(cx, live! { width: 90.0 });
-        self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_merge.translation_merge_label))
             .apply_over(cx, live! { width: 90.0 });
     }
 

@@ -329,49 +329,6 @@ impl TranslationListenerBridge {
                                         pending_source_text: display.pending_source_text.clone(),
                                     }));
                                 }
-                            } else if session_status == "replace_last" {
-                                // Retroactive merge: keep history[N] (the latest sentence) visible
-                                // at the bottom, remove history[N-1] (the older sentence), and
-                                // update history[N] with the combined source + merged translation.
-                                // This way the merged result appears where the user is already
-                                // looking (the bottom), rather than disappearing and reappearing
-                                // at a higher position.
-                                let combined_source = metadata
-                                    .parameters
-                                    .iter()
-                                    .find(|(k, _)| k.as_str() == "combined_source")
-                                    .and_then(|(_, v)| {
-                                        if let Parameter::String(s) = v { Some(s.clone()) } else { None }
-                                    });
-                                let last_idx = display.history.len().saturating_sub(1);
-                                if last_idx >= 1 {
-                                    // Remove N-1 (the older entry), update N (latest) in-place.
-                                    display.history.remove(last_idx - 1);
-                                    if let Some(latest) = display.history.last_mut() {
-                                        if let Some(src) = combined_source {
-                                            latest.source_text = src;
-                                        }
-                                        latest.translation = text.clone();
-                                        info!(
-                                            "[TranslationListener] replace_last: [{}] -> [{}]",
-                                            latest.source_text, text
-                                        );
-                                    }
-                                } else if let Some(only) = display.history.last_mut() {
-                                    // Only one entry — just update it.
-                                    if let Some(src) = combined_source {
-                                        only.source_text = src;
-                                    }
-                                    only.translation = text.clone();
-                                }
-                                display.pending_source_text.clear();
-                                display.current_source_text.clear();
-                                if let Some(ref shared) = shared_state {
-                                    shared.translation.set(Some(TranslationUpdate {
-                                        history: display.history.clone(),
-                                        pending_source_text: String::new(),
-                                    }));
-                                }
                             }
                             // Ignore streaming translation chunks — overlay only shows completed translations.
                         }
