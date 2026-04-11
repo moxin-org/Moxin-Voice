@@ -223,13 +223,13 @@ struct TranslationResponse {
 
 fn build_system_prompt(tgt_lang: &str) -> String {
     format!(
-        "/no_think 将用户提供的文本翻译成{tgt}。只输出译文，不要解释，不要重复原文。",
+        "/no_think 你是翻译引擎。将原文直接翻译成{tgt}，只输出译文本身，不要输出原文/译文标签，不要解释，不要重复原文。",
         tgt = lang_display(tgt_lang)
     )
 }
 
 fn build_translation_user_prompt(source_text: &str) -> String {
-    format!("Input:\n{source_text}")
+    format!("原文：\n{source_text}")
 }
 
 fn format_commit_prompt_debug(system_prompt: &str, user_prompt: &str) -> String {
