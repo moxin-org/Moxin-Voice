@@ -12,7 +12,36 @@ use screencapturekit::prelude::*;
 use screencapturekit::cm::CMSampleBuffer;
 use screencapturekit::stream::output_type::SCStreamOutputType;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicI8, Ordering};
 use tracing::{error, info, warn};
+
+/// -1 = not yet probed, 0 = denied/unavailable, 1 = granted
+static PERMISSION_STATUS: AtomicI8 = AtomicI8::new(-1);
+
+/// Trigger a background screen-recording permission probe (idempotent; only runs once).
+///
+/// Calling this early — e.g. when the user navigates to the translation page —
+/// causes macOS to show the permission dialog before the user clicks Start,
+/// so the restart-after-grant cycle doesn't surprise them mid-flow.
+pub fn probe_permission_async() {
+    if PERMISSION_STATUS.load(Ordering::Relaxed) != -1 {
+        return; // already probed or in-flight
+    }
+    std::thread::spawn(|| {
+        let ok = SCShareableContent::get().is_ok();
+        PERMISSION_STATUS.store(if ok { 1 } else { 0 }, Ordering::Relaxed);
+    });
+}
+
+/// Returns the screen-recording permission result.
+/// `None` means the probe hasn't completed yet.
+pub fn permission_granted() -> Option<bool> {
+    match PERMISSION_STATUS.load(Ordering::Relaxed) {
+        1 => Some(true),
+        0 => Some(false),
+        _ => None,
+    }
+}
 
 /// Captures system audio through ScreenCaptureKit.
 ///

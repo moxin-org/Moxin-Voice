@@ -5648,6 +5648,25 @@ live_design! {
                                 // Spacer
                                 <View> { width: Fill, height: Fill }
 
+                                // 屏幕录制权限提示（macOS，仅在权限被拒绝时显示）
+                                translation_permission_hint = <View> {
+                                    width: Fill, height: Fit
+                                    visible: false
+                                    padding: {top: 0, bottom: 8}
+                                    <Label> {
+                                        id: translation_permission_hint_label
+                                        width: Fill, height: Fit
+                                        draw_text: {
+                                            text_style: <FONT_REGULAR>{ font_size: 12.0 }
+                                            fn get_color(self) -> vec4 {
+                                                return mix(#F59E0B, #FCD34D, self.dark_mode);
+                                            }
+                                            wrap: Word
+                                        }
+                                        text: "屏幕录制权限未授权。请前往系统设置 → 隐私与安全性 → 屏幕录制，启用 Moxin Voice，然后重启应用。"
+                                    }
+                                }
+
                                 // 启动按钮
                                 translation_start_btn = <Button> {
                                     width: Fill, height: 48
@@ -8067,6 +8086,12 @@ pub struct TTSScreen {
     translation_overlay_anchor_position_preset: String,
     /// Audio source for translation: false = microphone, true = system audio
     #[rust]
+    /// Whether we have already triggered the background screen-recording permission probe
+    #[rust]
+    translation_permission_probed: bool,
+    /// One-shot timer used to check probe result and show the restart hint
+    #[rust]
+    translation_permission_timer: Timer,
 
     // Model picker modal
     #[rust]
@@ -8325,6 +8350,8 @@ impl Widget for TTSScreen {
             self.translation_overlay_opacity = 1.0;
             self.translation_overlay_font_size_preset = "normal".to_string();
             self.translation_overlay_anchor_position_preset = "70".to_string();
+            self.translation_permission_probed = false;
+            self.translation_permission_timer = Timer::default();
             // Add initial log entries
             self.log_entries
                 .push("[INFO] [tts] Moxin TTS initialized".to_string());
@@ -8407,6 +8434,12 @@ impl Widget for TTSScreen {
         // Translation metrics polling (1s)
         if self.translation_metrics_timer.is_event(event).is_some() && self.translation_running {
             self.poll_translation_metrics(cx);
+        }
+
+        // Screen-recording permission probe result (fires 2 s after navigating to translation page)
+        #[cfg(target_os = "macos")]
+        if self.translation_permission_timer.is_event(event).is_some() {
+            self.update_translation_permission_hint(cx);
         }
 
         // Poll for audio and logs
@@ -8773,6 +8806,15 @@ impl Widget for TTSScreen {
             self.update_translation_overlay_style_buttons(cx);
             self.update_translation_anchor_position_dropdown(cx);
             self.update_translation_opacity_dropdown(cx);
+            // Probe screen-recording permission early so the OS dialog appears
+            // before the user clicks Start (macOS requires a restart after granting).
+            #[cfg(target_os = "macos")]
+            if !self.translation_permission_probed {
+                self.translation_permission_probed = true;
+                moxin_dora_bridge::widgets::probe_permission_async();
+                // Check probe result after 2 s and show/hide the restart hint.
+                self.translation_permission_timer = cx.start_timeout(2.0);
+            }
         }
 
         // ── Translation page: start / stop / settings buttons ────────────────
@@ -11725,6 +11767,15 @@ impl TTSScreen {
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_start_btn
             ))
             .set_text(cx, self.tr("启动实时翻译", "Start Live Translation"));
+        #[cfg(target_os = "macos")]
+        self.view
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_permission_hint.translation_permission_hint_label
+            ))
+            .set_text(cx, self.tr(
+                "屏幕录制权限未授权。请前往系统设置 → 隐私与安全性 → 屏幕录制，启用 Moxin Voice，然后重启应用。",
+                "Screen recording permission not granted. Go to System Settings → Privacy & Security → Screen Recording, enable Moxin Voice, then restart the app.",
+            ));
         self.view
             .label(ids!(
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_title
@@ -15575,6 +15626,15 @@ impl TTSScreen {
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.anchor_position_dropdown))
             .set_selected_item(cx, idx);
+    }
+
+    /// Show or hide the screen-recording permission restart hint based on probe result.
+    #[cfg(target_os = "macos")]
+    fn update_translation_permission_hint(&mut self, cx: &mut Cx) {
+        let denied = moxin_dora_bridge::widgets::permission_granted() == Some(false);
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_permission_hint))
+            .set_visible(cx, denied);
     }
 
     /// Populate the translation input device dropdown with available CPAL devices.
