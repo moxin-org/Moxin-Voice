@@ -10,6 +10,30 @@ Moxin Voice is a modern, GPU-accelerated desktop TTS application built entirely 
 
 ---
 
+## 🪄 New: Live Translation
+
+Moxin Voice now includes a built-in **Live Translation** mode for real-time bilingual subtitles.
+
+- **Microphone or system audio input** — translate speech from your mic, browser, meeting app, or video player
+- **Real-time subtitle overlay** — compact or fullscreen floating window with adjustable text size, position, and opacity
+- **Low-latency streaming pipeline** — VAD-segmented ASR + rolling translation commits for readable subtitle chunks
+- **Bilingual display** — original text and translated text shown together in the overlay
+- **No extra virtual audio driver required** — system audio capture uses macOS ScreenCaptureKit directly
+
+### Hardware / System Requirements
+
+- **Apple Silicon Mac required** — M1 / M2 / M3 / M4
+- **macOS 14.0+ recommended for the full app**
+- **Live Translation system audio input is macOS-only**
+- **System audio capture requires Screen Recording permission**
+  On first use, macOS will prompt for Screen Recording access because system audio capture is implemented with ScreenCaptureKit.
+- **A display must be available**
+  ScreenCaptureKit requires a display-backed capture session even when you only want audio.
+
+If Screen Recording permission is denied or ScreenCaptureKit is unavailable, Live Translation still works with the microphone input source.
+
+---
+
 ## ⚡ Powered by OminiX MLX
 
 The inference engine behind Moxin Voice is **[OminiX MLX](https://github.com/OminiX-ai/OminiX-MLX)** — a comprehensive Rust-native ML inference ecosystem for Apple Silicon.
@@ -30,6 +54,7 @@ OminiX MLX provides:
 
 - **🎙️ Zero-Shot Voice Cloning** — Clone any voice with 5–30 seconds of audio (ICL Express mode)
 - **🎵 Text-to-Speech** — 9 preset voices across Chinese, English, Japanese, and Korean
+- **🌍 Live Translation** — Real-time subtitles from microphone or system audio with a floating overlay
 - **🔮 Qwen3-TTS-MLX Backend** — 2.3× real-time synthesis via OminiX MLX on Apple Silicon
 - **🎤 Audio Recording** — Built-in real-time recording with waveform visualization
 - **🔍 ASR Integration** — Automatic text transcription for cloning reference audio
