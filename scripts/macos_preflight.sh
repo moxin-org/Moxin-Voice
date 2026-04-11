@@ -28,6 +28,13 @@ if [[ -z "$DATAFLOW_PATH" ]]; then
   fi
 fi
 
+TRANSLATION_DATAFLOW_PATH=""
+if [[ -f "$APP_RESOURCES/dataflow/translation_qwen35.yml" ]]; then
+  TRANSLATION_DATAFLOW_PATH="$APP_RESOURCES/dataflow/translation_qwen35.yml"
+elif [[ -f "$APP_RESOURCES/apps/moxin-voice/dataflow/translation_qwen35.yml" ]]; then
+  TRANSLATION_DATAFLOW_PATH="$APP_RESOURCES/apps/moxin-voice/dataflow/translation_qwen35.yml"
+fi
+
 if [[ -f "$APP_RESOURCES/../MacOS/moxin-voice-shell-bin" ]]; then
   APP_BIN_PATH="$APP_RESOURCES/../MacOS/moxin-voice-shell-bin"
 else
@@ -115,6 +122,7 @@ resolve_moxin_init() {
 check_cmd dora "Dora CLI"
 check_file "$DATAFLOW_PATH" "Dataflow file"
 check_file "$APP_BIN_PATH" "App runtime binary"
+check_file "$TRANSLATION_DATAFLOW_PATH" "Translation dataflow file"
 
 # Check dora-qwen3-asr binary
 if [[ ! -x "${APP_RESOURCES}/../MacOS/dora-qwen3-asr" ]] && \
@@ -128,6 +136,21 @@ if [[ ! -x "${APP_RESOURCES}/../MacOS/dora-qwen35-translator" ]] && \
    [[ ! -x "${APP_RESOURCES}/target/debug/dora-qwen35-translator" ]] && \
    [[ ! -x "${APP_RESOURCES}/target/release/dora-qwen35-translator" ]]; then
   warnings+=("dora-qwen35-translator binary not found — Qwen3.5 translation backend unavailable (run: cargo build -p dora-qwen35-translator)")
+fi
+
+if [[ -n "$TRANSLATION_DATAFLOW_PATH" && -f "$TRANSLATION_DATAFLOW_PATH" ]]; then
+  if grep -q 'TRANSLATION_MERGE_ENABLED' "$TRANSLATION_DATAFLOW_PATH"; then
+    errors+=("translation_qwen35.yml still references removed TRANSLATION_MERGE_ENABLED placeholder: $TRANSLATION_DATAFLOW_PATH")
+  fi
+  if ! grep -q 'path: __ASR_BIN_PATH__' "$TRANSLATION_DATAFLOW_PATH"; then
+    errors+=("translation_qwen35.yml missing __ASR_BIN_PATH__ placeholder: $TRANSLATION_DATAFLOW_PATH")
+  fi
+  if ! grep -q 'path: __TRANSLATOR_BIN_PATH__' "$TRANSLATION_DATAFLOW_PATH"; then
+    errors+=("translation_qwen35.yml missing __TRANSLATOR_BIN_PATH__ placeholder: $TRANSLATION_DATAFLOW_PATH")
+  fi
+  if ! grep -q 'question_ended: moxin-mic-input/question_ended' "$TRANSLATION_DATAFLOW_PATH"; then
+    warnings+=("translation_qwen35.yml no longer wires question_ended into ASR: $TRANSLATION_DATAFLOW_PATH")
+  fi
 fi
 
 # Check qwen-tts-node binary
