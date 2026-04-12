@@ -5653,13 +5653,12 @@ live_design! {
                                     width: Fill, height: Fit
                                     visible: false
                                     padding: {top: 0, bottom: 8}
-                                    <Label> {
-                                        id: translation_permission_hint_label
+                                    translation_permission_hint_label = <Label> {
                                         width: Fill, height: Fit
                                         draw_text: {
                                             text_style: <FONT_REGULAR>{ font_size: 12.0 }
                                             fn get_color(self) -> vec4 {
-                                                return mix(#F59E0B, #FCD34D, self.dark_mode);
+                                                return #F59E0B;
                                             }
                                             wrap: Word
                                         }
