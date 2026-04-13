@@ -17,8 +17,18 @@ use std::sync::OnceLock;
 // Sets NSWindow.alphaValue on the window whose title contains `title_fragment`.
 // NSWindow.alphaValue composites the entire window at the given opacity against
 // the screen content behind it — no Makepad patches required.
+// ── macOS NSWindow helpers ────────────────────────────────────────────────────
+// These bypass Makepad's `CxOsOp::{Restore,Minimize,Hide}Window` because the
+// upstream rev we build against (53b2e5c) does not expose `makeKeyAndOrderFront:`
+// and its `RestoreWindow` op maps to `toggleFullScreen:` — neither reverses an
+// `orderOut:`. We call the NSWindow selectors directly through the objc runtime.
+
 #[cfg(target_os = "macos")]
-unsafe fn set_nswindow_alpha(title_fragment: &str, alpha: f64) {
+unsafe fn with_nswindow_matching<P, F>(pred: P, f: F)
+where
+    P: Fn(&str) -> bool,
+    F: FnOnce(*mut makepad_objc_sys::runtime::Object),
+{
     use makepad_objc_sys::runtime::Object;
     #[allow(unused_imports)]
     use makepad_objc_sys::{class, msg_send, sel, sel_impl};
@@ -36,11 +46,109 @@ unsafe fn set_nswindow_alpha(title_fragment: &str, alpha: f64) {
             continue;
         }
         let s = std::ffi::CStr::from_ptr(utf8).to_str().unwrap_or("");
-        if s.contains(title_fragment) {
-            let () = msg_send![win, setAlphaValue: alpha];
+        if pred(s) {
+            f(win);
             return;
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn set_nswindow_alpha(title_fragment: &str, alpha: f64) {
+    #[allow(unused_imports)]
+    use makepad_objc_sys::{msg_send, sel, sel_impl};
+    with_nswindow_matching(
+        |t| t.contains(title_fragment),
+        |win| {
+            let () = msg_send![win, setAlphaValue: alpha];
+        },
+    );
+}
+
+/// Brings a hidden (orderOut'd) translation overlay NSWindow back on screen.
+#[cfg(target_os = "macos")]
+unsafe fn order_front_translation_nswindow() {
+    use makepad_objc_sys::runtime::{Object, nil};
+    #[allow(unused_imports)]
+    use makepad_objc_sys::{msg_send, sel, sel_impl};
+    with_nswindow_matching(
+        |t| t.contains("Translation"),
+        |win| {
+            let _: *mut Object = msg_send![win, makeKeyAndOrderFront: nil];
+        },
+    );
+}
+
+/// Brings the main Moxin Voice NSWindow back on screen. Matches the title
+/// exactly so it does not accidentally pick up the translation overlay
+/// (whose title starts with "Moxin Voice — Translation").
+#[cfg(target_os = "macos")]
+unsafe fn order_front_main_nswindow() {
+    use makepad_objc_sys::runtime::{Object, nil};
+    #[allow(unused_imports)]
+    use makepad_objc_sys::{msg_send, sel, sel_impl};
+    with_nswindow_matching(
+        |t| t == "Moxin Voice",
+        |win| {
+            let _: *mut Object = msg_send![win, makeKeyAndOrderFront: nil];
+        },
+    );
+}
+
+// ── Custom NSAppDelegate for "click Dock icon to reopen" ──────────────────────
+// Makepad rev 53b2e5c registers an empty `NSAppDelegate` subclass and never
+// implements `applicationShouldHandleReopen:hasVisibleWindows:`. That means
+// after the user closes the main window (even via orderOut), clicking the
+// Dock icon does nothing — the window is stuck hidden. We install our own
+// delegate subclass that implements the reopen hook and calls
+// `makeKeyAndOrderFront:` on the main window when AppKit reports no visible
+// windows. AppKit still routes everything else to its default behavior.
+
+#[cfg(target_os = "macos")]
+static CUSTOM_APP_DELEGATE_INSTALLED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "macos")]
+extern "C" fn app_should_handle_reopen(
+    _this: &makepad_objc_sys::runtime::Object,
+    _sel: makepad_objc_sys::runtime::Sel,
+    _sender: *mut makepad_objc_sys::runtime::Object,
+    has_visible_windows: i8, // macOS BOOL
+) -> i8 {
+    unsafe {
+        if has_visible_windows == 0 {
+            order_front_main_nswindow();
+        }
+    }
+    1 // YES — tell AppKit we handled the reopen
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn install_custom_app_delegate() {
+    if CUSTOM_APP_DELEGATE_INSTALLED.set(()).is_err() {
+        return;
+    }
+    use makepad_objc_sys::declare::ClassDecl;
+    use makepad_objc_sys::runtime::{Object, Sel};
+    #[allow(unused_imports)]
+    use makepad_objc_sys::{class, msg_send, sel, sel_impl};
+    let superclass = class!(NSObject);
+    let mut decl = match ClassDecl::new("MoxinAppDelegate", superclass) {
+        Some(d) => d,
+        None => {
+            ::log::warn!("[app_delegate] failed to declare MoxinAppDelegate class");
+            return;
+        }
+    };
+    decl.add_method(
+        sel!(applicationShouldHandleReopen:hasVisibleWindows:),
+        app_should_handle_reopen
+            as extern "C" fn(&Object, Sel, *mut Object, i8) -> i8,
+    );
+    let cls = decl.register();
+    let instance: *mut Object = msg_send![cls, new];
+    let ns_app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+    let () = msg_send![ns_app, setDelegate: instance];
+    ::log::info!("[app_delegate] MoxinAppDelegate installed");
 }
 
 use crate::Args;
@@ -183,7 +291,11 @@ impl AppMain for App {
                     "[translation_ui] detected window_id={:?}",
                     ev.window_id
                 );
-                // Keep hidden by default at startup.
+                // Keep hidden by default at startup. On macOS use orderOut so
+                // the window does not leave a minimized tile in the Dock.
+                #[cfg(target_os = "macos")]
+                cx.push_unique_platform_op(CxOsOp::HideWindow(ev.window_id));
+                #[cfg(not(target_os = "macos"))]
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
             } else if self.main_window_id.is_none() {
                 self.main_window_id = Some(ev.window_id);
@@ -202,19 +314,38 @@ impl AppMain for App {
 
         if let Event::WindowCloseRequested(ev) = event {
             if self.translation_window_id == Some(ev.window_id) {
-                // Prevent actual destroy; treat close as "hide".
+                // Prevent actual destroy — the NSWindow stays alive in memory
+                // so we can orderFront it later. Hide (orderOut) the window
+                // and sync SharedDoraState so the in-app "Show Overlay"
+                // button in the running panel can flip it back on.
                 ev.accept_close.set(false);
+                #[cfg(target_os = "macos")]
+                cx.push_unique_platform_op(CxOsOp::HideWindow(ev.window_id));
+                #[cfg(not(target_os = "macos"))]
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
-                ::log::info!("[translation_ui] close intercepted -> minimize");
+                if let Some(shared) = self
+                    .ui
+                    .ttsscreen(ids!(body.tts_screen))
+                    .translation_shared_dora_state()
+                {
+                    shared.translation_window_visible.set(false);
+                }
+                ::log::info!("[translation_ui] close intercepted -> hide");
             } else if Self::should_intercept_main_window_close(
                 Some(ev.window_id),
                 self.main_window_id,
             ) {
-                // Keep the main window restorable from the dock instead of
-                // letting macOS promote the minimized overlay as the only window.
+                // Standard macOS behaviour: red X hides the window (orderOut)
+                // without quitting the app. Our custom NSAppDelegate handles
+                // `applicationShouldHandleReopen:` to restore it when the user
+                // clicks the Dock icon. On other platforms fall back to
+                // minimize since they don't have the reopen gesture.
                 ev.accept_close.set(false);
+                #[cfg(target_os = "macos")]
+                cx.push_unique_platform_op(CxOsOp::HideWindow(ev.window_id));
+                #[cfg(not(target_os = "macos"))]
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
-                ::log::info!("[main_ui] close intercepted -> minimize");
+                ::log::info!("[main_ui] close intercepted -> hide");
             }
         }
 
@@ -228,6 +359,9 @@ impl AppMain for App {
                 ::log::info!(
                     "[translation_ui] unexpected focus while hidden -> restore main window"
                 );
+                #[cfg(target_os = "macos")]
+                cx.push_unique_platform_op(CxOsOp::HideWindow(*window_id));
+                #[cfg(not(target_os = "macos"))]
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(*window_id));
                 if let Some(main_window_id) = self.main_window_id {
                     #[cfg(target_os = "macos")]
@@ -267,6 +401,14 @@ impl MatchEvent for App {
 
     fn handle_startup(&mut self, cx: &mut Cx) {
         ::log::info!("Moxin Voice application started");
+
+        // Override Makepad's empty NSAppDelegate so that clicking the Dock
+        // icon resurrects the main window after it has been orderOut'd via
+        // the red close button.
+        #[cfg(target_os = "macos")]
+        unsafe {
+            install_custom_app_delegate();
+        }
 
         // Keep window widget itself visible; use OS minimize/restore for show/hide.
         // Otherwise an OS-restored window may render only clear color (black) with no widgets.
@@ -317,11 +459,20 @@ impl MatchEvent for App {
             ::log::info!("[translation_ui] set_visible={}", window_visible);
             if let Some(window_id) = self.translation_window_id {
                 if window_visible {
+                    // macOS: bring the orderOut'd NSWindow back via
+                    // `makeKeyAndOrderFront:` — Makepad's `RestoreWindow`
+                    // maps to `toggleFullScreen:` and does not reverse
+                    // `orderOut:`.
                     #[cfg(target_os = "macos")]
-                    cx.push_unique_platform_op(CxOsOp::Deminiaturize(window_id));
+                    unsafe {
+                        order_front_translation_nswindow();
+                    }
                     #[cfg(not(target_os = "macos"))]
                     cx.push_unique_platform_op(CxOsOp::RestoreWindow(window_id));
                 } else {
+                    #[cfg(target_os = "macos")]
+                    cx.push_unique_platform_op(CxOsOp::HideWindow(window_id));
+                    #[cfg(not(target_os = "macos"))]
                     cx.push_unique_platform_op(CxOsOp::MinimizeWindow(window_id));
                 }
             }

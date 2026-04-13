@@ -5757,6 +5757,25 @@ live_design! {
                                     }
                                 } // End translation_log_card
 
+                                // 显示浮窗按钮 — 在用户用红叉关闭浮窗后重新唤起
+                                translation_show_overlay_btn = <Button> {
+                                    width: Fill, height: 40
+                                    text: "显示浮窗"
+                                    draw_bg: {
+                                        instance border_radius: 10.0
+                                        fn pixel(self) -> vec4 {
+                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                            sdf.fill(vec4(0.18, 0.42, 0.85, 1.0));
+                                            return sdf.result;
+                                        }
+                                    }
+                                    draw_text: {
+                                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                                        fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                                    }
+                                }
+
                                 // 停止按钮
                                 translation_stop_btn = <Button> {
                                     width: Fill, height: 44
@@ -8831,6 +8850,19 @@ impl Widget for TTSScreen {
         {
             self.stop_translation_dataflow(cx);
         }
+        if self
+            .view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_show_overlay_btn))
+            .clicked(&actions)
+        {
+            // Force a false → true dirty edge so app.rs re-runs the show path
+            // (makeKeyAndOrderFront:) even if the state was already `true`
+            // when the user closed the window manually.
+            if let Some(shared) = self.translation_shared_state() {
+                shared.translation_window_visible.set(false);
+                shared.translation_window_visible.set(true);
+            }
+        }
 
         // 更改 input source — dropdown selection
         // Index layout: 0 = System Audio, 1 = System Default Mic, 2..N = CPAL devices
@@ -11780,6 +11812,11 @@ impl TTSScreen {
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_title
             ))
             .set_text(cx, self.tr("运行日志", "Runtime Logs"));
+        self.view
+            .button(ids!(
+                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_show_overlay_btn
+            ))
+            .set_text(cx, self.tr("显示浮窗", "Show Overlay"));
         self.view
             .button(ids!(
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_stop_btn
