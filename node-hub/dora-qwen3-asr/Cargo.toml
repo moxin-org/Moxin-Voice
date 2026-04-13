@@ -6,7 +6,7 @@ license.workspace = true
 description = "Qwen3 ASR MLX Dora backend for Moxin Voice"
 
 [dependencies]
-qwen3-asr-mlx = { path = "patches/qwen3-asr-mlx" }
+qwen3-asr-mlx = { git = "https://github.com/OminiX-ai/OminiX-MLX.git", rev = "6aac996db8b71fb7dae7a2409c46b4f2ade93092", package = "qwen3-asr-mlx" }
 dora-node-api = "0.4.0"
 arrow = { version = "54.2.1", default-features = false, features = ["ipc"] }
 serde = { version = "1.0", features = ["derive"] }

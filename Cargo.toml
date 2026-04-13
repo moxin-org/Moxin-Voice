@@ -50,10 +50,12 @@ rand = "0.8"
 dora-node-api = "0.4.0"
 # dora-node-api = { git = "https://github.com/dora-rs/dora.git", tag = "v0.3.12" }
 
+# All OminiX-MLX crates are pinned directly in their consuming Cargo.toml files
+# via `{ git = "...", rev = "6aac996db..." }`. The only patch we still need is
+# the vendored fork of gpt-sovits-mlx (used by the currently-disabled
+# dora-primespeech-mlx member). Pinning mlx-rs et al. through hard-coded
+# `~/.cargo/git/checkouts/.../<rev>/...` paths here was fragile — any cargo
+# cache churn (parallel builds, gc, disk cleanup) deleted the rev dir and
+# broke the workspace — so those entries have been removed.
 [patch."https://github.com/OminiX-ai/OminiX-MLX.git"]
 gpt-sovits-mlx = { path = "node-hub/dora-primespeech-mlx/patches/gpt-sovits-mlx" }
-mlx-rs = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/mlx-rs" }
-mlx-rs-core = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/mlx-rs-core" }
-mlx-sys = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/mlx-rs/mlx-sys" }
-mlx-lm-utils = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/mlx-rs/mlx-lm-utils" }
-qwen3-mlx = { path = "/Users/alan0x/.cargo/git/checkouts/ominix-mlx-4c1b6923576390a4/6aac996/qwen3-mlx" }
