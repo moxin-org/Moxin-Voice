@@ -95,6 +95,52 @@ enum DoraStartupEvent {
     Failed(String),
 }
 
+struct DoraStartupLockGuard {
+    path: PathBuf,
+}
+
+impl DoraStartupLockGuard {
+    fn acquire(path: PathBuf, timeout: Duration) -> Result<Self, String> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create Dora runtime dir: {}", err))?;
+        }
+
+        let started_at = std::time::Instant::now();
+        loop {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(_) => return Ok(Self { path }),
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if started_at.elapsed() >= timeout {
+                        return Err(format!(
+                            "timed out waiting for Dora startup lock: {}",
+                            path.display()
+                        ));
+                    }
+                    thread::sleep(Duration::from_millis(250));
+                }
+                Err(err) => {
+                    return Err(format!(
+                        "failed to acquire Dora startup lock {}: {}",
+                        path.display(),
+                        err
+                    ));
+                }
+            }
+        }
+    }
+}
+
+impl Drop for DoraStartupLockGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 #[derive(Debug)]
 enum QwenModelDownloadEvent {
     Stage(String),
@@ -11346,6 +11392,21 @@ impl TTSScreen {
             .join("gpt-sovits-mlx")
     }
 
+    fn dora_runtime_dir() -> PathBuf {
+        std::env::var("MOXIN_DORA_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".dora")
+                    .join("runtime")
+            })
+    }
+
+    fn dora_startup_lock_path() -> PathBuf {
+        Self::dora_runtime_dir().join("moxin-dora-startup.lock")
+    }
+
     fn workspace_dir() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -14696,56 +14757,76 @@ impl TTSScreen {
         self.add_log(cx, "[INFO] [tts] Ensuring Dora runtime is up...");
         let (tx, rx) = mpsc::channel::<DoraStartupEvent>();
         self.dora_start_rx = Some(rx);
+        let startup_lock_path = Self::dora_startup_lock_path();
 
         thread::spawn(move || {
             let _ = tx.send(DoraStartupEvent::Stage(
-                "Checking Dora runtime".to_string(),
+                "Waiting for Dora startup lock".to_string(),
             ));
 
-            let mut dora_ready = Command::new("dora")
-                .args(["system", "status"])
-                .status()
-                .map(|status| status.success())
-                .unwrap_or(false);
-
-            if !dora_ready {
-                let _ = tx.send(DoraStartupEvent::Stage(
-                    "Starting Dora runtime".to_string(),
-                ));
-
-                match Command::new("dora").args(["up"]).status() {
-                    Ok(status) if status.success() => {}
-                    Ok(status) => {
-                        let _ = tx.send(DoraStartupEvent::Failed(format!(
-                            "`dora up` exited with status {}",
-                            status
-                        )));
-                        return;
-                    }
+            let _startup_lock =
+                match DoraStartupLockGuard::acquire(startup_lock_path, Duration::from_secs(15)) {
+                    Ok(lock) => lock,
                     Err(err) => {
-                        let _ = tx.send(DoraStartupEvent::Failed(format!(
-                            "Failed to run `dora up`: {}",
-                            err
-                        )));
+                        let _ = tx.send(DoraStartupEvent::Failed(err));
                         return;
                     }
-                }
+                };
 
-                let _ = tx.send(DoraStartupEvent::Stage(
-                    "Waiting for Dora runtime readiness".to_string(),
-                ));
+            let _ = tx.send(DoraStartupEvent::Stage(
+                "Resetting Dora runtime".to_string(),
+            ));
 
-                for _ in 0..12 {
-                    dora_ready = Command::new("dora")
-                        .args(["system", "status"])
-                        .status()
-                        .map(|status| status.success())
-                        .unwrap_or(false);
-                    if dora_ready {
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(250));
+            match Command::new("dora").arg("destroy").status() {
+                Ok(_) => {}
+                Err(err) => {
+                    let _ = tx.send(DoraStartupEvent::Failed(format!(
+                        "Failed to run `dora destroy`: {}",
+                        err
+                    )));
+                    return;
                 }
+            }
+
+            thread::sleep(Duration::from_millis(500));
+
+            let _ = tx.send(DoraStartupEvent::Stage(
+                "Starting Dora runtime".to_string(),
+            ));
+
+            match Command::new("dora").args(["up"]).status() {
+                Ok(status) if status.success() => {}
+                Ok(status) => {
+                    let _ = tx.send(DoraStartupEvent::Failed(format!(
+                        "`dora up` exited with status {}",
+                        status
+                    )));
+                    return;
+                }
+                Err(err) => {
+                    let _ = tx.send(DoraStartupEvent::Failed(format!(
+                        "Failed to run `dora up`: {}",
+                        err
+                    )));
+                    return;
+                }
+            }
+
+            let _ = tx.send(DoraStartupEvent::Stage(
+                "Waiting for Dora runtime readiness".to_string(),
+            ));
+
+            let mut dora_ready = false;
+            for _ in 0..20 {
+                dora_ready = Command::new("dora")
+                    .args(["system", "status"])
+                    .status()
+                    .map(|status| status.success())
+                    .unwrap_or(false);
+                if dora_ready {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(250));
             }
 
             if dora_ready {
