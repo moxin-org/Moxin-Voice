@@ -305,6 +305,65 @@ struct CpalMicCapture {
     device_name: Option<String>,
 }
 
+fn downmix_interleaved_to_mono(samples: &[f32], channels: u16) -> Vec<f32> {
+    if channels <= 1 {
+        return samples.to_vec();
+    }
+
+    let channels = channels as usize;
+    samples
+        .chunks(channels)
+        .map(|frame| frame.iter().copied().sum::<f32>() / frame.len() as f32)
+        .collect()
+}
+
+fn resample_linear_mono(samples: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
+    if samples.is_empty() || input_rate == output_rate {
+        return samples.to_vec();
+    }
+
+    if samples.len() == 1 {
+        return vec![samples[0]];
+    }
+
+    let output_len =
+        ((samples.len() as u64 * output_rate as u64) + (input_rate as u64 / 2)) / input_rate as u64;
+    let output_len = output_len.max(1) as usize;
+    let step = input_rate as f64 / output_rate as f64;
+
+    (0..output_len)
+        .map(|idx| {
+            let src_pos = idx as f64 * step;
+            let left = src_pos.floor() as usize;
+            let right = (left + 1).min(samples.len() - 1);
+            let frac = (src_pos - left as f64) as f32;
+            samples[left] * (1.0 - frac) + samples[right] * frac
+        })
+        .collect()
+}
+
+fn push_converted_input<F>(
+    data: &[F],
+    channels: u16,
+    input_rate: u32,
+    output_rate: u32,
+    buffer: &Arc<parking_lot::Mutex<Vec<i16>>>,
+    to_f32: impl Fn(F) -> f32,
+) where
+    F: Copy,
+{
+    let normalized: Vec<f32> = data.iter().copied().map(to_f32).collect();
+    let mono = downmix_interleaved_to_mono(&normalized, channels);
+    let resampled = resample_linear_mono(&mono, input_rate, output_rate);
+    let converted: Vec<i16> = resampled
+        .into_iter()
+        .map(|s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
+        .collect();
+    if !converted.is_empty() {
+        buffer.lock().extend(converted);
+    }
+}
+
 impl CpalMicCapture {
     fn new() -> Result<Self, String> {
         Ok(Self {
@@ -344,36 +403,64 @@ impl CpalMicCapture {
                 .or_else(|| host.default_input_device())
                 .ok_or_else(|| format!("Input device '{}' not found", name))?
         } else {
-            use cpal::traits::HostTrait;
             host.default_input_device()
                 .ok_or("No input device available")?
         };
 
-        // Try to get a config close to 16kHz mono
-        let config = cpal::StreamConfig {
-            channels: 1,
-            sample_rate: cpal::SampleRate(self.sample_rate),
-            buffer_size: cpal::BufferSize::Default,
-        };
+        let device_name = device.name().unwrap_or_else(|_| "<unknown input device>".to_string());
+        let supported_config = device
+            .default_input_config()
+            .map_err(|e| format!("Failed to query default input config: {}", e))?;
+        let sample_format = supported_config.sample_format();
+        let config: cpal::StreamConfig = supported_config.config();
+        let input_rate = config.sample_rate.0;
+        let channels = config.channels;
 
         let buffer = Arc::clone(&self.audio_buffer);
         let err_fn = |err| error!("CPAL stream error: {}", err);
 
-        let stream = device
-            .build_input_stream(
+        eprintln!(
+            "[AecInput] Starting CPAL mic capture: device='{}', sample_format={:?}, channels={}, sample_rate={}Hz -> target={}Hz mono",
+            device_name, sample_format, channels, input_rate, self.sample_rate
+        );
+
+        let stream = match sample_format {
+            cpal::SampleFormat::F32 => device.build_input_stream(
                 &config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    // Convert f32 to i16 and store in buffer
-                    let samples: Vec<i16> = data
-                        .iter()
-                        .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
-                        .collect();
-                    buffer.lock().extend(samples);
+                    push_converted_input(data, channels, input_rate, 16_000, &buffer, |s| s);
                 },
                 err_fn,
                 None,
-            )
-            .map_err(|e| format!("Failed to build input stream: {}", e))?;
+            ),
+            cpal::SampleFormat::I16 => device.build_input_stream(
+                &config,
+                move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                    push_converted_input(data, channels, input_rate, 16_000, &buffer, |s| {
+                        s as f32 / 32768.0
+                    });
+                },
+                err_fn,
+                None,
+            ),
+            cpal::SampleFormat::U16 => device.build_input_stream(
+                &config,
+                move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                    push_converted_input(data, channels, input_rate, 16_000, &buffer, |s| {
+                        (s as f32 / 65535.0) * 2.0 - 1.0
+                    });
+                },
+                err_fn,
+                None,
+            ),
+            other => {
+                return Err(format!(
+                    "Unsupported input sample format {:?} for device '{}'",
+                    other, device_name
+                ));
+            }
+        }
+        .map_err(|e| format!("Failed to build input stream: {}", e))?;
 
         stream
             .play()
@@ -381,7 +468,14 @@ impl CpalMicCapture {
 
         self.stream = Some(stream);
         self.is_recording = true;
-        info!("CPAL mic capture started (no AEC)");
+        info!(
+            "CPAL mic capture started (no AEC) device='{}' input={}Hz/{}ch/{:?} target={}Hz/mono",
+            device_name,
+            input_rate,
+            channels,
+            sample_format,
+            self.sample_rate
+        );
         Ok(())
     }
 
@@ -1604,5 +1698,30 @@ impl DoraBridge for AecInputBridge {
 impl Drop for AecInputBridge {
     fn drop(&mut self) {
         let _ = self.disconnect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{downmix_interleaved_to_mono, resample_linear_mono};
+
+    #[test]
+    fn downmix_interleaved_stereo_to_mono() {
+        let stereo = vec![0.2_f32, 0.6_f32, -0.4_f32, 0.4_f32];
+        let mono = downmix_interleaved_to_mono(&stereo, 2);
+
+        assert_eq!(mono.len(), 2);
+        assert!((mono[0] - 0.4).abs() < 1e-6);
+        assert!((mono[1] - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn resample_linear_mono_downsamples_to_16k() {
+        let input: Vec<f32> = (0..480).map(|i| i as f32 / 480.0).collect();
+        let output = resample_linear_mono(&input, 48_000, 16_000);
+
+        assert_eq!(output.len(), 160);
+        assert!((output[0] - input[0]).abs() < 1e-6);
+        assert!((output.last().copied().unwrap_or_default() - input.last().copied().unwrap_or_default()).abs() < 0.02);
     }
 }
