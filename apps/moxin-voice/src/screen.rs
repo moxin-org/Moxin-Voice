@@ -89,6 +89,13 @@ enum RuntimeInitEvent {
 }
 
 #[derive(Debug)]
+enum DoraStartupEvent {
+    Stage(String),
+    Ready,
+    Failed(String),
+}
+
+#[derive(Debug)]
 enum QwenModelDownloadEvent {
     Stage(String),
     DoneOk,
@@ -7963,6 +7970,10 @@ pub struct TTSScreen {
     dora_start_attempt_at: Option<std::time::Instant>,
     #[rust]
     dora_start_in_flight: bool,
+    #[rust]
+    dora_start_rx: Option<Receiver<DoraStartupEvent>>,
+    #[rust]
+    dora_pending_dataflow_path: Option<PathBuf>,
     /// TTS dataflow was stopped to make room for live translation.
     /// Auto-restart is suppressed while this is true.
     #[rust]
@@ -8335,6 +8346,8 @@ impl Widget for TTSScreen {
             self.qwen_model_status_text = self.tr("未就绪", "Not ready").to_string();
             self.dora_start_attempt_at = None;
             self.dora_start_in_flight = false;
+            self.dora_start_rx = None;
+            self.dora_pending_dataflow_path = None;
 
             // Translation page defaults
             self.translation_running = false;
@@ -8445,6 +8458,7 @@ impl Widget for TTSScreen {
         if self.update_timer.is_event(event).is_some() {
             self.poll_runtime_initialization(cx);
             self.poll_qwen_model_download(cx);
+            self.poll_dora_startup(cx);
             self.poll_dora_events(cx);
             self.poll_translation_dora_events(cx);
             self.maybe_retry_dataflow_start(cx);
@@ -14652,57 +14666,6 @@ impl TTSScreen {
         if !should_start || self.dora_start_in_flight {
             return;
         }
-        self.dora_start_in_flight = true;
-        self.dora_start_attempt_at = Some(std::time::Instant::now());
-
-        // Ensure Dora coordinator/daemon are up, then wait briefly for readiness.
-        self.add_log(cx, "[INFO] [tts] Ensuring Dora runtime is up...");
-        match std::process::Command::new("dora").args(["up"]).status() {
-            Ok(status) => {
-                if !status.success() {
-                    self.add_log(
-                        cx,
-                        &format!(
-                            "[WARN] [tts] `dora up` exited with status {}. Will still try to start dataflow.",
-                            status
-                        ),
-                    );
-                }
-            }
-            Err(err) => {
-                self.add_log(
-                    cx,
-                    &format!(
-                        "[WARN] [tts] Failed to run `dora up`: {}. Will still try to start dataflow.",
-                        err
-                    ),
-                );
-            }
-        }
-
-        let mut dora_ready = false;
-        for _ in 0..12 {
-            match std::process::Command::new("dora")
-                .args(["system", "status"])
-                .status()
-            {
-                Ok(status) if status.success() => {
-                    dora_ready = true;
-                    break;
-                }
-                _ => {
-                    std::thread::sleep(std::time::Duration::from_millis(250));
-                }
-            }
-        }
-        if dora_ready {
-            self.add_log(cx, "[INFO] [tts] Dora runtime ready");
-        } else {
-            self.add_log(
-                cx,
-                "[WARN] [tts] Dora runtime still not ready after wait; attempting dataflow start anyway",
-            );
-        }
 
         let dataflow_path = match self.materialize_runtime_dataflow(cx) {
             Ok(path) => path,
@@ -14726,37 +14689,135 @@ impl TTSScreen {
             self.dora_start_in_flight = false;
             return;
         }
+        self.dora_start_in_flight = true;
+        self.dora_start_attempt_at = Some(std::time::Instant::now());
+        self.dora_pending_dataflow_path = Some(dataflow_path);
 
-        // Stop any external TTS dataflows first to avoid conflicts
-        self.add_log(cx, "[INFO] [tts] Stopping any existing dataflows...");
-        let _ = std::process::Command::new("dora")
-            .args(["list"])
-            .output()
-            .map(|output| {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                for line in output_str.lines() {
-                    if line.contains("Running") {
-                        // Extract UUID (first field)
-                        let parts: Vec<&str> = line.split_whitespace().collect();
-                        if let Some(uuid) = parts.first() {
-                            let _ = std::process::Command::new("dora")
-                                .args(["stop", uuid])
-                                .output();
-                        }
+        self.add_log(cx, "[INFO] [tts] Ensuring Dora runtime is up...");
+        let (tx, rx) = mpsc::channel::<DoraStartupEvent>();
+        self.dora_start_rx = Some(rx);
+
+        thread::spawn(move || {
+            let _ = tx.send(DoraStartupEvent::Stage(
+                "Checking Dora runtime".to_string(),
+            ));
+
+            let mut dora_ready = Command::new("dora")
+                .args(["system", "status"])
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+
+            if !dora_ready {
+                let _ = tx.send(DoraStartupEvent::Stage(
+                    "Starting Dora runtime".to_string(),
+                ));
+
+                match Command::new("dora").args(["up"]).status() {
+                    Ok(status) if status.success() => {}
+                    Ok(status) => {
+                        let _ = tx.send(DoraStartupEvent::Failed(format!(
+                            "`dora up` exited with status {}",
+                            status
+                        )));
+                        return;
+                    }
+                    Err(err) => {
+                        let _ = tx.send(DoraStartupEvent::Failed(format!(
+                            "Failed to run `dora up`: {}",
+                            err
+                        )));
+                        return;
                     }
                 }
-            });
 
-        // Wait a bit for dataflows to stop
-        std::thread::sleep(std::time::Duration::from_secs(2));
+                let _ = tx.send(DoraStartupEvent::Stage(
+                    "Waiting for Dora runtime readiness".to_string(),
+                ));
 
-        self.add_log(cx, "[INFO] [tts] Auto-starting TTS dataflow...");
+                for _ in 0..12 {
+                    dora_ready = Command::new("dora")
+                        .args(["system", "status"])
+                        .status()
+                        .map(|status| status.success())
+                        .unwrap_or(false);
+                    if dora_ready {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(250));
+                }
+            }
 
-        if let Some(dora) = &mut self.dora {
-            dora.start_dataflow(dataflow_path);
+            if dora_ready {
+                let _ = tx.send(DoraStartupEvent::Ready);
+            } else {
+                let _ = tx.send(DoraStartupEvent::Failed(
+                    "Dora runtime not ready after startup".to_string(),
+                ));
+            }
+        });
+    }
+
+    fn poll_dora_startup(&mut self, cx: &mut Cx) {
+        let mut latest_event: Option<DoraStartupEvent> = None;
+        if let Some(rx) = &self.dora_start_rx {
+            while let Ok(event) = rx.try_recv() {
+                latest_event = Some(event);
+            }
         }
 
-        self.add_log(cx, "[INFO] [tts] Dataflow started, connecting...");
+        let Some(event) = latest_event else {
+            return;
+        };
+
+        match event {
+            DoraStartupEvent::Stage(detail) => {
+                self.add_log(cx, &format!("[INFO] [tts] {}", detail));
+            }
+            DoraStartupEvent::Ready => {
+                self.dora_start_rx = None;
+                self.add_log(cx, "[INFO] [tts] Dora runtime ready");
+
+                let Some(dataflow_path) = self.dora_pending_dataflow_path.take() else {
+                    self.dora_start_in_flight = false;
+                    self.dora_started = false;
+                    self.add_log(cx, "[ERROR] [tts] Missing pending dataflow path");
+                    return;
+                };
+
+                self.add_log(cx, "[INFO] [tts] Auto-starting TTS dataflow...");
+                if let Some(dora) = &mut self.dora {
+                    if dora.start_dataflow(dataflow_path) {
+                        self.add_log(
+                            cx,
+                            "[INFO] [tts] Dataflow start command submitted, connecting...",
+                        );
+                    } else {
+                        self.dora_start_in_flight = false;
+                        self.dora_started = false;
+                        self.add_log(cx, "[ERROR] [tts] Failed to submit Dora start command");
+                    }
+                } else {
+                    self.dora_start_in_flight = false;
+                    self.dora_started = false;
+                    self.add_log(cx, "[ERROR] [tts] Dora integration not initialized");
+                }
+            }
+            DoraStartupEvent::Failed(message) => {
+                self.dora_start_rx = None;
+                self.dora_pending_dataflow_path = None;
+                self.dora_start_in_flight = false;
+                self.dora_started = false;
+                self.add_log(cx, &format!("[ERROR] [tts] {}", message));
+                self.show_toast(
+                    cx,
+                    self.tr(
+                        "Dora 启动失败，请查看日志",
+                        "Dora startup failed. Please check logs",
+                    ),
+                );
+            }
+        }
     }
 
     fn maybe_retry_dataflow_start(&mut self, cx: &mut Cx) {
@@ -15073,6 +15134,8 @@ impl TTSScreen {
         self.dora_started = false;
         self.dora_start_in_flight = false;
         self.dora_start_attempt_at = None;
+        self.dora_start_rx = None;
+        self.dora_pending_dataflow_path = None;
 
         self.add_log(cx, "[INFO] [tts] Dataflow stopped");
     }

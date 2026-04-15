@@ -243,12 +243,9 @@ RES_DIR="$APP_ROOT/Resources"
 MACOS_DIR="$APP_ROOT/MacOS"
 LOG_DIR="$HOME/Library/Logs/MoxinVoice"
 mkdir -p "$LOG_DIR"
-DORA_LOG_PATH="$LOG_DIR/dora_up.log"
-PREFLIGHT_LOG_PATH="$LOG_DIR/preflight.log"
 DORA_RUNTIME_DIR="${MOXIN_DORA_RUNTIME_DIR:-$HOME/.dora/runtime}"
 mkdir -p "$DORA_RUNTIME_DIR"
 cd "$DORA_RUNTIME_DIR"
-: > "$DORA_LOG_PATH"
 
 export MOXIN_APP_RESOURCES="$RES_DIR"
 export MOXIN_FEWSHOT_TRAINER_BIN="$MACOS_DIR/moxin-fewshot-trainer"
@@ -314,13 +311,6 @@ nodes:
 YAML
 export MOXIN_DATAFLOW_PATH="$RUNTIME_DATAFLOW_PATH"
 export PATH="$MACOS_DIR:$HOME/.cargo/bin:$PATH"
-
-# Start Dora in background only (non-blocking) so UI can appear immediately.
-# The app side will keep checking readiness and retry startup as needed.
-(dora system status >/dev/null 2>&1 || dora up > "$DORA_LOG_PATH" 2>&1 || true) &
-
-# Run full preflight in background for diagnostics only, do not block startup.
-("$RES_DIR/scripts/macos_preflight.sh" > "$PREFLIGHT_LOG_PATH" 2>&1 || true) &
 
 exec "$MACOS_DIR/moxin-voice-shell-bin"
 EOF
