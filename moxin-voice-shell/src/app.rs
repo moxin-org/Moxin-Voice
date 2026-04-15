@@ -10,7 +10,6 @@ use moxin_voice::TTSScreenWidgetRefExt;
 use moxin_widgets::MoxinApp;
 use moxin_widgets::TranslationOverlayAction;
 use moxin_widgets::translation_overlay::TranslationOverlay;
-use std::process::Command;
 use std::sync::OnceLock;
 
 // ── macOS window alpha ────────────────────────────────────────────────────────
@@ -615,36 +614,6 @@ impl MatchEvent for App {
 
     fn handle_shutdown(&mut self, _cx: &mut Cx) {
         ::log::info!("Moxin Voice application shutting down");
-
-        ::log::info!("Cleaning up Dora dataflow");
-
-        // Best-effort runtime cleanup for both dev and bundled app:
-        // actively destroy running Dora dataflows on app exit.
-        match Command::new("dora").arg("destroy").output() {
-            Ok(output) => {
-                if output.status.success() {
-                    ::log::info!("`dora destroy` executed successfully");
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let stderr_trimmed = stderr.trim();
-                    if stderr_trimmed.is_empty() {
-                        ::log::warn!(
-                            "`dora destroy` exited with status: {}",
-                            output.status
-                        );
-                    } else {
-                        ::log::warn!(
-                            "`dora destroy` exited with status {}: {}",
-                            output.status,
-                            stderr_trimmed
-                        );
-                    }
-                }
-            }
-            Err(err) => {
-                ::log::warn!("failed to execute `dora destroy`: {}", err);
-            }
-        }
     }
 }
 
