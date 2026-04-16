@@ -2404,7 +2404,7 @@ impl VoiceCloneModal {
         if let Some(path) = &self.selected_file {
             // Initialize player if needed
             if self.preview_player.is_none() {
-                self.preview_player = Some(TTSPlayer::new());
+                self.preview_player = Some(TTSPlayer::new(24000));
             }
 
             // Load and play audio
@@ -2460,8 +2460,8 @@ impl VoiceCloneModal {
             samples
         };
 
-        // Resample to 32000 Hz if needed
-        let target_rate = 32000;
+        // Resample to 24000 Hz if needed (player source rate = Qwen3-TTS native 24kHz)
+        let target_rate = 24000;
         let resampled = if sample_rate != target_rate {
             let ratio = target_rate as f32 / sample_rate as f32;
             let new_len = (mono_samples.len() as f32 * ratio) as usize;

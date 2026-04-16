@@ -8205,9 +8205,10 @@ impl Widget for TTSScreen {
             self.view.handle_event(cx, event, scope);
         });
 
-        // Initialize audio player
+        // Initialize audio player (24kHz = Qwen3-TTS native output rate)
         if self.audio_player.is_none() {
             self.audio_player = Some(TTSPlayer::new_with_output_device(
+                24000,
                 self.app_preferences.preferred_output_device.as_deref(),
             ));
         }
@@ -11752,9 +11753,11 @@ impl TTSScreen {
 
     fn recreate_players_with_selected_output(&mut self) {
         self.audio_player = Some(TTSPlayer::new_with_output_device(
+            24000,
             self.app_preferences.preferred_output_device.as_deref(),
         ));
         self.preview_player = Some(TTSPlayer::new_with_output_device(
+            24000,
             self.app_preferences.preferred_output_device.as_deref(),
         ));
     }
@@ -14034,6 +14037,7 @@ impl TTSScreen {
                 // Initialize preview player if needed
                 if self.preview_player.is_none() {
                     self.preview_player = Some(TTSPlayer::new_with_output_device(
+                        24000,
                         self.app_preferences.preferred_output_device.as_deref(),
                     ));
                 }
@@ -14169,8 +14173,8 @@ impl TTSScreen {
             samples
         };
 
-        // Resample to 32000 Hz if needed (TTSPlayer expects 32000 Hz)
-        let target_rate = 32000;
+        // Resample to 24000 Hz if needed (TTSPlayer source rate = Qwen3-TTS native 24kHz)
+        let target_rate = 24000;
         let resampled = if sample_rate != target_rate {
             let ratio = target_rate as f32 / sample_rate as f32;
             let new_len = (mono_samples.len() as f32 * ratio) as usize;
@@ -17421,7 +17425,7 @@ impl TTSScreen {
         } else if self.processed_audio_samples.is_empty() {
             self.stored_audio_sample_rate
         } else {
-            32000
+            24000
         }
     }
 
@@ -17452,13 +17456,12 @@ impl TTSScreen {
             return;
         }
 
-        // The local player expects 32k source audio. Qwen MLX returns 24k,
-        // so normalize playback/export samples here to avoid pitch/time distortion.
-        if self.stored_audio_sample_rate > 0 && self.stored_audio_sample_rate != 32000 {
+        // Resample to 24kHz if needed (player source rate matches Qwen3-TTS native rate).
+        if self.stored_audio_sample_rate > 0 && self.stored_audio_sample_rate != 24000 {
             self.processed_audio_samples = Self::resample_linear(
                 &self.stored_audio_samples,
                 self.stored_audio_sample_rate,
-                32000,
+                24000,
             );
         } else {
             self.processed_audio_samples = self.stored_audio_samples.clone();
@@ -18823,6 +18826,7 @@ impl TTSScreen {
             Ok(samples) => {
                 if self.preview_player.is_none() {
                     self.preview_player = Some(TTSPlayer::new_with_output_device(
+                        24000,
                         self.app_preferences.preferred_output_device.as_deref(),
                     ));
                 }

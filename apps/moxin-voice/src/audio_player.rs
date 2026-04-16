@@ -126,13 +126,13 @@ pub struct TTSPlayer {
 }
 
 impl TTSPlayer {
-    /// Create a new audio player with specified sample rate
-    pub fn new() -> Self {
-        Self::new_with_output_device(None)
+    /// Create a new audio player that accepts audio at `source_sample_rate`.
+    pub fn new(source_sample_rate: u32) -> Self {
+        Self::new_with_output_device(source_sample_rate, None)
     }
 
-    pub fn new_with_output_device(preferred_output_device: Option<&str>) -> Self {
-        let sample_rate = 32000; // PrimeSpeech (GPT-SoVITS) outputs 32000 Hz audio
+    pub fn new_with_output_device(source_sample_rate: u32, preferred_output_device: Option<&str>) -> Self {
+        let sample_rate = source_sample_rate;
         let (command_tx, command_rx) = unbounded::<AudioCommand>();
         let preferred_output_device = preferred_output_device.map(|s| s.to_string());
 
@@ -292,11 +292,13 @@ fn run_audio_thread(
     let _state_for_callback = Arc::clone(&state); // Unused, just for symmetry or if needed later
     let output_channels = channels as usize;
 
-    // Resampling state
-    let sample_pos = 0.0;
     let playback_rate = sample_rate as f32 / stream_sample_rate as f32;
+    // CoreAudio typically delivers 512-4096 frames per callback; use 8192 as safe upper bound.
+    let max_frames: usize = 8192;
 
-    // Helper to build stream with correct sample format
+    // Helper to build stream with correct sample format.
+    // Pre-allocates a resampling scratch buffer sized for `max_frames` output frames
+    // so the real-time audio callback never hits the allocator.
     fn build_stream_for_format<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
@@ -305,47 +307,49 @@ fn run_audio_thread(
         state: Arc<Mutex<SharedAudioState>>,
         playback_finished: Arc<AtomicBool>,
         output_channels: usize,
-        _sample_pos: f32,
         playback_rate: f32,
+        max_frames: usize,
     ) -> Result<cpal::Stream, cpal::BuildStreamError>
     where
         T: cpal::Sample + cpal::FromSample<f32> + cpal::SizedSample,
     {
+        let scratch_len = (max_frames as f32 * playback_rate).ceil() as usize + 4;
+        let mut source_chunk = vec![0.0f32; scratch_len];
+
         device.build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
                 if is_playing.load(Ordering::Relaxed) {
                     let frames = data.len() / output_channels;
-                    let mut buf = buffer.lock();
+                    let needed = (frames as f32 * playback_rate).ceil() as usize + 2;
 
-                    let needed_source_samples = (frames as f32 * playback_rate).ceil() as usize + 2;
-                    let mut source_chunk = vec![0.0; needed_source_samples];
-                    let read_count = buf.read(&mut source_chunk);
+                    // Grow scratch only if callback delivers more frames than expected (rare)
+                    if needed > source_chunk.len() {
+                        source_chunk.resize(needed, 0.0);
+                    }
+
+                    let read_count = buffer.lock().read(&mut source_chunk[..needed]);
 
                     if read_count == 0 {
-                        // Buffer is empty - playback finished
                         is_playing.store(false, Ordering::Relaxed);
-                        // Signal UI thread that playback has finished
                         playback_finished.store(true, Ordering::Release);
                         for sample in data.iter_mut() {
                             *sample = T::from_sample(0.0);
                         }
-                        return; // Release lock early
+                        return;
                     }
 
-                    let mut source_idx_f = 0.0;
+                    let mut source_idx_f: f32 = 0.0;
 
                     for i in 0..frames {
                         let idx = source_idx_f as usize;
-                        let val = if idx < read_count {
-                            source_chunk[idx]
-                        } else {
-                            0.0
-                        };
+                        let frac = source_idx_f - idx as f32;
+                        let s0 = if idx < read_count { source_chunk[idx] } else { 0.0 };
+                        let s1 = if idx + 1 < read_count { source_chunk[idx + 1] } else { s0 };
+                        let val = s0 + frac * (s1 - s0);
 
                         let output_val = T::from_sample(val);
 
-                        // Copy to all channels
                         for ch in 0..output_channels {
                             data[i * output_channels + ch] = output_val;
                         }
@@ -358,10 +362,7 @@ fn run_audio_thread(
                     }
                 }
 
-                // Visualization update (sampled)
                 if let Some(mut s) = state.try_lock() {
-                    // Simply use a sine wave or random noise if we can't get real samples easily here
-                    // or just leave blank for now to avoid complexity
                     s.is_playing = is_playing.load(Ordering::Relaxed);
                 }
             },
@@ -380,8 +381,8 @@ fn run_audio_thread(
             Arc::clone(&state),
             Arc::clone(&playback_finished),
             output_channels,
-            sample_pos,
             playback_rate,
+            max_frames,
         ),
         cpal::SampleFormat::I16 => build_stream_for_format::<i16>(
             &device,
@@ -391,8 +392,8 @@ fn run_audio_thread(
             Arc::clone(&state),
             Arc::clone(&playback_finished),
             output_channels,
-            sample_pos,
             playback_rate,
+            max_frames,
         ),
         cpal::SampleFormat::U16 => build_stream_for_format::<u16>(
             &device,
@@ -402,8 +403,8 @@ fn run_audio_thread(
             Arc::clone(&state),
             Arc::clone(&playback_finished),
             output_channels,
-            sample_pos,
             playback_rate,
+            max_frames,
         ),
         _ => build_stream_for_format::<f32>(
             &device,
@@ -413,8 +414,8 @@ fn run_audio_thread(
             Arc::clone(&state),
             Arc::clone(&playback_finished),
             output_channels,
-            sample_pos,
             playback_rate,
+            max_frames,
         ),
     };
 
