@@ -35,6 +35,9 @@ Desktop.ini
 *.tmp
 *.temp
 
+# Local release notes
+RELEASE_NOTES.md
+
 # Dora output directories
 out/
 **/out/

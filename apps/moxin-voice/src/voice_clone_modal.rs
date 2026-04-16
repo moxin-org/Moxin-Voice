@@ -146,7 +146,7 @@ live_design! {
                     return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                 }
             }
-            text: "Reference Audio (3-10 seconds)"
+            text: "Reference Audio (3-8 seconds)"
         }
 
         file_row = <View> {
@@ -2278,7 +2278,21 @@ impl VoiceCloneModal {
                     ))
                     .set_text(cx, &info_text);
 
-                self.audio_info = Some(info);
+                self.audio_info = Some(info.clone());
+
+                let express_max_secs: f32 = if Self::is_qwen3_zero_shot() { 8.0 } else { 10.0 };
+                if info.duration_secs > express_max_secs {
+                    self.selected_file = None;
+                    self.show_error(
+                        cx,
+                        &format!(
+                            "Audio too long ({:.1}s). Maximum: {:.0} seconds",
+                            info.duration_secs, express_max_secs
+                        ),
+                    );
+                    return;
+                }
+
                 self.selected_file = Some(path.clone());
                 self.clear_error(cx);
 
@@ -2589,8 +2603,8 @@ impl VoiceCloneModal {
 
         // Validate audio duration — limits differ by backend:
         // option_a (GPT-SoVITS zero-shot): 3-10 seconds
-        // option_b (Qwen3 zero-shot): 3-30 seconds
-        let express_max_secs: f32 = if Self::is_qwen3_zero_shot() { 30.0 } else { 10.0 };
+        // option_b (Qwen3 zero-shot): 3-8 seconds (must match ICL ref max to keep text/audio aligned)
+        let express_max_secs: f32 = if Self::is_qwen3_zero_shot() { 8.0 } else { 10.0 };
         if let Some(ref info) = self.audio_info {
             if info.duration_secs < 3.0 {
                 self.show_error(

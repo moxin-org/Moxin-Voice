@@ -211,7 +211,7 @@ pub fn validate_audio_file(path: &PathBuf) -> Result<AudioInfo, String> {
     // Hard limits: reject files < 1s or > 30s (unusable for voice cloning)
     // Recommended: 3-10 seconds for optimal quality
     const MIN_DURATION_HARD: f32 = 1.0;
-    const MAX_DURATION_HARD: f32 = 30.0;
+    const MAX_DURATION_HARD: f32 = 8.0;
     const MIN_DURATION_RECOMMENDED: f32 = 3.0;
     const MAX_DURATION_RECOMMENDED: f32 = 10.0;
 
