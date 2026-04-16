@@ -42,6 +42,37 @@ unsafe fn set_nswindow_alpha(title_fragment: &str, alpha: f64) {
     }
 }
 
+// ── macOS hide traffic lights ─────────────────────────────────────────────────
+// Hides the close/minimize/zoom buttons on the window whose title contains
+// `title_fragment`. Hidden state persists across minimize/restore cycles.
+#[cfg(target_os = "macos")]
+unsafe fn hide_nswindow_traffic_lights(title_fragment: &str) {
+    use makepad_objc_sys::runtime::{Object, YES};
+    #[allow(unused_imports)]
+    use makepad_objc_sys::{class, msg_send, sel, sel_impl};
+    let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+    let windows: *mut Object = msg_send![app, windows];
+    let count: usize = msg_send![windows, count];
+    for i in 0..count {
+        let win: *mut Object = msg_send![windows, objectAtIndex: i];
+        let title: *mut Object = msg_send![win, title];
+        if title.is_null() { continue; }
+        let utf8: *const std::os::raw::c_char = msg_send![title, UTF8String];
+        if utf8.is_null() { continue; }
+        let s = std::ffi::CStr::from_ptr(utf8).to_str().unwrap_or("");
+        if s.contains(title_fragment) {
+            // NSWindowCloseButton=0, NSWindowMiniaturizeButton=1, NSWindowZoomButton=2
+            for btn_type in [0usize, 1usize, 2usize] {
+                let btn: *mut Object = msg_send![win, standardWindowButton: btn_type];
+                if !btn.is_null() {
+                    let () = msg_send![btn, setHidden: YES];
+                }
+            }
+            return;
+        }
+    }
+}
+
 use crate::Args;
 
 // ============================================================================
@@ -182,6 +213,9 @@ impl AppMain for App {
                     "[translation_ui] detected window_id={:?}",
                     ev.window_id
                 );
+                // Remove traffic light buttons from the overlay window.
+                #[cfg(target_os = "macos")]
+                unsafe { hide_nswindow_traffic_lights("Translation"); }
                 // Keep hidden by default at startup.
                 cx.push_unique_platform_op(CxOsOp::MinimizeWindow(ev.window_id));
             } else if self.main_window_id.is_none() {
@@ -190,7 +224,7 @@ impl AppMain for App {
             } else if self.translation_window_id == Some(ev.window_id) {
                 // Keep anchor formula in sync with real window size (including
                 // user resize and platform-specific window state transitions).
-                let viewport_h = (ev.new_geom.inner_size.y - 44.0).max(0.0);
+                let viewport_h = (ev.new_geom.inner_size.y - 38.0).max(0.0);
                 let overlay_ref =
                     self.translation_ui.widget(ids!(body.translation_overlay));
                 if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
@@ -287,7 +321,7 @@ impl MatchEvent for App {
         // Set initial scroll anchor for compact window (260px high, 44px toolbar → 216px viewport).
         let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
         if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-            overlay.set_viewport_height(cx, 216.0);
+            overlay.set_viewport_height(cx, 222.0);
             overlay.set_font_size_preset(cx, "normal");
             overlay.set_anchor_position_preset(cx, "50");
         }
@@ -345,7 +379,7 @@ impl MatchEvent for App {
             };
             self.translation_ui.as_window().resize(cx, size);
             // Update scroll anchor after resize (toolbar is 44px).
-            let viewport_h = size.y - 44.0;
+            let viewport_h = size.y - 38.0;
             let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
             if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
                 overlay.set_viewport_height(cx, viewport_h);

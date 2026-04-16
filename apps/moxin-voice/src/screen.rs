@@ -1297,7 +1297,14 @@ live_design! {
                     logo_section = <View> {
                         width: Fill, height: Fit
                         flow: Down
-                        align: {x: 0.0, y: 0.5}
+                        align: {x: 0.5, y: 0.5}
+
+                        logo_image = <Image> {
+                            width: 52, height: 52
+                            margin: {bottom: 4}
+                            source: dep("crate://moxin-widgets/resources/moxin_icon_fixed.png")
+                            fit: Smallest
+                        }
 
                         logo_text = <Label> {
                             width: Fit, height: Fit
@@ -1310,12 +1317,12 @@ live_design! {
 
                         logo_subtitle = <Label> {
                             width: Fit, height: Fit
-                            margin: {top: -6}
+                            margin: {top: 2}
                             draw_text: {
                                 text_style: <FONT_REGULAR>{ font_size: 11.0 }
                                 fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 0.35); }
                             }
-                            text: "OminiX MLX"
+                            text: "powered by OminiX MLX"
                         }
                     }
                 }

@@ -66,18 +66,10 @@ live_design! {
         // ── Toolbar ──────────────────────────────────────────────────────────
         // Left side is intentionally empty (macOS window buttons occupy that space).
         toolbar = <View> {
-            width: Fill, height: 44
+            width: Fill, height: Fit
             flow: Right
             align: { y: 0.5 }
-            padding: { left: 16, right: 16 }
-            show_bg: true
-            draw_bg: {
-                instance bg_opacity: 1.0
-                fn pixel(self) -> vec4 {
-                    let base = (MOXIN_BG_SECONDARY_DARK);
-                    return vec4(base.x, base.y, base.z, self.bg_opacity);
-                }
-            }
+            padding: { left: 16, right: 16, top: 6, bottom: 6 }
 
             // Spacer pushes right controls group to the edge.
             <View> { width: Fill, height: 1 }
@@ -170,6 +162,30 @@ live_design! {
             // Dynamic spacer used only when content is long enough to require
             // centering the newest line; otherwise stays zero.
             bottom_spacer = <View> { width: Fill, height: 0.0 }
+        }
+
+        // ── Bottom branding footer ────────────────────────────────────────────
+        overlay_footer = <View> {
+            width: Fill, height: 30
+            flow: Right
+            align: {x: 0.5, y: 0.5}
+            spacing: 5
+            padding: {bottom: 2}
+
+            footer_logo = <Image> {
+                width: 22, height: 22
+                source: dep("crate://self/resources/moxin_icon_fixed.png")
+                fit: Smallest
+            }
+
+            footer_label = <Label> {
+                width: Fit
+                draw_text: {
+                    color: (MOXIN_TEXT_MUTED_DARK)
+                    text_style: <FONT_REGULAR> { font_size: 10.0 }
+                }
+                text: "Powered by Moxin Voice"
+            }
         }
     }
 }
@@ -587,9 +603,6 @@ impl TranslationOverlay {
     /// Set overlay background opacity (0.0 = fully transparent, 1.0 = opaque).
     pub fn set_opacity(&mut self, cx: &mut Cx, opacity: f64) {
         self.view.apply_over(cx, live! {
-            draw_bg: { bg_opacity: (opacity) }
-        });
-        self.view.view(ids!(toolbar)).apply_over(cx, live! {
             draw_bg: { bg_opacity: (opacity) }
         });
         self.view.redraw(cx);
