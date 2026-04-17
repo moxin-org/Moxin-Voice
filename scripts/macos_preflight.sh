@@ -13,6 +13,12 @@ QWEN_CUSTOM_DIR="${QWEN3_TTS_CUSTOMVOICE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.
 QWEN_BASE_DIR="${QWEN3_TTS_BASE_MODEL_DIR:-$QWEN_ROOT/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
 QWEN_ASR_MODEL_DIR="${QWEN3_ASR_MODEL_PATH:-$HOME/.OminiX/models/qwen3-asr-1.7b}"
 QWEN35_TRANSLATOR_MODEL_DIR="${QWEN35_TRANSLATOR_MODEL_PATH:-$HOME/.OminiX/models/Qwen3.5-2B-MLX-4bit}"
+QWEN_CUSTOM_REPO="${QWEN3_TTS_CUSTOMVOICE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit}"
+QWEN_BASE_REPO="${QWEN3_TTS_BASE_REPO:-mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit}"
+QWEN_ASR_REPO="${QWEN3_ASR_REPO:-mlx-community/Qwen3-ASR-1.7B-8bit}"
+QWEN35_TRANSLATOR_REPO="${QWEN35_TRANSLATOR_REPO:-mlx-community/Qwen3.5-2B-MLX-4bit}"
+MODEL_COMPLETION_MARKER=".moxin-model-complete.json"
+BOOTSTRAP_VERSION=1
 
 if [[ -z "$APP_RESOURCES" ]]; then
   APP_RESOURCES="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -80,6 +86,44 @@ qwen35_translation_model_ready() {
   [[ -f "$model_dir/tokenizer.json" ]] &&
   [[ -f "$model_dir/tokenizer_config.json" ]] &&
   ([[ -f "$model_dir/model.safetensors" ]] || [[ -f "$model_dir/model.safetensors.index.json" ]])
+}
+
+asr_model_ready() {
+  local model_dir="$1"
+  [[ -f "$model_dir/config.json" ]]
+}
+
+model_completion_marker_valid() {
+  local model_dir="$1"
+  local repo_id="$2"
+  local marker="$model_dir/$MODEL_COMPLETION_MARKER"
+  [[ -s "$marker" ]] && grep -q "\"repo_id\"[[:space:]]*:[[:space:]]*\"$repo_id\"" "$marker"
+}
+
+write_model_completion_marker() {
+  local model_dir="$1"
+  local repo_id="$2"
+  mkdir -p "$model_dir"
+  cat > "$model_dir/$MODEL_COMPLETION_MARKER" <<EOF
+{
+  "repo_id": "$repo_id",
+  "bootstrap_version": $BOOTSTRAP_VERSION
+}
+EOF
+}
+
+ensure_model_complete() {
+  local model_dir="$1"
+  local repo_id="$2"
+  local checker="$3"
+
+  if "$checker" "$model_dir"; then
+    if ! model_completion_marker_valid "$model_dir" "$repo_id"; then
+      write_model_completion_marker "$model_dir" "$repo_id"
+    fi
+    return 0
+  fi
+  return 1
 }
 
 # Locate qwen-tts-node binary
@@ -174,20 +218,20 @@ if [[ "$moxin_init_resolved" != "1" ]]; then
 fi
 
 # Check Qwen3 ASR model (required)
-if [[ ! -f "$QWEN_ASR_MODEL_DIR/config.json" ]]; then
+if ! ensure_model_complete "$QWEN_ASR_MODEL_DIR" "$QWEN_ASR_REPO" asr_model_ready; then
   errors+=("Qwen3-ASR model not found: $QWEN_ASR_MODEL_DIR — run moxin-init or launch the app")
 fi
 
 # Check Qwen3 TTS models (required)
-if ! qwen_model_ready "$QWEN_CUSTOM_DIR"; then
+if ! ensure_model_complete "$QWEN_CUSTOM_DIR" "$QWEN_CUSTOM_REPO" qwen_model_ready; then
   errors+=("Qwen3 CustomVoice model incomplete: $QWEN_CUSTOM_DIR — run moxin-init or launch the app")
 fi
-if ! qwen_model_ready "$QWEN_BASE_DIR"; then
+if ! ensure_model_complete "$QWEN_BASE_DIR" "$QWEN_BASE_REPO" qwen_model_ready; then
   errors+=("Qwen3 Base model incomplete: $QWEN_BASE_DIR — run moxin-init or launch the app")
 fi
 
 # Check Qwen3.5 translator model (required)
-if ! qwen35_translation_model_ready "$QWEN35_TRANSLATOR_MODEL_DIR"; then
+if ! ensure_model_complete "$QWEN35_TRANSLATOR_MODEL_DIR" "$QWEN35_TRANSLATOR_REPO" qwen35_translation_model_ready; then
   errors+=("Qwen3.5 translator model incomplete: $QWEN35_TRANSLATOR_MODEL_DIR — run moxin-init or launch the app")
 fi
 

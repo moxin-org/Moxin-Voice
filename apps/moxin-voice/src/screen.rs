@@ -81,9 +81,20 @@ enum RuntimeInitState {
     Failed,
 }
 
+fn should_show_runtime_download_ui(
+    runtime_init_state: RuntimeInitState,
+    runtime_init_download_ui_active: bool,
+) -> bool {
+    runtime_init_download_ui_active
+        && matches!(
+            runtime_init_state,
+            RuntimeInitState::Running | RuntimeInitState::Failed
+        )
+}
+
 #[derive(Debug)]
 enum RuntimeInitEvent {
-    Stage { status: String, detail: String },
+    Stage { status: String, detail: String, progress: f64 },
     DoneOk,
     DoneErr(String),
 }
@@ -1317,9 +1328,9 @@ live_design! {
 
                         logo_subtitle = <Label> {
                             width: Fit, height: Fit
-                            margin: {top: 2}
+                            margin: {top: -5}
                             draw_text: {
-                                text_style: <FONT_REGULAR>{ font_size: 11.0 }
+                                text_style: <FONT_REGULAR>{ font_size: 10.0 }
                                 fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 0.35); }
                             }
                             text: "powered by OminiX MLX"
@@ -7764,13 +7775,12 @@ live_design! {
         // Loading overlay - shown while dataflow is initializing
         loading_overlay = <View> {
             width: Fill, height: Fill
-            align: {x: 0.5, y: 0.5}
+            flow: Down
             visible: true
 
             show_bg: true
             draw_bg: {
                 fn pixel(self) -> vec4 {
-                    // Match sidebar gradient style
                     let gradient = mix(
                         vec4(0.157, 0.196, 0.255, 1.0),  // #283041
                         vec4(0.122, 0.153, 0.200, 1.0),  // #1f2733
@@ -7780,96 +7790,147 @@ live_design! {
                 }
             }
 
-            loading_content = <View> {
-                width: Fit, height: Fit
-                flow: Down
-                spacing: 24
+            // Centered content area
+            loading_center = <View> {
+                width: Fill, height: Fill
                 align: {x: 0.5, y: 0.5}
 
-                // App logo/name
-                loading_logo = <View> {
+                loading_content = <View> {
                     width: Fit, height: Fit
                     flow: Down
-                    spacing: 12
-                    align: {x: 0.5}
+                    spacing: 24
+                    align: {x: 0.5, y: 0.5}
 
-                    loading_title = <Label> {
+                    // App logo/name
+                    loading_logo = <View> {
                         width: Fit, height: Fit
-                        draw_text: {
-                            text_style: <FONT_BOLD>{ font_size: 28.0 }
-                            fn get_color(self) -> vec4 {
-                                return (WHITE);
+                        flow: Down
+                        spacing: 12
+                        align: {x: 0.5}
+
+                        loading_title = <Label> {
+                            width: Fit, height: Fit
+                            draw_text: {
+                                text_style: <FONT_BOLD>{ font_size: 28.0 }
+                                fn get_color(self) -> vec4 {
+                                    return (WHITE);
+                                }
                             }
+                            text: "Moxin Voice"
                         }
-                        text: "Moxin Voice"
+
+                        loading_subtitle = <Label> {
+                            width: Fit, height: Fit
+                            draw_text: {
+                                text_style: { font_size: 13.0 }
+                                fn get_color(self) -> vec4 {
+                                    return vec4(0.7, 0.7, 0.75, 1.0);
+                                }
+                            }
+                            text: "Voice Cloning & Text-to-Speech"
+                        }
                     }
 
-                    loading_subtitle = <Label> {
+                    // Spinner area
+                    loading_spinner_area = <View> {
                         width: Fit, height: Fit
-                        draw_text: {
-                            text_style: { font_size: 13.0 }
-                            fn get_color(self) -> vec4 {
-                                return vec4(0.7, 0.7, 0.75, 1.0);
+                        align: {x: 0.5}
+
+                        loading_spinner = <View> {
+                            width: 40, height: 40
+                            show_bg: true
+                            draw_bg: {
+                                instance phase: 0.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    let cx = self.rect_size.x * 0.5;
+                                    let cy = self.rect_size.y * 0.5;
+                                    let radius = min(cx, cy) - 4.0;
+                                    let pi = 3.141592653589793;
+
+                                    // Background track ring
+                                    sdf.circle(cx, cy, radius);
+                                    sdf.stroke(vec4(1.0, 1.0, 1.0, 0.15), 3.0);
+
+                                    // Spinning arc (270 degrees)
+                                    let start = self.phase * 2.0 * pi;
+                                    let end = start + pi * 1.5;
+                                    sdf.arc_round_caps(cx, cy, radius, start, end, 3.0);
+                                    sdf.fill(vec4(0.39, 0.40, 0.95, 1.0));
+
+                                    return sdf.result;
+                                }
                             }
                         }
-                        text: "Voice Cloning & Text-to-Speech"
+                    }
+
+                    // Status text
+                    loading_status = <Label> {
+                        width: Fit, height: Fit
+                        draw_text: {
+                            text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                            fn get_color(self) -> vec4 {
+                                return vec4(0.8, 0.8, 0.85, 1.0);
+                            }
+                        }
+                        text: "Initializing..."
+                    }
+
+                    loading_detail = <Label> {
+                        width: Fit, height: Fit
+                        draw_text: {
+                            text_style: { font_size: 12.0 }
+                            fn get_color(self) -> vec4 {
+                                return vec4(0.55, 0.55, 0.6, 1.0);
+                            }
+                        }
+                        text: "Starting TTS dataflow engine"
+                    }
+
+                }
+            }
+
+            // Progress bar pinned to the bottom, full width with padding
+            loading_progress_container = <View> {
+                width: Fill, height: Fit
+                flow: Down, spacing: 8.0
+                padding: {left: 20, right: 20, bottom: 20, top: 0}
+
+                loading_progress_status_row = <View> {
+                    width: Fill, height: Fit
+                    align: {x: 1.0, y: 0.5}
+
+                    loading_progress_status = <Label> {
+                        width: Fit, height: Fit
+                        draw_text: {
+                            text_style: { font_size: 11.0 }
+                            fn get_color(self) -> vec4 {
+                                return vec4(0.62, 0.62, 0.68, 1.0);
+                            }
+                        }
+                        text: ""
                     }
                 }
 
-                // Spinner area
-                loading_spinner_area = <View> {
-                    width: Fit, height: Fit
-                    align: {x: 0.5}
+                loading_progress_bar = <View> {
+                    width: Fill, height: 6
+                    show_bg: true
+                    draw_bg: {
+                        instance progress: 0.0
+                        fn pixel(self) -> vec4 {
+                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                            sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 3.0);
+                            sdf.fill(vec4(1.0, 1.0, 1.0, 0.12));
 
-                    loading_spinner = <View> {
-                        width: 40, height: 40
-                        show_bg: true
-                        draw_bg: {
-                            instance phase: 0.0
-                            fn pixel(self) -> vec4 {
-                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                let cx = self.rect_size.x * 0.5;
-                                let cy = self.rect_size.y * 0.5;
-                                let radius = min(cx, cy) - 4.0;
-                                let pi = 3.141592653589793;
-
-                                // Background track ring
-                                sdf.circle(cx, cy, radius);
-                                sdf.stroke(vec4(1.0, 1.0, 1.0, 0.15), 3.0);
-
-                                // Spinning arc (270 degrees)
-                                let start = self.phase * 2.0 * pi;
-                                let end = start + pi * 1.5;
-                                sdf.arc_round_caps(cx, cy, radius, start, end, 3.0);
+                            let fill_w = clamp(self.progress, 0.0, 1.0) * self.rect_size.x;
+                            if fill_w > 0.0 {
+                                sdf.box(0.0, 0.0, fill_w, self.rect_size.y, 3.0);
                                 sdf.fill(vec4(0.39, 0.40, 0.95, 1.0));
-
-                                return sdf.result;
                             }
-                        }
-                    }
-                }
 
-                // Status text
-                loading_status = <Label> {
-                    width: Fit, height: Fit
-                    draw_text: {
-                        text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
-                        fn get_color(self) -> vec4 {
-                            return vec4(0.8, 0.8, 0.85, 1.0);
+                            return sdf.result;
                         }
                     }
-                    text: "Initializing..."
-                }
-
-                loading_detail = <Label> {
-                    width: Fit, height: Fit
-                    draw_text: {
-                        text_style: { font_size: 12.0 }
-                        fn get_color(self) -> vec4 {
-                            return vec4(0.55, 0.55, 0.6, 1.0);
-                        }
-                    }
-                    text: "Starting TTS dataflow engine"
                 }
             }
         }
@@ -8051,6 +8112,10 @@ pub struct TTSScreen {
     runtime_init_status_text: String,
     #[rust]
     runtime_init_detail_text: String,
+    #[rust]
+    runtime_init_progress: f64,
+    #[rust]
+    runtime_init_download_ui_active: bool,
     #[rust]
     qwen_download_in_progress: bool,
     #[rust]
@@ -8395,6 +8460,8 @@ impl Widget for TTSScreen {
             self.runtime_init_status_text = self.tr("初始化中...", "Initializing...").to_string();
             self.runtime_init_detail_text =
                 self.tr("正在检查运行环境", "Checking runtime environment").to_string();
+            self.runtime_init_progress = 0.0;
+            self.runtime_init_download_ui_active = false;
             self.qwen_download_in_progress = false;
             self.qwen_download_rx = None;
             self.qwen_model_status_text = self.tr("未就绪", "Not ready").to_string();
@@ -8763,39 +8830,48 @@ impl Widget for TTSScreen {
                 if self.spinner_phase > 1.0 {
                     self.spinner_phase -= 1.0;
                 }
-                self.view.view(ids!(loading_overlay.loading_content.loading_spinner_area.loading_spinner))
+                self.view.view(ids!(loading_overlay.loading_center.loading_content.loading_spinner_area.loading_spinner))
                     .apply_over(cx, live! { draw_bg: { phase: (self.spinner_phase) } });
 
                 if self.runtime_init_state == RuntimeInitState::Running
                     || self.runtime_init_state == RuntimeInitState::Failed
                 {
-                    self.view
-                        .label(ids!(loading_overlay.loading_content.loading_status))
-                        .set_text(cx, &self.runtime_init_status_text);
-                    self.view
-                        .label(ids!(loading_overlay.loading_content.loading_detail))
-                        .set_text(cx, &self.runtime_init_detail_text);
+                    self.update_loading_overlay_runtime_status(cx);
                 } else {
                     // Initial startup: dismiss once dora is running
                     let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
                     if is_running {
                         self.view
-                            .label(ids!(loading_overlay.loading_content.loading_status))
+                            .label(ids!(loading_overlay.loading_center.loading_content.loading_status))
                             .set_text(cx, self.tr("已连接", "Connected"));
                         self.view
-                            .label(ids!(loading_overlay.loading_content.loading_detail))
+                            .label(ids!(loading_overlay.loading_center.loading_content.loading_detail))
                             .set_text(cx, self.tr("TTS 引擎已就绪", "TTS engine ready"));
+                        self.view
+                            .label(ids!(loading_overlay.loading_progress_container.loading_progress_status_row.loading_progress_status))
+                            .set_text(cx, "");
+                        self.view
+                            .view(ids!(loading_overlay.loading_progress_container))
+                            .set_visible(cx, false);
                         self.loading_dismissed = true;
                         self.view.view(ids!(loading_overlay)).set_visible(cx, false);
                         self.view.redraw(cx);
                         self.add_log(cx, "[INFO] [tts] Dataflow connected, UI ready");
                     } else {
+                        let startup_detail =
+                            self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine");
                         self.view
-                            .label(ids!(loading_overlay.loading_content.loading_status))
+                            .label(ids!(loading_overlay.loading_center.loading_content.loading_status))
                             .set_text(cx, self.tr("连接中...", "Connecting..."));
                         self.view
-                            .label(ids!(loading_overlay.loading_content.loading_detail))
-                            .set_text(cx, self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine"));
+                            .label(ids!(loading_overlay.loading_center.loading_content.loading_detail))
+                            .set_text(cx, startup_detail);
+                        self.view
+                            .label(ids!(loading_overlay.loading_progress_container.loading_progress_status_row.loading_progress_status))
+                            .set_text(cx, "");
+                        self.view
+                            .view(ids!(loading_overlay.loading_progress_container))
+                            .set_visible(cx, false);
                     }
                 }
 
@@ -11447,14 +11523,15 @@ impl TTSScreen {
             .unwrap_or_else(|_| Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-Base-8bit"))
     }
     fn qwen_model_dir_ready(model_dir: &Path) -> bool {
-        model_dir.join("config.json").exists()
-            && model_dir.join("generation_config.json").exists()
-            && model_dir.join("vocab.json").exists()
-            && model_dir.join("merges.txt").exists()
-            && (model_dir.join("model.safetensors").exists()
-                || model_dir.join("model.safetensors.index.json").exists())
-            && model_dir.join("speech_tokenizer").join("config.json").exists()
-            && model_dir.join("speech_tokenizer").join("model.safetensors").exists()
+        let has_content = |path: PathBuf| path.metadata().map(|m| m.is_file() && m.len() > 0).unwrap_or(false);
+        has_content(model_dir.join("config.json"))
+            && has_content(model_dir.join("generation_config.json"))
+            && has_content(model_dir.join("vocab.json"))
+            && has_content(model_dir.join("merges.txt"))
+            && (has_content(model_dir.join("model.safetensors"))
+                || has_content(model_dir.join("model.safetensors.index.json")))
+            && has_content(model_dir.join("speech_tokenizer").join("config.json"))
+            && has_content(model_dir.join("speech_tokenizer").join("model.safetensors"))
     }
 
     fn qwen_custom_ready() -> bool {
@@ -12755,13 +12832,13 @@ impl TTSScreen {
         self.update_user_settings_page(cx);
 
         self.view
-            .label(ids!(loading_overlay.loading_content.loading_subtitle))
+            .label(ids!(loading_overlay.loading_center.loading_content.loading_subtitle))
             .set_text(cx, self.tr("音色克隆与文本转语音", "Voice Cloning & Text-to-Speech"));
         self.view
-            .label(ids!(loading_overlay.loading_content.loading_status))
+            .label(ids!(loading_overlay.loading_center.loading_content.loading_status))
             .set_text(cx, self.tr("初始化中...", "Initializing..."));
         self.view
-            .label(ids!(loading_overlay.loading_content.loading_detail))
+            .label(ids!(loading_overlay.loading_center.loading_content.loading_detail))
             .set_text(cx, self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine"));
 
         self.view
@@ -14541,6 +14618,8 @@ impl TTSScreen {
                     self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
                     self.runtime_init_detail_text =
                         self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+                    self.runtime_init_progress = 0.0;
+                    self.runtime_init_download_ui_active = false;
                     return;
                 }
             }
@@ -14553,6 +14632,8 @@ impl TTSScreen {
             self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
             self.runtime_init_detail_text =
                 self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+            self.runtime_init_progress = 0.0;
+            self.runtime_init_download_ui_active = false;
             return;
         }
 
@@ -14569,6 +14650,8 @@ impl TTSScreen {
             self.tr("初始化中...", "Initializing...").to_string();
         self.runtime_init_detail_text =
             self.tr("正在检查运行环境", "Checking runtime environment").to_string();
+        self.runtime_init_progress = 0.0;
+        self.runtime_init_download_ui_active = false;
 
         self.add_log(cx, "[INFO] [startup] Checking runtime dependencies...");
 
@@ -14582,6 +14665,7 @@ impl TTSScreen {
             let _ = tx.send(RuntimeInitEvent::Stage {
                 status: "Initializing runtime".to_string(),
                 detail: "Checking environment".to_string(),
+                progress: 0.0,
             });
 
             let pre_ok = Command::new(&pre)
@@ -14601,6 +14685,7 @@ impl TTSScreen {
                 status: "Initializing runtime (0/10)".to_string(),
                 detail: "Installing dependencies and models (first launch may take several minutes)"
                     .to_string(),
+                progress: 0.0,
             });
 
             let log_file = match OpenOptions::new()
@@ -14655,9 +14740,15 @@ impl TTSScreen {
                     if !state.is_empty() && state != last_state {
                         last_state = state.clone();
                         if let Some((progress, rest)) = state.split_once('|') {
-                            let mut parts = rest.splitn(2, '|');
+                            let mut parts = rest.splitn(3, '|');
                             let title = parts.next().unwrap_or("").trim();
-                            let detail = parts.next().unwrap_or("").trim();
+                            let detail_and_pct = parts.next().unwrap_or("");
+                            // 4th field is optional pct float
+                            let (detail, pct) = if let Some(p) = parts.next() {
+                                (detail_and_pct.trim(), p.trim().parse::<f64>().unwrap_or(0.0))
+                            } else {
+                                (detail_and_pct.trim(), 0.0)
+                            };
                             let _ = tx.send(RuntimeInitEvent::Stage {
                                 status: format!("Initializing runtime ({})", progress.trim()),
                                 detail: if title.is_empty() && detail.is_empty() {
@@ -14667,6 +14758,7 @@ impl TTSScreen {
                                 } else {
                                     format!("{} - {}", title, detail)
                                 },
+                                progress: pct,
                             });
                         }
                     }
@@ -14692,30 +14784,40 @@ impl TTSScreen {
             let _ = tx.send(RuntimeInitEvent::Stage {
                 status: "Runtime ready".to_string(),
                 detail: "Preparing TTS engine".to_string(),
+                progress: 1.0,
             });
             let _ = tx.send(RuntimeInitEvent::DoneOk);
         });
     }
 
     fn poll_runtime_initialization(&mut self, cx: &mut Cx) {
-        let mut latest_event: Option<RuntimeInitEvent> = None;
+        let mut terminal_event: Option<RuntimeInitEvent> = None;
         if let Some(rx) = &self.runtime_init_rx {
             while let Ok(ev) = rx.try_recv() {
-                latest_event = Some(ev);
+                match ev {
+                RuntimeInitEvent::Stage { status, detail, progress } => {
+                        // Apply every Stage immediately so progress is never dropped.
+                        self.runtime_init_status_text = status;
+                        self.runtime_init_detail_text = detail;
+                        self.runtime_init_progress = progress;
+                        self.runtime_init_download_ui_active = true;
+                    }
+                    done => {
+                        terminal_event = Some(done);
+                    }
+                }
             }
         }
 
-        if let Some(ev) = latest_event {
+        if let Some(ev) = terminal_event {
             match ev {
-                RuntimeInitEvent::Stage { status, detail } => {
-                    self.runtime_init_status_text = status;
-                    self.runtime_init_detail_text = detail;
-                }
                 RuntimeInitEvent::DoneOk => {
                     self.runtime_init_state = RuntimeInitState::Ready;
                     self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
                     self.runtime_init_detail_text =
                         self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+                    self.runtime_init_progress = 0.0;
+                    self.runtime_init_download_ui_active = false;
                     self.runtime_init_rx = None;
                     self.add_log(cx, "[INFO] [startup] Runtime initialization completed");
                 }
@@ -14724,11 +14826,82 @@ impl TTSScreen {
                     self.runtime_init_status_text =
                         self.tr("初始化失败", "Initialization failed").to_string();
                     self.runtime_init_detail_text = message.clone();
+                    self.runtime_init_download_ui_active = true;
                     self.runtime_init_rx = None;
                     self.add_log(cx, &format!("[ERROR] [startup] {}", message));
                 }
+                RuntimeInitEvent::Stage { .. } => unreachable!(),
             }
         }
+    }
+
+    fn runtime_init_progress_for_display(&self) -> f64 {
+        let pct = self.runtime_init_progress.clamp(0.0, 1.0);
+        if pct > 0.0 {
+            return pct;
+        }
+
+        let status = self.runtime_init_status_text.trim();
+        let Some(open) = status.rfind('(') else {
+            return 0.0;
+        };
+        let Some(close) = status[open + 1..].find(')') else {
+            return 0.0;
+        };
+        let fraction = &status[open + 1..open + 1 + close];
+        let Some((current, total)) = fraction.split_once('/') else {
+            return 0.0;
+        };
+        let Ok(current) = current.trim().parse::<f64>() else {
+            return 0.0;
+        };
+        let Ok(total) = total.trim().parse::<f64>() else {
+            return 0.0;
+        };
+        if total <= 0.0 {
+            return 0.0;
+        }
+        (current / total).clamp(0.0, 1.0)
+    }
+
+    fn update_loading_overlay_runtime_status(&mut self, cx: &mut Cx) {
+        let pct = self.runtime_init_progress_for_display();
+        let show_download_ui = should_show_runtime_download_ui(
+            self.runtime_init_state,
+            self.runtime_init_download_ui_active,
+        );
+        let center_detail = if show_download_ui {
+            String::new()
+        } else {
+            self.runtime_init_detail_text.clone()
+        };
+        let progress_status = if show_download_ui {
+            self.runtime_init_detail_text.clone()
+        } else {
+            String::new()
+        };
+        self.view.apply_over(
+            cx,
+            live! {
+                loading_overlay = {
+                    loading_center = {
+                        loading_content = {
+                            loading_status = { text: (self.runtime_init_status_text.clone()) }
+                            loading_detail = { text: (center_detail) }
+                        }
+                    }
+                    loading_progress_container = {
+                        visible: (show_download_ui)
+                        loading_progress_status_row = {
+                            loading_progress_status = { text: (progress_status) }
+                        }
+                        loading_progress_bar = {
+                            draw_bg: { progress: (pct) }
+                        }
+                    }
+                }
+            },
+        );
     }
 
     fn auto_start_dataflow(&mut self, cx: &mut Cx) {
@@ -15469,11 +15642,32 @@ impl TTSScreen {
             &format!("[INFO] {}...", self.tr("正在停止翻译", "Stopping translation")),
         );
 
+        // Capture translation history before clearing shared state.
+        let history_snapshot: Vec<(String, String)> = self
+            .translation_shared_state()
+            .and_then(|shared| shared.translation.read())
+            .map(|update| {
+                update
+                    .history
+                    .iter()
+                    .map(|s| (s.source_text.clone(), s.translation.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         // Hide the overlay window
         if let Some(shared) = self.translation_shared_state() {
             shared.translation_window_visible.set(false);
             shared.translation.set(None);
         }
+
+        // Offer to save the transcript if anything was recorded.
+        crate::transcript_export::offer_save_dialog(
+            history_snapshot,
+            self.translation_src_lang.clone(),
+            self.translation_tgt_lang.clone(),
+            self.is_english(),
+        );
 
         if let Some(dora) = &self.translation_dora {
             let _ = dora.stop_dataflow();
@@ -19208,5 +19402,75 @@ impl TTSScreenRef {
             inner.update_translation_font_size_dropdown(cx);
             inner.sync_translation_overlay_font_size();
         }
+    }
+
+    /// Stop all Dora dataflows and join their worker threads synchronously.
+    /// Must be called from the app shutdown handler before the process exits,
+    /// because std::process::exit() skips destructors and leaves orphan Python nodes.
+    pub fn shutdown_cleanup(&self) {
+        if let Some(mut inner) = self.borrow_mut() {
+            // Dropping DoraIntegration sends the stop signal and joins the worker
+            // thread, which calls `dora stop <id>` before returning.
+            drop(inner.translation_dora.take());
+            drop(inner.dora.take());
+
+            // A stopped dataflow can still leave Dora-managed node processes behind
+            // on some machines. Reset the Dora runtime on shutdown so packaged nodes
+            // like dora-qwen35-translator do not remain alive after the app exits.
+            TTSScreen::ensure_bundle_bin_on_path();
+            let startup_lock_path = TTSScreen::dora_startup_lock_path();
+            match DoraStartupLockGuard::acquire(startup_lock_path, Duration::from_secs(5)) {
+                Ok(_lock) => match Command::new("dora").arg("destroy").status() {
+                    Ok(status) if status.success() => {
+                        ::log::info!("Dora runtime destroyed during app shutdown");
+                    }
+                    Ok(status) => {
+                        ::log::warn!(
+                            "`dora destroy` exited with status {} during shutdown",
+                            status
+                        );
+                    }
+                    Err(err) => {
+                        ::log::warn!("Failed to run `dora destroy` during shutdown: {}", err);
+                    }
+                },
+                Err(err) => {
+                    ::log::warn!("Failed to acquire Dora startup lock during shutdown: {}", err);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{should_show_runtime_download_ui, RuntimeInitState};
+
+    #[test]
+    fn runtime_download_ui_hidden_during_normal_startup() {
+        assert!(!should_show_runtime_download_ui(
+            RuntimeInitState::Ready,
+            false
+        ));
+        assert!(!should_show_runtime_download_ui(
+            RuntimeInitState::Running,
+            false
+        ));
+    }
+
+    #[test]
+    fn runtime_download_ui_visible_only_for_download_phase() {
+        assert!(should_show_runtime_download_ui(
+            RuntimeInitState::Running,
+            true
+        ));
+        assert!(should_show_runtime_download_ui(
+            RuntimeInitState::Failed,
+            true
+        ));
+        assert!(!should_show_runtime_download_ui(
+            RuntimeInitState::Ready,
+            true
+        ));
     }
 }

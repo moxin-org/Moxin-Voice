@@ -497,6 +497,9 @@ impl MatchEvent for App {
 
     fn handle_shutdown(&mut self, _cx: &mut Cx) {
         ::log::info!("Moxin Voice application shutting down");
+        self.ui
+            .ttsscreen(ids!(body.tts_screen))
+            .shutdown_cleanup();
     }
 }
 
