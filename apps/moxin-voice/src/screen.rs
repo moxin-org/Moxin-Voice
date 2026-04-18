@@ -1356,6 +1356,7 @@ live_design! {
                     }
 
                     nav_clone = <NavItem> {
+                        visible: false
                         text: "Voice Clone"
                     }
 
@@ -3223,11 +3224,11 @@ live_design! {
                                     }
                                 }
 
-                                // Refresh button (rightmost)
-                                refresh_btn = <Button> {
+                                // Clone voice button (rightmost)
+                                clone_btn = <Button> {
                                     width: Fit, height: 40
                                     padding: {left: 20, right: 20}
-                                    text: "刷新"
+                                    text: "克隆音色"
 
                                     draw_bg: {
                                         instance hover: 0.0
@@ -3480,62 +3481,69 @@ live_design! {
                                             width: Fit, height: Fit
                                             flow: Right
                                             spacing: 8
+                                            align: {y: 0.5}
 
-                                            preview_btn = <Button> {
-                                                width: Fit, height: 32
-                                                padding: {left: 12, right: 12}
-                                                text: "Preview"
-
+                                            preview_btn = <View> {
+                                                width: 32, height: 32
+                                                align: {x: 0.5, y: 0.5}
+                                                cursor: Hand
+                                                show_bg: true
                                                 draw_bg: {
-                                                    instance hover: 0.0
                                                     instance dark_mode: 0.0
-                                                    instance border_radius: 6.0
+                                                    instance hover: 0.0
+                                                    instance playing: 0.0
                                                     fn pixel(self) -> vec4 {
                                                         let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                        sdf.circle(16.0, 16.0, 16.0);
                                                         let base = mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                                        let hover_color = mix((SLATE_200), (SLATE_600), self.dark_mode);
-                                                        sdf.fill(mix(base, hover_color, self.hover));
+                                                        let hover_bg = mix((SLATE_200), (SLATE_600), self.dark_mode);
+                                                        let bg = mix(base, hover_bg, self.hover);
+                                                        let icon = mix((SLATE_600), (SLATE_200), self.dark_mode);
+                                                        sdf.fill(bg);
+                                                        if self.playing > 0.5 {
+                                                            sdf.rect(11.0, 10.0, 3.0, 12.0);
+                                                            sdf.fill(icon);
+                                                            sdf.rect(18.0, 10.0, 3.0, 12.0);
+                                                            sdf.fill(icon);
+                                                        } else {
+                                                            sdf.move_to(12.0, 10.0);
+                                                            sdf.line_to(22.0, 16.0);
+                                                            sdf.line_to(12.0, 22.0);
+                                                            sdf.close_path();
+                                                            sdf.fill(icon);
+                                                        }
                                                         return sdf.result;
-                                                    }
-                                                }
-
-                                                draw_text: {
-                                                    instance dark_mode: 0.0
-                                                    text_style: { font_size: 12.0 }
-                                                    fn get_color(self) -> vec4 {
-                                                        return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                     }
                                                 }
                                             }
 
-                                            delete_btn = <Button> {
-                                                width: Fit, height: 32
-                                                padding: {left: 12, right: 12}
-                                                text: "Delete"
-
+                                            delete_btn = <View> {
+                                                width: 32, height: 32
+                                                align: {x: 0.5, y: 0.5}
+                                                cursor: Hand
+                                                show_bg: true
                                                 draw_bg: {
-                                                    instance hover: 0.0
                                                     instance dark_mode: 0.0
-                                                    instance border_radius: 6.0
+                                                    instance hover: 0.0
                                                     fn pixel(self) -> vec4 {
                                                         let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                        let base = mix(vec4(0.95, 0.95, 0.96, 1.0), (SLATE_700), self.dark_mode);
-                                                        let hover_color = mix(vec4(0.98, 0.85, 0.85, 1.0), vec4(0.7, 0.3, 0.3, 1.0), self.dark_mode);
-                                                        sdf.fill(mix(base, hover_color, self.hover));
+                                                        sdf.circle(16.0, 16.0, 16.0);
+                                                        let base = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                                                        let hover_bg = mix(vec4(0.98, 0.85, 0.85, 1.0), vec4(0.7, 0.3, 0.3, 1.0), self.dark_mode);
+                                                        sdf.fill(mix(base, hover_bg, self.hover));
+                                                        let icon_normal = mix(vec4(0.85, 0.23, 0.23, 1.0), vec4(1.0, 0.45, 0.45, 1.0), self.dark_mode);
+                                                        let icon_hover = mix(vec4(1.0, 1.0, 1.0, 1.0), vec4(1.0, 0.95, 0.95, 1.0), self.dark_mode);
+                                                        let icon = mix(icon_normal, icon_hover, self.hover);
+                                                        // Handle
+                                                        sdf.rect(13.0, 8.0, 6.0, 2.0);
+                                                        sdf.fill(icon);
+                                                        // Lid
+                                                        sdf.rect(9.0, 10.0, 14.0, 2.0);
+                                                        sdf.fill(icon);
+                                                        // Body
+                                                        sdf.rect(11.0, 13.0, 10.0, 11.0);
+                                                        sdf.fill(icon);
                                                         return sdf.result;
-                                                    }
-                                                }
-
-                                                draw_text: {
-                                                    instance hover: 0.0
-                                                    instance dark_mode: 0.0
-                                                    text_style: { font_size: 12.0 }
-                                                    fn get_color(self) -> vec4 {
-                                                        let normal = mix((MOXIN_TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
-                                                        let hover_color = mix(vec4(0.8, 0.2, 0.2, 1.0), vec4(1.0, 0.4, 0.4, 1.0), self.dark_mode);
-                                                        return mix(normal, hover_color, self.hover);
                                                     }
                                                 }
                                             }
@@ -9844,11 +9852,14 @@ impl Widget for TTSScreen {
                     .content_area
                     .library_page
                     .library_header
-                    .refresh_btn
+                    .clone_btn
             ))
             .clicked(&actions)
         {
-            self.refresh_voice_library(cx);
+            self.view
+                .voice_clone_modal(ids!(voice_clone_modal))
+                .show_with_mode(cx, CloneMode::Express);
+            self.add_log(cx, "[INFO] [library] Opening voice clone dialog...");
         }
 
         // Handle Voice Library category tags
@@ -10388,8 +10399,34 @@ impl Widget for TTSScreen {
                     } else {
                         self.library_voices.push(voice.clone());
                     }
+
+                    // Clear filters/search so the new voice is visible, then navigate
+                    // to the library page and smooth-scroll to its position.
+                    self.library_category_filter = VoiceFilter::All;
+                    self.library_language_filter = LanguageFilter::All;
+                    self.library_age_filter = 0;
+                    self.library_style_filter = 0;
+                    self.library_trait_filter = 0;
+                    self.library_search_query.clear();
+                    self.view
+                        .text_input(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.search_input))
+                        .set_text(cx, "");
+                    self.switch_page(cx, AppPage::VoiceLibrary);
                     self.update_library_display(cx);
                     self.update_voice_picker_controls(cx);
+
+                    if let Some(pos) = self.get_filtered_voices().iter().position(|v| v.id == voice.id) {
+                        self.view
+                            .portal_list(ids!(
+                                content_wrapper
+                                    .main_content
+                                    .left_column
+                                    .content_area
+                                    .library_page
+                                    .voice_list
+                            ))
+                            .smooth_scroll_to(cx, pos, 80.0, None);
+                    }
 
                     // Keep hidden voice selector in sync for backward compatibility.
                     let voice_selector = self.view.voice_selector(ids!(
@@ -10864,6 +10901,9 @@ impl Widget for TTSScreen {
                                     voice.reference_audio_path.is_some()
                                 }
                             };
+                            let is_playing =
+                                self.preview_playing_voice_id.as_ref() == Some(&voice.id);
+                            let playing = if is_playing { 1.0 } else { 0.0 };
                             let dark_mode = self.dark_mode;
 
                             let card = list.item(cx, item_id, live_id!(VoiceCard));
@@ -10873,28 +10913,37 @@ impl Widget for TTSScreen {
                             card.label(ids!(voice_info.voice_name)).set_text(cx, &name);
                             card.label(ids!(voice_info.voice_meta.voice_language)).set_text(cx, &language);
                             card.label(ids!(voice_info.voice_meta.voice_type)).set_text(cx, type_text);
-                            card.button(ids!(actions.preview_btn))
-                                .set_text(cx, self.tr("预览", "Preview"));
-                            card.button(ids!(actions.delete_btn))
-                                .set_text(cx, self.tr("删除", "Delete"));
 
                             // Apply dark mode
                             card.apply_over(cx, live! {
                                 draw_bg: { dark_mode: (dark_mode) }
                             });
+                            // Apply play/pause icon state
+                            card.view(ids!(actions.preview_btn)).apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: { dark_mode: (dark_mode), playing: (playing) }
+                                },
+                            );
+                            card.view(ids!(actions.delete_btn)).apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: { dark_mode: (dark_mode) }
+                                },
+                            );
 
                             // Show delete button only for custom/trained voices
-                            card.button(ids!(actions.delete_btn)).set_visible(cx, is_custom);
+                            card.view(ids!(actions.delete_btn)).set_visible(cx, is_custom);
                             // Show preview button only when preview audio exists.
-                            card.button(ids!(actions.preview_btn)).set_visible(cx, can_preview);
+                            card.view(ids!(actions.preview_btn)).set_visible(cx, can_preview);
 
                             // Draw the card
                             card.draw_all(cx, &mut Scope::empty());
 
                             // Store card areas for hit testing (valid after draw_all)
                             let card_area = card.area();
-                            let preview_area = card.button(ids!(actions.preview_btn)).area();
-                            let delete_area = card.button(ids!(actions.delete_btn)).area();
+                            let preview_area = card.view(ids!(actions.preview_btn)).area();
+                            let delete_area = card.view(ids!(actions.delete_btn)).area();
                             self.library_card_areas.push((item_id, card_area, preview_area, delete_area));
                         }
                     }
@@ -12305,9 +12354,9 @@ impl TTSScreen {
             );
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.refresh_btn
+                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.clone_btn
             ))
-            .set_text(cx, self.tr("刷新", "Refresh"));
+            .set_text(cx, self.tr("克隆音色", "Clone Voice"));
 
         self.view
             .label(ids!(
@@ -17195,12 +17244,6 @@ impl TTSScreen {
         self.update_voice_picker_controls(cx);
     }
 
-    /// Refresh voice library
-    fn refresh_voice_library(&mut self, cx: &mut Cx) {
-        self.load_voice_library(cx);
-        self.show_toast(cx, self.tr("音色库已刷新", "Voice library refreshed"));
-    }
-
     /// Update category filter button states
     fn update_category_filter_buttons(&mut self, cx: &mut Cx) {
         let male_active = if self.library_category_filter == VoiceFilter::Male { 1.0 } else { 0.0 };
@@ -18860,7 +18903,7 @@ impl TTSScreen {
         // Update empty state text based on whether it's a search result or truly empty
         if is_empty {
             let empty_text = if self.library_search_query.is_empty() {
-                self.tr("暂无音色，点击「刷新」加载", "No voices yet. Click \"Refresh\" to load.")
+                self.tr("暂无音色，点击「克隆音色」创建", "No voices yet. Click \"Clone Voice\" to create one.")
             } else {
                 self.tr("未找到匹配的音色", "No matching voices found.")
             };
@@ -18957,6 +19000,7 @@ impl TTSScreen {
             }
             self.preview_playing_voice_id = None;
             self.update_voice_picker_controls(cx);
+            self.view.redraw(cx);
             return;
         }
 
@@ -19037,6 +19081,7 @@ impl TTSScreen {
                 }
                 self.preview_playing_voice_id = Some(voice_id.clone());
                 self.update_voice_picker_controls(cx);
+                self.view.redraw(cx);
                 self.add_log(cx, &format!("[INFO] [library] Playing preview: {}", voice_id));
             }
             Err(e) => {
