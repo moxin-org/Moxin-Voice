@@ -10921,6 +10921,18 @@ impl Widget for TTSScreen {
                             card.apply_over(cx, live! {
                                 draw_bg: { dark_mode: (dark_mode) }
                             });
+                            card.view(ids!(avatar)).apply_over(cx, live! {
+                                draw_bg: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(voice_info.voice_name)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(voice_info.voice_meta.voice_language)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
+                            card.label(ids!(voice_info.voice_meta.voice_type)).apply_over(cx, live! {
+                                draw_text: { dark_mode: (dark_mode) }
+                            });
                             // Apply play/pause icon state
                             card.view(ids!(actions.preview_btn)).apply_over(
                                 cx,
@@ -18210,7 +18222,19 @@ impl TTSScreen {
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
 
-        // Library filter row labels
+        // Library page
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.library_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.search_input))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.row_label))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
@@ -18219,6 +18243,23 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.row_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        for chip_id in [
+            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_male_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_female_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_adult_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_youth_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_sweet_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_magnetic_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_prof_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_character_btn),
+        ] {
+            self.view
+                .button(chip_id)
+                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        }
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.empty_state.empty_text))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
         self.view.redraw(cx);
