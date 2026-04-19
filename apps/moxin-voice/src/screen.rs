@@ -3280,9 +3280,10 @@ live_design! {
                                     row_label = <Label> {
                                         width: Fit, height: Fit
                                         draw_text: {
+                                            instance dark_mode: 0.0
                                             text_style: { font_size: 11.0 }
                                             fn get_color(self) -> vec4 {
-                                                return (TEXT_TERTIARY);
+                                                return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
                                             }
                                         }
                                         text: "性别年龄"
@@ -3303,9 +3304,10 @@ live_design! {
                                     row_label = <Label> {
                                         width: Fit, height: Fit
                                         draw_text: {
+                                            instance dark_mode: 0.0
                                             text_style: { font_size: 11.0 }
                                             fn get_color(self) -> vec4 {
-                                                return (TEXT_TERTIARY);
+                                                return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
                                             }
                                         }
                                         text: "风格"
@@ -3324,9 +3326,10 @@ live_design! {
                                     row_label = <Label> {
                                         width: Fit, height: Fit
                                         draw_text: {
+                                            instance dark_mode: 0.0
                                             text_style: { font_size: 11.0 }
                                             fn get_color(self) -> vec4 {
-                                                return (TEXT_TERTIARY);
+                                                return mix((TEXT_TERTIARY), (TEXT_TERTIARY_DARK), self.dark_mode);
                                             }
                                         }
                                         text: "声音特质"
@@ -18206,6 +18209,18 @@ impl TTSScreen {
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+
+        // Library filter row labels
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.row_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.row_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.row_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+
         self.view.redraw(cx);
     }
 
