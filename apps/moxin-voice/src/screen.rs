@@ -5419,19 +5419,6 @@ live_design! {
                                         }
                                     }
 
-                                    // 分隔线
-                                    <View> {
-                                        width: Fill, height: 1
-                                        margin: {left: 16, right: 16}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            fn pixel(self) -> vec4 {
-                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                            }
-                                        }
-                                    }
-
                                     // 输入语言
                                     setting_row_src_lang = <View> {
                                         width: Fill, height: 52
@@ -5459,19 +5446,6 @@ live_design! {
                                         }
                                     }
 
-                                    // 分隔线
-                                    <View> {
-                                        width: Fill, height: 1
-                                        margin: {left: 16, right: 16}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            fn pixel(self) -> vec4 {
-                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                            }
-                                        }
-                                    }
-
                                     // 目标语言
                                     setting_row_tgt_lang = <View> {
                                         width: Fill, height: 52
@@ -5496,19 +5470,6 @@ live_design! {
                                             width: Fill, height: 32
                                             labels: ["英语", "中文", "日语", "法语"]
                                             values: ["en", "zh", "ja", "fr"]
-                                        }
-                                    }
-
-                                    // 分隔线
-                                    <View> {
-                                        width: Fill, height: 1
-                                        margin: {left: 16, right: 16}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            fn pixel(self) -> vec4 {
-                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                            }
                                         }
                                     }
 
@@ -5593,19 +5554,6 @@ live_design! {
                                         }
                                     }
 
-                                    // 分隔线
-                                    <View> {
-                                        width: Fill, height: 1
-                                        margin: {left: 16, right: 16}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            fn pixel(self) -> vec4 {
-                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                            }
-                                        }
-                                    }
-
                                     // 文字大小
                                     setting_row_font_size = <View> {
                                         width: Fill, height: 52
@@ -5630,19 +5578,6 @@ live_design! {
                                             width: Fill, height: 32
                                             labels: ["小", "正常", "大"]
                                             values: ["small", "normal", "large"]
-                                        }
-                                    }
-
-                                    // 分隔线
-                                    <View> {
-                                        width: Fill, height: 1
-                                        margin: {left: 16, right: 16}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            fn pixel(self) -> vec4 {
-                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                            }
                                         }
                                     }
 
@@ -5673,19 +5608,6 @@ live_design! {
                                         }
                                     }
 
-                                    // 分隔线
-                                    <View> {
-                                        width: Fill, height: 1
-                                        margin: {left: 16, right: 16}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            fn pixel(self) -> vec4 {
-                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                            }
-                                        }
-                                    }
-
                                     // 浮窗透明度
                                     setting_row_opacity = <View> {
                                         width: Fill, height: 52
@@ -5712,19 +5634,6 @@ live_design! {
                                             values: ["1.0", "0.9", "0.85", "0.75", "0.65", "0.5", "0.35"]
                                         }
                                     }
-                                    // 分隔线
-                                    <View> {
-                                        width: Fill, height: 1
-                                        margin: {left: 16, right: 16}
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            fn pixel(self) -> vec4 {
-                                                return mix((SLATE_100), (SLATE_700), self.dark_mode);
-                                            }
-                                        }
-                                    }
-
                                 } // End settings_card
 
                                 // Spacer
@@ -18221,6 +18130,70 @@ impl TTSScreen {
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { width: 520.0 draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
+
+        // profile_card
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+
+        // defaults_card labels + action buttons
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_voice_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        // 11-segment paths (through an actions sub-view)
+        for btn_id in [
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.save_defaults_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.apply_defaults_now_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_header.refresh_devices_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_model_dir_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_log_dir_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_workspace_dir_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_tts_history_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_training_artifacts_btn),
+        ] {
+            self.view
+                .button(btn_id)
+                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        }
+        // 10-segment paths (direct child of card)
+        for btn_id in [
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_refresh_btn),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.clear_cache_btn),
+        ] {
+            self.view
+                .button(btn_id)
+                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        }
+
+        // about_card
+        self.view
+            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        for label_id in [
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_section_title),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_version_label),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_engine_label),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_ominix_label),
+        ] {
+            self.view
+                .label(label_id)
+                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        }
 
         // Library page
         self.view
