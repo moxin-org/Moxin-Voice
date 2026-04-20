@@ -1,5 +1,8 @@
 //! Moxin TTS App - Text to Speech using GPT-SoVITS with voice cloning
 
+/// User-facing app version shown in the About panel and release artifacts.
+pub const APP_VERSION: &str = "0.0.3";
+
 // Local modules
 pub mod audio_player; // Keep local: simplified TTS-specific version
 pub mod app_preferences;

@@ -5165,11 +5165,11 @@ live_design! {
                                 }
                             }
 
-                            about_section_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "关于" }
+                            about_section_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "About" }
 
                             about_version_label = <SettingsBodyLabel> {
                                 width: Fill, height: Fit
-                                text: "Moxin Voice v0.1.0"
+                                text: "Moxin Voice v0.0.3"
                             }
 
                             about_engine_label = <SettingsBodyLabel> {
@@ -5177,9 +5177,40 @@ live_design! {
                                 text: "Powered by OminiX MLX · Qwen3-TTS-MLX"
                             }
 
-                            about_ominix_label = <SettingsBodyLabel> {
+                            about_moxin_link = <View> {
                                 width: Fill, height: Fit
-                                text: "github.com/OminiX-ai/OminiX-MLX"
+                                cursor: Hand
+                                about_moxin_label = <SettingsBodyLabel> {
+                                    width: Fill, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            let light = vec4(0.15, 0.39, 0.92, 1.0);
+                                            let dark = vec4(0.53, 0.65, 1.0, 1.0);
+                                            return mix(light, dark, self.dark_mode);
+                                        }
+                                    }
+                                    text: "github.com/moxin-org/Moxin-Voice"
+                                }
+                            }
+
+                            about_ominix_link = <View> {
+                                width: Fill, height: Fit
+                                cursor: Hand
+                                about_ominix_label = <SettingsBodyLabel> {
+                                    width: Fill, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            let light = vec4(0.15, 0.39, 0.92, 1.0);
+                                            let dark = vec4(0.53, 0.65, 1.0, 1.0);
+                                            return mix(light, dark, self.dark_mode);
+                                        }
+                                    }
+                                    text: "github.com/OminiX-ai/OminiX-MLX"
+                                }
                             }
                         }
 
@@ -10018,6 +10049,26 @@ impl Widget for TTSScreen {
             }
         }
 
+        // Handle About-card link clicks
+        if self.current_page == AppPage::UserSettings {
+            let moxin_area = self.view
+                .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_moxin_link))
+                .area();
+            let ominix_area = self.view
+                .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_ominix_link))
+                .area();
+            if let Hit::FingerUp(fe) = event.hits(cx, moxin_area) {
+                if fe.was_tap() {
+                    Self::open_url("https://github.com/moxin-org/Moxin-Voice");
+                }
+            }
+            if let Hit::FingerUp(fe) = event.hits(cx, ominix_area) {
+                if fe.was_tap() {
+                    Self::open_url("https://github.com/OminiX-ai/OminiX-MLX");
+                }
+            }
+        }
+
         // Handle Model Picker item interactions
         if self.model_picker_visible {
             for (model_idx, card_area) in self.model_picker_card_areas.clone() {
@@ -11595,6 +11646,13 @@ impl TTSScreen {
         self.update_system_paths_ui(cx);
         self.update_audio_devices_ui(cx);
         let en = self.is_english();
+
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_section_title))
+            .set_text(cx, self.tr("关于", "About"));
+        self.view
+            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_version_label))
+            .set_text(cx, &format!("Moxin Voice v{}", crate::APP_VERSION));
         let voice = self
             .selected_voice_id
             .clone()
@@ -16743,6 +16801,29 @@ impl TTSScreen {
         command.status().map(|status| status.success()).unwrap_or(false)
     }
 
+    fn open_url(url: &str) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            let mut cmd = std::process::Command::new("open");
+            cmd.arg(url);
+            return Self::command_succeeds(&mut cmd);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let mut cmd = std::process::Command::new("xdg-open");
+            cmd.arg(url);
+            return Self::command_succeeds(&mut cmd);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = std::process::Command::new("cmd");
+            cmd.arg("/C").arg("start").arg("").arg(url);
+            return Self::command_succeeds(&mut cmd);
+        }
+        #[allow(unreachable_code)]
+        false
+    }
+
     fn open_path_with_system(path: &PathBuf) -> bool {
         #[cfg(target_os = "macos")]
         {
@@ -18037,7 +18118,14 @@ impl TTSScreen {
             ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_section_title),
             ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_version_label),
             ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_engine_label),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_ominix_label),
+        ] {
+            self.view
+                .label(label_id)
+                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        }
+        for label_id in [
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_moxin_link.about_moxin_label),
+            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_ominix_link.about_ominix_label),
         ] {
             self.view
                 .label(label_id)
