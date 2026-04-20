@@ -2016,103 +2016,6 @@ live_design! {
                             }
                         }
 
-                        // Tab header: Voice | Settings | History
-                        settings_tabs = <View> {
-                            width: Fill, height: 48
-                            flow: Right
-                            padding: {left: 16, right: 16, top: 8, bottom: 8}
-                            spacing: 0
-                            show_bg: true
-                            draw_bg: {
-                                instance dark_mode: 0.0
-                                fn pixel(self) -> vec4 {
-                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                    sdf.rect(0.0, self.rect_size.y - 1.0, self.rect_size.x, 1.0);
-                                    let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
-                                    sdf.fill(border);
-                                    return sdf.result;
-                                }
-                            }
-
-                            voice_management_tab_btn = <Button> {
-                                width: 0, height: 0
-                                padding: {left: 0, right: 0}
-                                text: "音色管理"
-                                draw_bg: {
-                                    instance active: 1.0
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.rect(0.0, self.rect_size.y - 2.0, self.rect_size.x, 2.0);
-                                        let underline = mix(vec4(0.0, 0.0, 0.0, 0.0), (MOXIN_PRIMARY), self.active);
-                                        sdf.fill(underline);
-                                        return sdf.result;
-                                    }
-                                }
-                                draw_text: {
-                                    instance active: 1.0
-                                    instance dark_mode: 0.0
-                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
-                                    fn get_color(self) -> vec4 {
-                                        let normal = mix(vec4(0.5, 0.5, 0.55, 1.0), vec4(0.62, 0.62, 0.68, 1.0), self.dark_mode);
-                                        let active = mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                                        return mix(normal, active, self.active);
-                                    }
-                                }
-                            }
-
-                            settings_tab_btn = <Button> {
-                                width: Fit, height: Fill
-                                padding: {left: 16, right: 16}
-                                text: "参数"
-                                draw_bg: {
-                                    instance active: 0.0
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.rect(0.0, self.rect_size.y - 2.0, self.rect_size.x, 2.0);
-                                        let underline = mix(vec4(0.0, 0.0, 0.0, 0.0), (MOXIN_PRIMARY), self.active);
-                                        sdf.fill(underline);
-                                        return sdf.result;
-                                    }
-                                }
-                                draw_text: {
-                                    instance active: 1.0
-                                    instance dark_mode: 0.0
-                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
-                                    fn get_color(self) -> vec4 {
-                                        let normal = mix(vec4(0.5, 0.5, 0.55, 1.0), vec4(0.62, 0.62, 0.68, 1.0), self.dark_mode);
-                                        let active = mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                                        return mix(normal, active, self.active);
-                                    }
-                                }
-                            }
-
-                            history_tab_btn = <Button> {
-                                width: 0, height: 0
-                                padding: {left: 0, right: 0}
-                                text: "History"
-                                draw_bg: {
-                                    instance active: 0.0
-                                    fn pixel(self) -> vec4 {
-                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                        sdf.rect(0.0, self.rect_size.y - 2.0, self.rect_size.x, 2.0);
-                                        let underline = mix(vec4(0.0, 0.0, 0.0, 0.0), (MOXIN_PRIMARY), self.active);
-                                        sdf.fill(underline);
-                                        return sdf.result;
-                                    }
-                                }
-                                draw_text: {
-                                    instance active: 0.0
-                                    instance dark_mode: 0.0
-                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
-                                    fn get_color(self) -> vec4 {
-                                        let normal = mix(vec4(0.5, 0.5, 0.55, 1.0), vec4(0.62, 0.62, 0.68, 1.0), self.dark_mode);
-                                        let active = mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                                        return mix(normal, active, self.active);
-                                    }
-                                }
-                            }
-                        }
-
                         // Voice management panel content
                         voice_management_panel = <View> {
                             width: Fill, height: Fill
@@ -2848,29 +2751,38 @@ live_design! {
                                     actions_row = <View> {
                                         width: Fill, height: Fit
                                         flow: Right
+                                        align: {y: 0.5}
                                         spacing: 6
 
-                                        play_btn = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 10, right: 10}
-                                            text: "播放"
+                                        play_btn = <View> {
+                                            width: 28, height: 28
+                                            align: {x: 0.5, y: 0.5}
+                                            cursor: Hand
+                                            show_bg: true
                                             draw_bg: {
                                                 instance dark_mode: 0.0
                                                 instance hover: 0.0
-                                                instance border_radius: 6.0
+                                                instance playing: 0.0
                                                 fn pixel(self) -> vec4 {
                                                     let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let bg = mix(vec4(0.39, 0.40, 0.95, 0.10), vec4(0.39, 0.40, 0.95, 0.18), self.hover);
+                                                    sdf.circle(14.0, 14.0, 14.0);
+                                                    let base = mix(vec4(0.39, 0.40, 0.95, 0.10), vec4(0.39, 0.40, 0.95, 0.18), self.dark_mode);
+                                                    let hover_bg = mix(vec4(0.39, 0.40, 0.95, 0.18), vec4(0.39, 0.40, 0.95, 0.28), self.dark_mode);
+                                                    let bg = mix(base, hover_bg, self.hover);
                                                     sdf.fill(bg);
-                                                    sdf.stroke((MOXIN_PRIMARY), 1.0);
+                                                    if self.playing > 0.5 {
+                                                        sdf.rect(10.0, 9.0, 2.5, 10.0);
+                                                        sdf.fill((MOXIN_PRIMARY));
+                                                        sdf.rect(15.5, 9.0, 2.5, 10.0);
+                                                        sdf.fill((MOXIN_PRIMARY));
+                                                    } else {
+                                                        sdf.move_to(11.0, 9.0);
+                                                        sdf.line_to(19.0, 14.0);
+                                                        sdf.line_to(11.0, 19.0);
+                                                        sdf.close_path();
+                                                        sdf.fill((MOXIN_PRIMARY));
+                                                    }
                                                     return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return (MOXIN_PRIMARY);
                                                 }
                                             }
                                         }
@@ -8177,6 +8089,8 @@ pub struct TTSScreen {
     #[rust]
     history_item_areas: Vec<(usize, Area, Area, Area, Area, Area, Area)>, // (idx, card, play, use, download, share, delete)
     #[rust]
+    currently_playing_history_id: Option<String>,
+    #[rust]
     share_modal_visible: bool,
     #[rust]
     pending_share_source: Option<ShareSource>,
@@ -9093,44 +9007,6 @@ impl Widget for TTSScreen {
             self.user_settings_tab = 2;
             self.update_user_settings_tabs(cx);
         }
-        // Handle Settings/History tab clicks
-        if self
-            .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.voice_management_tab_btn))
-            .clicked(&actions)
-        {
-            self.controls_panel_tab = 0;
-            self.update_settings_tabs(cx);
-            self.apply_controls_panel_tab_visibility(cx);
-            self.update_sidebar_nav_states(cx);
-            self.view.redraw(cx);
-        }
-
-        if self
-            .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.settings_tab_btn))
-            .clicked(&actions)
-        {
-            self.controls_panel_tab = 1;
-            self.update_settings_tabs(cx);
-            self.apply_controls_panel_tab_visibility(cx);
-            self.update_sidebar_nav_states(cx);
-            self.view.redraw(cx);
-        }
-
-        if self
-            .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.history_tab_btn))
-            .clicked(&actions)
-        {
-            self.controls_panel_tab = 2;
-            self.update_settings_tabs(cx);
-            self.apply_controls_panel_tab_visibility(cx);
-            self.update_sidebar_nav_states(cx);
-            self.update_history_display(cx);
-            self.view.redraw(cx);
-        }
-
         if self
             .view
             .button(ids!(
@@ -10080,7 +9956,7 @@ impl Widget for TTSScreen {
 
                 match event.hits(cx, play_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
-                        self.load_history_entry_into_player(cx, &entry_id);
+                        self.play_history_entry(cx, &entry_id);
                         handled = true;
                     }
                     _ => {}
@@ -11038,8 +10914,6 @@ impl Widget for TTSScreen {
                             card.label(ids!(meta_row.duration))
                                 .set_text(cx, &duration_text);
 
-                            card.button(ids!(actions_row.play_btn))
-                                .set_text(cx, self.tr("播放", "Play"));
                             card.button(ids!(actions_row.use_btn))
                                 .set_text(cx, self.tr("复用", "Reuse"));
                             card.button(ids!(actions_row.download_btn))
@@ -11104,10 +10978,26 @@ impl Widget for TTSScreen {
                                 },
                             );
 
+                            let is_playing = self.tts_status == TTSStatus::Playing
+                                && self
+                                    .currently_playing_history_id
+                                    .as_deref()
+                                    == Some(entry.id.as_str());
+                            let playing_flag: f32 = if is_playing { 1.0 } else { 0.0 };
+                            card.view(ids!(actions_row.play_btn)).apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: {
+                                        dark_mode: (dark_mode)
+                                        playing: (playing_flag)
+                                    }
+                                },
+                            );
+
                             card.draw_all(cx, &mut Scope::empty());
 
                             let card_area = card.area();
-                            let play_area = card.button(ids!(actions_row.play_btn)).area();
+                            let play_area = card.view(ids!(actions_row.play_btn)).area();
                             let use_area = card.button(ids!(actions_row.use_btn)).area();
                             let download_area = card.button(ids!(actions_row.download_btn)).area();
                             let share_area = card.button(ids!(actions_row.share_btn)).area();
@@ -11929,11 +11819,18 @@ impl TTSScreen {
         self.update_translation_opacity_dropdown(cx);
         self.sync_translation_overlay_locale();
 
+        let tts_page_title = if self.current_page == AppPage::TextToSpeech
+            && self.controls_panel_tab == 2
+        {
+            self.tr("历史", "History")
+        } else {
+            self.tr("文本转语音", "Text to Speech")
+        };
         self.view
             .label(ids!(
                 content_wrapper.main_content.left_column.content_area.tts_page.page_header.page_title
             ))
-            .set_text(cx, self.tr("文本转语音", "Text to Speech"));
+            .set_text(cx, tts_page_title);
         self.view
             .text_input(ids!(
                 content_wrapper
@@ -11952,45 +11849,6 @@ impl TTSScreen {
                     empty_text: (if en { "Enter text to convert to speech..." } else { "请输入要转换的文本..." })
                 },
             );
-        self.view
-            .button(ids!(
-                content_wrapper
-                    .main_content
-                    .left_column
-                    .content_area
-                    .tts_page
-                    .cards_container
-                    .controls_panel
-                    .settings_tabs
-                    .voice_management_tab_btn
-            ))
-            .set_text(cx, self.tr("音色管理", "Voice"));
-        self.view
-            .button(ids!(
-                content_wrapper
-                    .main_content
-                    .left_column
-                    .content_area
-                    .tts_page
-                    .cards_container
-                    .controls_panel
-                    .settings_tabs
-                    .settings_tab_btn
-            ))
-            .set_text(cx, self.tr("参数", "Controls"));
-        self.view
-            .button(ids!(
-                content_wrapper
-                    .main_content
-                    .left_column
-                    .content_area
-                    .tts_page
-                    .cards_container
-                    .controls_panel
-                    .settings_tabs
-                    .history_tab_btn
-            ))
-            .set_text(cx, self.tr("历史", "History"));
         self.view
             .label(ids!(
                 content_wrapper
@@ -12877,14 +12735,18 @@ impl TTSScreen {
         let history_mode =
             self.current_page == AppPage::TextToSpeech && self.controls_panel_tab == 2;
 
+        let title = if history_mode {
+            self.tr("历史", "History")
+        } else {
+            self.tr("文本转语音", "Text to Speech")
+        };
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.page_header))
-            .set_visible(cx, !history_mode);
+            .label(ids!(
+                content_wrapper.main_content.left_column.content_area.tts_page.page_header.page_title
+            ))
+            .set_text(cx, title);
         self.view
             .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.input_section))
-            .set_visible(cx, !history_mode);
-        self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs))
             .set_visible(cx, !history_mode);
 
         // Hide audio player bar when in History mode
@@ -13798,6 +13660,28 @@ impl TTSScreen {
             ))
             .set_visible(cx, is_empty);
         self.view.redraw(cx);
+    }
+
+    fn play_history_entry(&mut self, cx: &mut Cx, entry_id: &str) {
+        let same_entry = self.currently_playing_history_id.as_deref() == Some(entry_id);
+        if same_entry && self.tts_status == TTSStatus::Playing {
+            self.toggle_playback(cx);
+            self.view.redraw(cx);
+            return;
+        }
+        if same_entry && self.has_generated_audio && self.tts_status == TTSStatus::Ready {
+            self.toggle_playback(cx);
+            self.view.redraw(cx);
+            return;
+        }
+
+        self.load_history_entry_into_player(cx, entry_id);
+        if self.tts_status == TTSStatus::Ready && self.has_generated_audio {
+            self.audio_playing_time = 0.0;
+            self.currently_playing_history_id = Some(entry_id.to_string());
+            self.toggle_playback(cx);
+            self.view.redraw(cx);
+        }
     }
 
     fn load_history_entry_into_player(&mut self, cx: &mut Cx, entry_id: &str) {
@@ -17211,29 +17095,7 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { active: (en_active) } draw_text: { active: (en_active) } });
     }
 
-    /// Update right-side controls tab states
-    fn update_settings_tabs(&mut self, cx: &mut Cx) {
-        let voice_active = if self.controls_panel_tab == 0 { 1.0 } else { 0.0 };
-        let settings_active = if self.controls_panel_tab == 1 { 1.0 } else { 0.0 };
-        let history_active = if self.controls_panel_tab == 2 { 1.0 } else { 0.0 };
-        let dark_mode = self.dark_mode;
-
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.voice_management_tab_btn))
-            .apply_over(cx, live! {
-                draw_bg: { active: (voice_active) }
-                draw_text: { active: (voice_active), dark_mode: (dark_mode) }
-            });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.settings_tab_btn))
-            .apply_over(cx, live! {
-                draw_bg: { active: (settings_active) }
-                draw_text: { active: (settings_active), dark_mode: (dark_mode) }
-            });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_tabs.history_tab_btn))
-            .apply_over(cx, live! {
-                draw_bg: { active: (history_active) }
-                draw_text: { active: (history_active), dark_mode: (dark_mode) }
-            });
-    }
+    fn update_settings_tabs(&mut self, _cx: &mut Cx) {}
 
     fn update_user_settings_tabs(&mut self, cx: &mut Cx) {
         let general_active = if self.user_settings_tab == 0 { 1.0 } else { 0.0 };
@@ -17710,19 +17572,6 @@ impl TTSScreen {
         
         // Apply to settings panel
         self.view.view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-
-        self.view
-            .view(ids!(
-                content_wrapper
-                    .main_content
-                    .left_column
-                    .content_area
-                    .tts_page
-                    .cards_container
-                    .controls_panel
-                    .settings_tabs
-            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
 
         self.view
