@@ -1333,7 +1333,7 @@ live_design! {
                                 text_style: <FONT_REGULAR>{ font_size: 10.0 }
                                 fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 0.35); }
                             }
-                            text: "powered by OminiX MLX"
+                            text: "Powered by OminiX MLX"
                         }
                     }
                 }

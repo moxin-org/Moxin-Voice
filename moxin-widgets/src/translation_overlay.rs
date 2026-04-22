@@ -184,7 +184,7 @@ live_design! {
                     color: (MOXIN_TEXT_MUTED_DARK)
                     text_style: <FONT_REGULAR> { font_size: 10.0 }
                 }
-                text: "Powered by Moxin Voice"
+                text: "Moxin Voice - Fully Offline Live Translation, Powered by OminiX MLX"
             }
         }
     }
