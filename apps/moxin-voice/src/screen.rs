@@ -5169,7 +5169,7 @@ live_design! {
 
                             about_version_label = <SettingsBodyLabel> {
                                 width: Fill, height: Fit
-                                text: "Moxin Voice v0.0.3"
+                                text: "Moxin Voice v0.0.4"
                             }
 
                             about_engine_label = <SettingsBodyLabel> {
