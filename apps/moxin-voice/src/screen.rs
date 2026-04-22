@@ -5411,8 +5411,8 @@ live_design! {
 
                                         tgt_lang_dropdown = <SettingsDeviceDropDown> {
                                             width: Fill, height: 32
-                                            labels: ["英语", "中文", "日语", "法语"]
-                                            values: ["en", "zh", "ja", "fr"]
+                                            labels: ["英语", "中文", "日语", "法语", "不翻译"]
+                                            values: ["en", "zh", "ja", "fr", "none"]
                                         }
                                     }
 
@@ -8921,8 +8921,11 @@ impl Widget for TTSScreen {
             {
                 if let Some(code) = lang_codes.get(idx) {
                     self.translation_src_lang = code.to_string();
-                    // Prevent same language for both source and target
-                    if self.translation_src_lang == self.translation_tgt_lang {
+                    // Prevent same language for both source and target.
+                    // "none" (passthrough) is always compatible with any source.
+                    if self.translation_tgt_lang != "none"
+                        && self.translation_src_lang == self.translation_tgt_lang
+                    {
                         // Pick the first different language
                         for &c in &lang_codes {
                             if c != *code {
@@ -8939,7 +8942,7 @@ impl Widget for TTSScreen {
 
         // Target language dropdown
         {
-            let lang_codes = ["en", "zh", "ja", "fr"];
+            let lang_codes = ["en", "zh", "ja", "fr", "none"];
             if let Some(idx) = self
                 .view
                 .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown))
@@ -8947,8 +8950,11 @@ impl Widget for TTSScreen {
             {
                 if let Some(code) = lang_codes.get(idx) {
                     self.translation_tgt_lang = code.to_string();
-                    // Prevent same language for both source and target
-                    if self.translation_tgt_lang == self.translation_src_lang {
+                    // Prevent same language for both source and target.
+                    // "none" (passthrough) is always compatible and needs no swap.
+                    if self.translation_tgt_lang != "none"
+                        && self.translation_tgt_lang == self.translation_src_lang
+                    {
                         let src_codes = ["zh", "en", "ja", "fr"];
                         for &c in &src_codes {
                             if c != *code {
@@ -15437,9 +15443,11 @@ impl TTSScreen {
                 String::new()
             });
 
+        let passthrough_flag = if self.translation_tgt_lang == "none" { "1" } else { "0" };
         let rendered = template_content
             .replace("__TRANSLATION_SRC_LANG__", &self.translation_src_lang)
             .replace("__TRANSLATION_TGT_LANG__", &self.translation_tgt_lang)
+            .replace("__TRANSLATOR_PASSTHROUGH__", passthrough_flag)
             .replace("__ASR_BIN_PATH__", &asr_path)
             .replace("__TRANSLATOR_BIN_PATH__", &translator_path)
             .replace("__SPEECH_START_FRAMES__", &speech_start_frames.to_string())
@@ -15490,13 +15498,17 @@ impl TTSScreen {
             );
             return;
         }
+        let pair_suffix = if self.translation_tgt_lang == "none" {
+            format!("{} · {}", src_upper, self.tr("不翻译", "passthrough"))
+        } else {
+            format!("{} → {}", src_upper, tgt_upper)
+        };
         self.add_translation_log(
             cx,
             &format!(
-                "[INFO] {} ({} → {})",
+                "[INFO] {} ({})",
                 self.tr("数据流启动命令已提交", "Dataflow start command submitted"),
-                src_upper,
-                tgt_upper
+                pair_suffix,
             ),
         );
         self.add_translation_log(
@@ -15683,7 +15695,7 @@ impl TTSScreen {
     /// Update the language dropdown selections after a programmatic change.
     fn update_translation_lang_dropdowns(&mut self, cx: &mut Cx) {
         let src_codes = ["zh", "en", "ja", "fr"];
-        let tgt_codes = ["en", "zh", "ja", "fr"];
+        let tgt_codes = ["en", "zh", "ja", "fr", "none"];
 
         let src_idx = src_codes.iter().position(|c| *c == self.translation_src_lang).unwrap_or(0);
         let tgt_idx = tgt_codes.iter().position(|c| *c == self.translation_tgt_lang).unwrap_or(0);
@@ -15701,6 +15713,7 @@ impl TTSScreen {
                     "Chinese".to_string(),
                     "Japanese".to_string(),
                     "French".to_string(),
+                    "No translation".to_string(),
                 ],
             )
         } else {
@@ -15716,6 +15729,7 @@ impl TTSScreen {
                     "中文".to_string(),
                     "日语".to_string(),
                     "法语".to_string(),
+                    "不翻译".to_string(),
                 ],
             )
         };

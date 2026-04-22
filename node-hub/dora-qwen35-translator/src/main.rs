@@ -502,6 +502,47 @@ fn submit_translation_task(
     Ok(())
 }
 
+/// Passthrough commit: emit the stable source as a finalized sentence with an
+/// empty translation. Used when the UI selects "no translation" as target.
+/// No LLM is invoked; the listener finalizes immediately because translation
+/// events carry the matching `source_text` metadata.
+fn commit_passthrough(
+    node: &mut DoraNode,
+    transcript: &mut TranscriptBuffer,
+    next_commit_id: &mut i64,
+    source_text: &str,
+) -> bool {
+    if source_text.is_empty() {
+        return false;
+    }
+    match transcript.consume_stable_prefix(source_text) {
+        Ok(()) => {
+            let commit_id = *next_commit_id;
+            *next_commit_id += 1;
+            tracing::info!(
+                "[passthrough] Committed stable prefix\ncommit_id={}\nsource_text=\n{}",
+                commit_id,
+                source_text,
+            );
+            let _ = send_source(node, source_text, "complete", None, Some(commit_id));
+            let _ = send_translation_chunk(
+                node,
+                "",
+                "complete",
+                None,
+                Some(commit_id),
+                Some(source_text),
+            );
+            true
+        }
+        Err(e) => {
+            tracing::error!("[passthrough] Failed to consume stable prefix: {e}");
+            let _ = send_log(node, &format!("[passthrough] Failed to consume stable prefix: {e}"));
+            false
+        }
+    }
+}
+
 fn handle_translation_response(
     node: &mut DoraNode,
     transcript: &mut TranscriptBuffer,
@@ -669,6 +710,14 @@ fn main() -> Result<()> {
 
     let src_lang = std::env::var("SRC_LANG").unwrap_or_else(|_| "zh".into());
     let tgt_lang = std::env::var("TGT_LANG").unwrap_or_else(|_| "en".into());
+    let passthrough = matches!(
+        std::env::var("PASSTHROUGH")
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    ) || tgt_lang.trim().eq_ignore_ascii_case("none");
     let temperature: f32 = std::env::var("TEMPERATURE")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -681,44 +730,60 @@ fn main() -> Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(IDLE_FLUSH_MS_DEFAULT);
-    tracing::info!("Translation: {} → {}", src_lang, tgt_lang);
-
-    let model_path = resolve_model_path();
-    tracing::info!("Loading Qwen3.5 model from: {}", model_path.display());
-    let _ = send_log(
-        &mut node,
-        &format!("Loading Qwen3.5 model from {}", model_path.display()),
-    );
-
-    let (request_tx, request_rx) = mpsc::channel();
-    let (response_tx, response_rx) = mpsc::channel();
-    let (ready_tx, ready_rx) = mpsc::channel();
-    let worker_model_path = model_path.clone();
-    let worker_handle = thread::spawn(move || {
-        translation_worker_loop(
-            worker_model_path,
-            temperature,
-            max_tokens,
-            ready_tx,
-            request_rx,
-            response_tx,
-        )
-    });
-
-    match ready_rx.recv() {
-        Ok(Ok(())) => {
-            tracing::info!("Qwen3.5 model loaded");
-            let _ = send_log(&mut node, "Qwen3.5 model loaded - ready to translate");
-        }
-        Ok(Err(e)) => {
-            let _ = worker_handle.join();
-            return Err(anyhow!("Failed to initialize translation worker: {e}"));
-        }
-        Err(e) => {
-            let _ = worker_handle.join();
-            return Err(anyhow!("Translation worker did not report readiness: {e}"));
-        }
+    if passthrough {
+        tracing::info!("Translator running in passthrough mode (no LLM); src={}", src_lang);
+        let _ = send_log(&mut node, "Translator passthrough mode — no translation will be generated");
+    } else {
+        tracing::info!("Translation: {} → {}", src_lang, tgt_lang);
     }
+
+    // In passthrough mode, skip model/worker setup entirely.
+    // Binding `_` (not `_name`) drops the paired sender immediately so the
+    // response channel returns Disconnected on `try_recv` without ever yielding.
+    let (request_tx, response_rx, mut worker_handle) = if passthrough {
+        let (dummy_tx, _) = mpsc::channel::<TranslationTask>();
+        let (_, never_rx) = mpsc::channel::<TranslationResponse>();
+        (dummy_tx, never_rx, None)
+    } else {
+        let model_path = resolve_model_path();
+        tracing::info!("Loading Qwen3.5 model from: {}", model_path.display());
+        let _ = send_log(
+            &mut node,
+            &format!("Loading Qwen3.5 model from {}", model_path.display()),
+        );
+
+        let (request_tx, request_rx) = mpsc::channel();
+        let (response_tx, response_rx) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let worker_model_path = model_path.clone();
+        let worker_handle = thread::spawn(move || {
+            translation_worker_loop(
+                worker_model_path,
+                temperature,
+                max_tokens,
+                ready_tx,
+                request_rx,
+                response_tx,
+            )
+        });
+
+        match ready_rx.recv() {
+            Ok(Ok(())) => {
+                tracing::info!("Qwen3.5 model loaded");
+                let _ = send_log(&mut node, "Qwen3.5 model loaded - ready to translate");
+            }
+            Ok(Err(e)) => {
+                let _ = worker_handle.join();
+                return Err(anyhow!("Failed to initialize translation worker: {e}"));
+            }
+            Err(e) => {
+                let _ = worker_handle.join();
+                return Err(anyhow!("Translation worker did not report readiness: {e}"));
+            }
+        }
+
+        (request_tx, response_rx, Some(worker_handle))
+    };
 
     tracing::info!("Buffer merge mode active");
     let _ = send_log(&mut node, "Buffer merge mode active");
@@ -900,13 +965,44 @@ fn main() -> Result<()> {
             };
 
             if let Some(source_text) = next_source {
-                match submit_translation_task(&request_tx, &source_text, &tgt_lang, &transcript) {
-                    Ok(()) => {
-                        translation_pending = true;
+                if passthrough {
+                    let did_commit = commit_passthrough(
+                        &mut node,
+                        &mut transcript,
+                        &mut next_commit_id,
+                        &source_text,
+                    );
+                    if did_commit {
+                        let tail = transcript.uncommitted_tail();
+                        if !tail.is_empty() {
+                            let _ = send_source(
+                                &mut node,
+                                &tail,
+                                "streaming",
+                                current_burst_id,
+                                None,
+                            );
+                        }
+                        if flush_requested && transcript.stable_buffer().trim().is_empty() {
+                            flush_requested = false;
+                        }
                     }
-                    Err(e) => {
-                        let _ = worker_handle.join();
-                        return Err(anyhow!("Failed to submit translation task: {e}"));
+                } else {
+                    match submit_translation_task(
+                        &request_tx,
+                        &source_text,
+                        &tgt_lang,
+                        &transcript,
+                    ) {
+                        Ok(()) => {
+                            translation_pending = true;
+                        }
+                        Err(e) => {
+                            if let Some(h) = worker_handle.take() {
+                                let _ = h.join();
+                            }
+                            return Err(anyhow!("Failed to submit translation task: {e}"));
+                        }
                     }
                 }
             }
@@ -922,9 +1018,11 @@ fn main() -> Result<()> {
     }
 
     drop(request_tx);
-    worker_handle
-        .join()
-        .map_err(|_| anyhow!("Translation worker thread panicked"))?;
+    if let Some(handle) = worker_handle {
+        handle
+            .join()
+            .map_err(|_| anyhow!("Translation worker thread panicked"))?;
+    }
 
     tracing::info!("dora-qwen35-translator stopped");
     Ok(())

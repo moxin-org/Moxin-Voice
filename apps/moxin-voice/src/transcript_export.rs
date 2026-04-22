@@ -119,16 +119,24 @@ fn save_as_md(
     src_lang: &str,
     tgt_lang: &str,
 ) -> std::io::Result<()> {
+    let passthrough = tgt_lang.eq_ignore_ascii_case("none");
     let mut out = String::new();
     out.push_str("# Speech Transcript\n\n");
     out.push_str(&format!("**Time:** {}  \n", utc_datetime()));
-    out.push_str(&format!("**Languages:** {src_lang} → {tgt_lang}\n\n"));
+    if passthrough {
+        out.push_str(&format!("**Languages:** {src_lang} (no translation)\n\n"));
+    } else {
+        out.push_str(&format!("**Languages:** {src_lang} → {tgt_lang}\n\n"));
+    }
     out.push_str("---\n\n");
 
     for (i, (src, tl)) in entries.iter().enumerate() {
         out.push_str(&format!("**[{:03}]**\n\n", i + 1));
         out.push_str(&format!("> {}\n\n", src.trim()));
-        out.push_str(&format!("{}\n\n", tl.trim()));
+        let tl_trimmed = tl.trim();
+        if !tl_trimmed.is_empty() {
+            out.push_str(&format!("{}\n\n", tl_trimmed));
+        }
         out.push_str("---\n\n");
     }
     std::fs::write(path, out)

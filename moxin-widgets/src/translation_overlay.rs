@@ -364,6 +364,10 @@ impl TranslationOverlay {
     }
 
     fn format_lang_pair_for_locale(src: &str, tgt: &str, locale_en: bool) -> String {
+        // Passthrough (no translation): show only source language — no target arrow.
+        if tgt.eq_ignore_ascii_case("none") {
+            return Self::localized_lang_name(src, locale_en);
+        }
         format!(
             "{}-{}",
             Self::localized_lang_name(src, locale_en),
@@ -680,13 +684,17 @@ impl TranslationOverlay {
         let mut out = String::new();
         for (i, (source, translation)) in history.iter().enumerate() {
             if i > 0 {
-                out.push('\n');
+                // Blank line between entries (same inter-entry spacing as
+                // source/translation pairs in the normal mode).
+                out.push_str("\n\n");
             }
             out.push_str(source.trim());
-            out.push('\n');
-            out.push_str(translation.trim());
-            if i < history.len() - 1 {
+            let translation_trimmed = translation.trim();
+            // Passthrough (no translation) sends empty translation text — skip
+            // the second line entirely instead of inserting a blank gap.
+            if !translation_trimmed.is_empty() {
                 out.push('\n');
+                out.push_str(translation_trimmed);
             }
         }
         out
@@ -831,6 +839,47 @@ mod tests {
             TranslationOverlay::format_lang_pair_for_locale("zh", "en", true),
             "ZH-EN"
         );
+    }
+
+    #[test]
+    fn format_lang_pair_passthrough_drops_target() {
+        assert_eq!(
+            TranslationOverlay::format_lang_pair_for_locale("zh", "none", false),
+            "中"
+        );
+        assert_eq!(
+            TranslationOverlay::format_lang_pair_for_locale("en", "none", true),
+            "EN"
+        );
+    }
+
+    #[test]
+    fn format_history_skips_empty_translation_line() {
+        let items = vec![("hello".to_string(), "".to_string())];
+        let out = TranslationOverlay::format_history(&items);
+        assert_eq!(out, "hello");
+
+        let items = vec![
+            ("hi".to_string(), "".to_string()),
+            ("world".to_string(), "".to_string()),
+        ];
+        let out = TranslationOverlay::format_history(&items);
+        assert_eq!(out, "hi\n\nworld");
+    }
+
+    #[test]
+    fn format_history_keeps_translation_line_when_present() {
+        let items = vec![("hello".to_string(), "你好".to_string())];
+        let out = TranslationOverlay::format_history(&items);
+        assert_eq!(out, "hello\n你好");
+
+        // Inter-entry spacing is the same blank-line separator as before.
+        let items = vec![
+            ("hi".to_string(), "你好".to_string()),
+            ("bye".to_string(), "再见".to_string()),
+        ];
+        let out = TranslationOverlay::format_history(&items);
+        assert_eq!(out, "hi\n你好\n\nbye\n再见");
     }
 
     #[test]
