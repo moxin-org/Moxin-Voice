@@ -23,7 +23,7 @@ mod transcript_buffer;
 
 use anyhow::{anyhow, Result};
 use arrow::array::{Array, StringArray};
-use dora_node_api::{DoraNode, Event, IntoArrow};
+use dora_node_api::{DoraNode, Event, IntoArrow, TryRecvError};
 use minijinja::{context, Environment};
 use minijinja_contrib::pycompat::unknown_method_callback;
 use mlx_lm_utils::tokenizer::{
@@ -207,6 +207,8 @@ fn load_eos_tokens(model_path: &std::path::Path) -> Result<HashSet<u32>> {
 const COMMIT_THRESHOLD_CHARS: usize = 10;
 const COMMIT_TICK_MS: u64 = 500;
 const IDLE_FLUSH_MS_DEFAULT: u64 = 9000;
+const EVENT_POLL_SLEEP_MS: u64 = 25;
+const STOP_DRAIN_TIMEOUT_MS_DEFAULT: u64 = 3000;
 
 #[derive(Debug)]
 struct TranslationTask {
@@ -269,6 +271,12 @@ fn should_trigger_idle_flush(
         && elapsed_since_last_chunk
             .map(|elapsed| elapsed >= Duration::from_millis(idle_flush_ms))
             .unwrap_or(false)
+}
+
+fn stop_drain_timed_out(stop_started_at: Option<Instant>, stop_drain_timeout_ms: u64) -> bool {
+    stop_started_at
+        .map(|started_at| started_at.elapsed() >= Duration::from_millis(stop_drain_timeout_ms))
+        .unwrap_or(false)
 }
 
 fn supports_enable_thinking(chat_template: &str) -> bool {
@@ -730,6 +738,10 @@ fn main() -> Result<()> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(IDLE_FLUSH_MS_DEFAULT);
+    let stop_drain_timeout_ms: u64 = std::env::var("TRANSLATOR_STOP_DRAIN_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(STOP_DRAIN_TIMEOUT_MS_DEFAULT);
     if passthrough {
         tracing::info!("Translator running in passthrough mode (no LLM); src={}", src_lang);
         let _ = send_log(&mut node, "Translator passthrough mode — no translation will be generated");
@@ -793,10 +805,15 @@ fn main() -> Result<()> {
     let mut translation_pending = false;
     let mut flush_requested = false;
     let mut stopping = false;
+    let mut stop_started_at: Option<Instant> = None;
     let mut last_asr_chunk_at: Option<Instant> = None;
     let mut next_commit_id: i64 = 1;
+    let mut last_commit_tick = Instant::now();
+    let mut should_join_worker = true;
 
     loop {
+        let mut did_work = false;
+
         while let Ok(response) = response_rx.try_recv() {
             let did_commit = handle_translation_response(
                 &mut node,
@@ -816,16 +833,19 @@ fn main() -> Result<()> {
             if flush_requested && transcript.stable_buffer().trim().is_empty() {
                 flush_requested = false;
             }
+            did_work = true;
         }
 
-        let event = events.recv_timeout(Duration::from_millis(COMMIT_TICK_MS));
+        loop {
+            match events.try_recv() {
+                Ok(Event::Input {
+                    id, data, metadata, ..
+                }) => {
+                    did_work = true;
+                    if id.as_str() != "text" {
+                        continue;
+                    }
 
-        match event {
-            None => {}
-            Some(Event::Input {
-                id, data, metadata, ..
-            }) => {
-                if id.as_str() == "text" {
                     let burst_id = metadata
                         .parameters
                         .get("burst_id")
@@ -914,98 +934,135 @@ fn main() -> Result<()> {
                         let _ = send_source(&mut node, &tail, "streaming", current_burst_id, None);
                     }
                 }
+                Ok(Event::Stop(_)) => {
+                    did_work = true;
+                    if !stopping {
+                        tracing::info!("Stop event received, draining pending translation work");
+                    }
+                    stopping = true;
+                    stop_started_at = stop_started_at.or(Some(Instant::now()));
+                    flush_requested = true;
+                    if transcript.seal_active_burst() {
+                        tracing::info!(
+                            "Active burst sealed on stop\n{}",
+                            transcript.debug_snapshot()
+                        );
+                    }
+                }
+                Ok(Event::Error(err)) => {
+                    tracing::error!("Translator event stream error: {err}");
+                    let _ = send_log(&mut node, &format!("Translator event stream error: {err}"));
+                    should_join_worker = false;
+                    break;
+                }
+                Ok(_) => {
+                    did_work = true;
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Closed) => {
+                    tracing::warn!("Translator event stream closed; exiting immediately");
+                    let _ = send_log(&mut node, "Translator event stream closed");
+                    should_join_worker = false;
+                    break;
+                }
             }
-            Some(Event::Stop(_)) => {
-                tracing::info!("Stop event received, draining pending translation work");
-                stopping = true;
+        }
+
+        if !should_join_worker {
+            break;
+        }
+
+        if last_commit_tick.elapsed() >= Duration::from_millis(COMMIT_TICK_MS) {
+            last_commit_tick = Instant::now();
+            did_work = true;
+
+            if should_trigger_idle_flush(
+                last_asr_chunk_at.map(|instant| instant.elapsed()),
+                !transcript.buffer().trim().is_empty(),
+                translation_pending,
+                flush_requested,
+                idle_flush_ms,
+            ) {
+                tracing::info!(
+                    "Idle flush triggered after {}ms without new ASR chunk",
+                    idle_flush_ms
+                );
                 flush_requested = true;
                 if transcript.seal_active_burst() {
                     tracing::info!(
-                        "Active burst sealed on stop\n{}",
+                        "Active burst sealed on idle flush\n{}",
                         transcript.debug_snapshot()
                     );
                 }
             }
-            _ => {}
-        }
 
-        if should_trigger_idle_flush(
-            last_asr_chunk_at.map(|instant| instant.elapsed()),
-            !transcript.buffer().trim().is_empty(),
-            translation_pending,
-            flush_requested,
-            idle_flush_ms,
-        ) {
-            tracing::info!(
-                "Idle flush triggered after {}ms without new ASR chunk",
-                idle_flush_ms
-            );
-            flush_requested = true;
-            if transcript.seal_active_burst() {
-                tracing::info!(
-                    "Active burst sealed on idle flush\n{}",
-                    transcript.debug_snapshot()
-                );
-            }
-        }
-
-        if !translation_pending {
-            let next_source = if flush_requested {
-                let stable = transcript.stable_buffer().trim();
-                if stable.is_empty() {
+            if !translation_pending {
+                let next_source = if flush_requested {
+                    let stable = transcript.stable_buffer().trim();
+                    if stable.is_empty() {
+                        None
+                    } else {
+                        Some(stable.to_string())
+                    }
+                } else if transcript.has_stable_text(COMMIT_THRESHOLD_CHARS) {
+                    let stable = transcript.stable_buffer();
+                    find_commit_boundary_from_tail(stable).map(|end| stable[..end].to_string())
+                } else {
                     None
-                } else {
-                    Some(stable.to_string())
-                }
-            } else if transcript.has_stable_text(COMMIT_THRESHOLD_CHARS) {
-                let stable = transcript.stable_buffer();
-                find_commit_boundary_from_tail(stable).map(|end| stable[..end].to_string())
-            } else {
-                None
-            };
+                };
 
-            if let Some(source_text) = next_source {
-                if passthrough {
-                    let did_commit = commit_passthrough(
-                        &mut node,
-                        &mut transcript,
-                        &mut next_commit_id,
-                        &source_text,
-                    );
-                    if did_commit {
-                        let tail = transcript.uncommitted_tail();
-                        if !tail.is_empty() {
-                            let _ = send_source(
-                                &mut node,
-                                &tail,
-                                "streaming",
-                                current_burst_id,
-                                None,
-                            );
-                        }
-                        if flush_requested && transcript.stable_buffer().trim().is_empty() {
-                            flush_requested = false;
-                        }
-                    }
-                } else {
-                    match submit_translation_task(
-                        &request_tx,
-                        &source_text,
-                        &tgt_lang,
-                        &transcript,
-                    ) {
-                        Ok(()) => {
-                            translation_pending = true;
-                        }
-                        Err(e) => {
-                            if let Some(h) = worker_handle.take() {
-                                let _ = h.join();
+                if let Some(source_text) = next_source {
+                    if passthrough {
+                        let did_commit = commit_passthrough(
+                            &mut node,
+                            &mut transcript,
+                            &mut next_commit_id,
+                            &source_text,
+                        );
+                        if did_commit {
+                            let tail = transcript.uncommitted_tail();
+                            if !tail.is_empty() {
+                                let _ = send_source(
+                                    &mut node,
+                                    &tail,
+                                    "streaming",
+                                    current_burst_id,
+                                    None,
+                                );
                             }
-                            return Err(anyhow!("Failed to submit translation task: {e}"));
+                            if flush_requested && transcript.stable_buffer().trim().is_empty() {
+                                flush_requested = false;
+                            }
+                        }
+                    } else {
+                        match submit_translation_task(
+                            &request_tx,
+                            &source_text,
+                            &tgt_lang,
+                            &transcript,
+                        ) {
+                            Ok(()) => {
+                                translation_pending = true;
+                            }
+                            Err(e) => {
+                                if let Some(h) = worker_handle.take() {
+                                    let _ = h.join();
+                                }
+                                return Err(anyhow!("Failed to submit translation task: {e}"));
+                            }
                         }
                     }
                 }
             }
+        }
+
+        if stopping && stop_drain_timed_out(stop_started_at, stop_drain_timeout_ms) {
+            tracing::warn!(
+                "Translator stop drain exceeded {}ms; exiting without waiting for worker",
+                stop_drain_timeout_ms
+            );
+            should_join_worker = false;
+            break;
         }
 
         if stopping
@@ -1015,13 +1072,19 @@ fn main() -> Result<()> {
         {
             break;
         }
+
+        if !did_work {
+            thread::sleep(Duration::from_millis(EVENT_POLL_SLEEP_MS));
+        }
     }
 
     drop(request_tx);
-    if let Some(handle) = worker_handle {
-        handle
-            .join()
-            .map_err(|_| anyhow!("Translation worker thread panicked"))?;
+    if should_join_worker {
+        if let Some(handle) = worker_handle {
+            handle
+                .join()
+                .map_err(|_| anyhow!("Translation worker thread panicked"))?;
+        }
     }
 
     tracing::info!("dora-qwen35-translator stopped");
@@ -1032,10 +1095,10 @@ fn main() -> Result<()> {
 mod tests {
     use super::{
         build_system_prompt, find_commit_boundary_from_tail, format_commit_prompt_debug,
-        build_session_meta,
-        should_trigger_idle_flush, strip_hard_cut_terminal_punctuation,
+        build_session_meta, should_trigger_idle_flush, stop_drain_timed_out,
+        strip_hard_cut_terminal_punctuation,
     };
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn strip_hard_cut_terminal_punctuation_removes_single_sentence_mark() {
@@ -1142,6 +1205,16 @@ mod tests {
             false,
             true,
             1100
+        ));
+    }
+
+    #[test]
+    fn stop_drain_timeout_only_triggers_after_deadline() {
+        assert!(!stop_drain_timed_out(None, 1000));
+        assert!(!stop_drain_timed_out(Some(Instant::now()), 1000));
+        assert!(stop_drain_timed_out(
+            Some(Instant::now() - Duration::from_millis(1001)),
+            1000
         ));
     }
 }
