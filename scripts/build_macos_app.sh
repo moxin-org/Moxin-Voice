@@ -188,7 +188,8 @@ fi
 
 cp "$ROOT_DIR/scripts/macos_preflight.sh" "$SCRIPTS_DIR/macos_preflight.sh"
 cp "$ROOT_DIR/scripts/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_bootstrap.sh"
-chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh"
+cp "$ROOT_DIR/scripts/macos_install_update.sh" "$SCRIPTS_DIR/macos_install_update.sh"
+chmod +x "$SCRIPTS_DIR/macos_preflight.sh" "$SCRIPTS_DIR/macos_bootstrap.sh" "$SCRIPTS_DIR/macos_install_update.sh"
 
 cp "$TTS_BUNDLE_YAML" "$DATAFLOW_DIR/tts.yml"
 cp "$TRANSLATION_QWEN35_BUNDLE_YAML" "$DATAFLOW_DIR/translation_qwen35.yml"
@@ -248,6 +249,7 @@ mkdir -p "$DORA_RUNTIME_DIR"
 cd "$DORA_RUNTIME_DIR"
 
 export MOXIN_APP_RESOURCES="$RES_DIR"
+export MOXIN_APP_VERSION="$VERSION"
 export MOXIN_FEWSHOT_TRAINER_BIN="$MACOS_DIR/moxin-fewshot-trainer"
 export MOXIN_DORA_RUNTIME_DIR="$DORA_RUNTIME_DIR"
 export QWEN3_TTS_MODEL_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"

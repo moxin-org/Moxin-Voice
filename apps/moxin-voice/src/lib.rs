@@ -4,23 +4,23 @@
 pub const APP_VERSION: &str = "0.0.4";
 
 // Local modules
-pub mod audio_player; // Keep local: simplified TTS-specific version
 pub mod app_preferences;
+pub mod app_update;
+pub mod audio_player; // Keep local: simplified TTS-specific version
 pub mod dora_integration;
 pub mod i18n;
 
-
 pub mod screen;
 
+pub mod task_persistence;
 pub mod training_executor;
 pub mod training_manager;
+pub mod transcript_export;
+pub mod tts_history;
 pub mod voice_clone_modal;
 pub mod voice_data;
 pub mod voice_persistence;
 pub mod voice_selector;
-pub mod task_persistence;
-pub mod transcript_export;
-pub mod tts_history;
 
 // Re-export shared components from moxin-ui
 pub use moxin_ui::log_bridge;

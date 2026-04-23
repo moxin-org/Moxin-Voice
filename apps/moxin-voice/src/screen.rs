@@ -2,6 +2,7 @@
 //! This is a variant of the TTS screen with a sidebar navigation similar to Moxin.tts
 
 use crate::app_preferences::{self, AppPreferences};
+use crate::app_update::{self, PreparedUpdate};
 use crate::audio_player::{
     default_input_device_name, default_output_device_name, list_input_devices, list_output_devices,
     TTSPlayer,
@@ -9,20 +10,20 @@ use crate::audio_player::{
 use crate::dora_integration::DoraIntegration;
 use crate::i18n;
 use crate::log_bridge;
+use crate::task_persistence;
 use crate::training_executor::TrainingExecutor;
 use crate::tts_history::{self, TtsHistoryEntry};
 use crate::voice_clone_modal::{CloneMode, VoiceCloneModalAction, VoiceCloneModalWidgetExt};
 use crate::voice_data::{LanguageFilter, TTSStatus, Voice, VoiceFilter};
 use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
-use crate::task_persistence;
 use hound::WavReader;
 use makepad_widgets::*;
-use std::sync::Arc;
-use std::fs::OpenOptions;
 use std::fs;
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -94,7 +95,11 @@ fn should_show_runtime_download_ui(
 
 #[derive(Debug)]
 enum RuntimeInitEvent {
-    Stage { status: String, detail: String, progress: f64 },
+    Stage {
+        status: String,
+        detail: String,
+        progress: f64,
+    },
     DoneOk,
     DoneErr(String),
 }
@@ -119,11 +124,7 @@ impl DoraStartupLockGuard {
 
         let started_at = std::time::Instant::now();
         loop {
-            match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
+            match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(_) => return Ok(Self { path }),
                 Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
                     if started_at.elapsed() >= timeout {
@@ -157,6 +158,26 @@ enum QwenModelDownloadEvent {
     Stage(String),
     DoneOk,
     DoneErr(String),
+}
+
+#[derive(Debug)]
+enum AppUpdateEvent {
+    Checking,
+    Ready {
+        update: PreparedUpdate,
+        fresh_download: bool,
+    },
+    NoUpdate,
+    Failed(String),
+}
+
+#[derive(Clone, Debug, Default)]
+enum AppUpdateState {
+    #[default]
+    Idle,
+    Checking,
+    Ready(PreparedUpdate),
+    Failed,
 }
 
 #[derive(Clone, Debug)]
@@ -1290,7 +1311,7 @@ live_design! {
                 width: 220, height: Fill
                 flow: Down
                 spacing: 0
-                
+
                 show_bg: true
                 draw_bg: {
                     fn pixel(self) -> vec4 {
@@ -1369,7 +1390,7 @@ live_design! {
                     }
                 }
 
-                // Sidebar Footer: User Info
+                // Sidebar Footer: Settings entry
                 sidebar_footer = <View> {
                     width: Fill, height: Fit
                     flow: Right
@@ -1396,6 +1417,7 @@ live_design! {
                     user_avatar = <RoundedView> {
                         width: 32, height: 32
                         align: {x: 0.5, y: 0.5}
+                        visible: false
                         draw_bg: {
                             fn pixel(self) -> vec4 {
                                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
@@ -1428,7 +1450,17 @@ live_design! {
                                 text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
                                 fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
                             }
-                            text: "User"
+                            text: "设置"
+                        }
+
+                        update_badge = <Label> {
+                            width: Fit, height: Fit
+                            visible: false
+                            draw_text: {
+                                text_style: <FONT_SEMIBOLD>{ font_size: 10.0 }
+                                fn get_color(self) -> vec4 { return vec4(0.56, 0.78, 1.0, 1.0); }
+                            }
+                            text: "新版本"
                         }
                     }
 
@@ -1549,7 +1581,7 @@ live_design! {
                         header = <View> {
                             width: Fill, height: 0
                             visible: false
-                            
+
                             title = <Label> {
                                 text: ""
                             }
@@ -1609,7 +1641,7 @@ live_design! {
                             align: {x: 0.0, y: 0.0}
                             padding: {left: 20, right: 20, top: 12, bottom: 14}
                             spacing: 8
-                            
+
                             show_bg: true
                             draw_bg: {
                                 instance dark_mode: 0.0
@@ -4443,7 +4475,7 @@ live_design! {
                                         return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                     }
                                 }
-                                text: "用户设置"
+                                text: "设置"
                             }
                         }
 
@@ -5167,9 +5199,23 @@ live_design! {
 
                             about_section_title = <SettingsSectionTitle> { width: Fit, height: Fit text: "About" }
 
-                            about_version_label = <SettingsBodyLabel> {
+                            about_version_row = <View> {
                                 width: Fill, height: Fit
-                                text: "Moxin Voice v0.0.4"
+                                flow: Right
+                                spacing: 10
+                                align: {y: 0.5}
+
+                                about_version_label = <SettingsBodyLabel> {
+                                    width: Fill, height: Fit
+                                    text: "Moxin Voice"
+                                }
+
+                                about_install_update_btn = <SettingsActionBtn> {
+                                    width: Fit, height: 32
+                                    visible: false
+                                    padding: {left: 10, right: 10}
+                                    text: "安装新版本"
+                                }
                             }
 
                             about_engine_label = <SettingsBodyLabel> {
@@ -7595,7 +7641,7 @@ live_design! {
                                     return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
                                 }
                             }
-                            text: "Moxin Voice v0.1.0"
+                            text: "Moxin Voice"
                         }
 
                         about_engine = <Label> {
@@ -7884,6 +7930,14 @@ pub struct TTSScreen {
     toast_visible: bool,
     #[rust]
     toast_message: String,
+    #[rust]
+    app_update_state: AppUpdateState,
+    #[rust]
+    app_update_rx: Option<Receiver<AppUpdateEvent>>,
+    #[rust]
+    app_update_check_started: bool,
+    #[rust]
+    app_update_check_started_at: Option<std::time::Instant>,
 
     // Delete confirmation state
     #[rust]
@@ -7928,7 +7982,7 @@ pub struct TTSScreen {
     clone_loading: bool,
     #[rust]
     clone_card_areas: Vec<(usize, Area, Area, Area, Area)>, // (task_idx, card_area, view_btn_area, cancel_btn_area, delete_btn_area)
-    
+
     // Task Detail page state
     #[rust]
     current_task_id: Option<String>,
@@ -7989,7 +8043,7 @@ pub struct TTSScreen {
     // Right controls panel state: 0 = Voice Management, 1 = Settings, 2 = History
     #[rust]
     controls_panel_tab: u8,
-    
+
     // TTS parameters
     #[rust]
     tts_speed: f64,
@@ -7999,7 +8053,7 @@ pub struct TTSScreen {
     tts_volume: f64,
     #[rust]
     tts_slider_dragging: Option<TtsParamSliderKind>,
-    
+
     // Global settings modal
     #[rust]
     global_settings_visible: bool,
@@ -8093,7 +8147,7 @@ pub struct TTSScreen {
     selected_tts_model_id: Option<String>,
     #[rust]
     model_picker_card_areas: Vec<(usize, Area)>, // (model_idx, card_area)
-    
+
     // Voice picker (inline in settings panel)
     #[rust]
     voice_picker_search: String,
@@ -8174,7 +8228,7 @@ impl Widget for TTSScreen {
             self.has_generated_audio = false;
             // Initialize current page
             self.current_page = AppPage::TextToSpeech;
-            
+
             // Initialize voice library state
             self.library_voices = Vec::new();
             self.library_search_query = String::new();
@@ -8234,14 +8288,15 @@ impl Widget for TTSScreen {
             self.app_preferences.inference_backend = "qwen3_tts_mlx".to_string();
             self.app_preferences.zero_shot_backend = "qwen3_tts_mlx".to_string();
             self.app_preferences.training_backend = "option_c".to_string(); // Qwen3 ICL mode
-            // Sync selected model with validated inference_backend preference
+                                                                            // Sync selected model with validated inference_backend preference
             {
                 let validated_backend = self.app_preferences.inference_backend.clone();
-                self.selected_tts_model_id = if self.model_options.iter().any(|m| m.id == validated_backend) {
-                    Some(validated_backend)
-                } else {
-                    self.model_options.first().map(|m| m.id.clone())
-                };
+                self.selected_tts_model_id =
+                    if self.model_options.iter().any(|m| m.id == validated_backend) {
+                        Some(validated_backend)
+                    } else {
+                        self.model_options.first().map(|m| m.id.clone())
+                    };
             }
             self.user_profile_customized = true;
             self.user_settings_tab = 0;
@@ -8323,13 +8378,18 @@ impl Widget for TTSScreen {
             self.runtime_init_state = RuntimeInitState::Idle;
             self.runtime_init_rx = None;
             self.runtime_init_status_text = self.tr("初始化中...", "Initializing...").to_string();
-            self.runtime_init_detail_text =
-                self.tr("正在检查运行环境", "Checking runtime environment").to_string();
+            self.runtime_init_detail_text = self
+                .tr("正在检查运行环境", "Checking runtime environment")
+                .to_string();
             self.runtime_init_progress = 0.0;
             self.runtime_init_download_ui_active = false;
             self.qwen_download_in_progress = false;
             self.qwen_download_rx = None;
             self.qwen_model_status_text = self.tr("未就绪", "Not ready").to_string();
+            self.app_update_state = AppUpdateState::Idle;
+            self.app_update_rx = None;
+            self.app_update_check_started = false;
+            self.app_update_check_started_at = Some(std::time::Instant::now());
             self.dora_start_attempt_at = None;
             self.dora_start_in_flight = false;
             self.dora_start_rx = None;
@@ -8355,11 +8415,10 @@ impl Widget for TTSScreen {
                 .push("[INFO] [tts] Moxin TTS initialized".to_string());
             self.log_entries
                 .push("[INFO] [tts] Default voice: Doubao (GPT-SoVITS)".to_string());
-            self.log_entries
-                .push(format!(
-                    "[INFO] [tts] Model catalog loaded: {} model(s)",
-                    self.model_options.len()
-                ));
+            self.log_entries.push(format!(
+                "[INFO] [tts] Model catalog loaded: {} model(s)",
+                self.model_options.len()
+            ));
             self.log_entries
                 .push("[INFO] [tts] Click 'Start' to connect to Moxin bridge".to_string());
             // Update log display immediately
@@ -8442,6 +8501,8 @@ impl Widget for TTSScreen {
 
         // Poll for audio and logs
         if self.update_timer.is_event(event).is_some() {
+            self.maybe_start_background_update_check();
+            self.poll_app_update(cx);
             self.poll_runtime_initialization(cx);
             self.poll_qwen_model_download(cx);
             self.poll_dora_startup(cx);
@@ -8453,13 +8514,22 @@ impl Widget for TTSScreen {
             if self.backend_switching {
                 // Animate the in-dialog spinner
                 self.spinner_phase += 0.03;
-                if self.spinner_phase > 1.0 { self.spinner_phase -= 1.0; }
+                if self.spinner_phase > 1.0 {
+                    self.spinner_phase -= 1.0;
+                }
                 self.view
-                    .view(ids!(model_picker_modal.model_picker_dialog.switching_overlay.switching_spinner))
+                    .view(ids!(
+                        model_picker_modal
+                            .model_picker_dialog
+                            .switching_overlay
+                            .switching_spinner
+                    ))
                     .apply_over(cx, live! { draw_bg: { phase: (self.spinner_phase) } });
 
                 let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
-                let bridge_count = self.dora.as_ref()
+                let bridge_count = self
+                    .dora
+                    .as_ref()
                     .map(|d| d.shared_dora_state().status.read().active_bridges.len())
                     .unwrap_or(0);
                 if !self.backend_switch_bridges_dropped {
@@ -8471,9 +8541,15 @@ impl Widget for TTSScreen {
                 } else if bridge_count >= 4 {
                     self.backend_switching = false;
                     self.backend_switch_bridges_dropped = false;
-                    self.view.view(ids!(model_picker_modal.model_picker_dialog.switching_overlay)).set_visible(cx, false);
+                    self.view
+                        .view(ids!(
+                            model_picker_modal.model_picker_dialog.switching_overlay
+                        ))
+                        .set_visible(cx, false);
                     self.model_picker_visible = false;
-                    self.view.view(ids!(model_picker_modal)).set_visible(cx, false);
+                    self.view
+                        .view(ids!(model_picker_modal))
+                        .set_visible(cx, false);
                     self.show_toast(cx, self.tr("推理后端已就绪", "Inference backend is ready"));
                     self.view.redraw(cx);
                 }
@@ -8583,7 +8659,10 @@ impl Widget for TTSScreen {
                             reference_audio,
                             reference_text,
                         } => {
-                            self.add_log(cx, &format!("[INFO] [executor] Task completed: {}", task_id));
+                            self.add_log(
+                                cx,
+                                &format!("[INFO] [executor] Task completed: {}", task_id),
+                            );
 
                             // Register the trained voice so it appears in Voice Library
                             // and the voice selector.
@@ -8597,7 +8676,9 @@ impl Widget for TTSScreen {
                                 language: "zh".to_string(),
                                 preview_audio: Some(reference_audio.to_string_lossy().to_string()),
                                 source: VoiceSource::Trained,
-                                reference_audio_path: Some(reference_audio.to_string_lossy().to_string()),
+                                reference_audio_path: Some(
+                                    reference_audio.to_string_lossy().to_string(),
+                                ),
                                 prompt_text: Some(reference_text.clone()),
                                 gpt_weights: Some(gpt_weights.to_string_lossy().to_string()),
                                 sovits_weights: Some(sovits_weights.to_string_lossy().to_string()),
@@ -8646,10 +8727,16 @@ impl Widget for TTSScreen {
                                 self.refresh_task_detail(cx);
                             }
 
-                            self.show_toast(cx, &format!("音色「{}」训练完成，已添加到语音库", task_name));
+                            self.show_toast(
+                                cx,
+                                &format!("音色「{}」训练完成，已添加到语音库", task_name),
+                            );
                         }
                         ExecutorEvent::TaskFailed(task_id, err) => {
-                            self.add_log(cx, &format!("[ERROR] [executor] Task failed: {} - {}", task_id, err));
+                            self.add_log(
+                                cx,
+                                &format!("[ERROR] [executor] Task failed: {} - {}", task_id, err),
+                            );
                             self.refresh_clone_tasks(cx);
                             if self.current_task_id.as_deref() == Some(&task_id) {
                                 self.refresh_task_detail(cx);
@@ -8659,7 +8746,9 @@ impl Widget for TTSScreen {
                             // Sync updated task data (progress, sub_step, etc.) into the
                             // in-memory list so the clone-page card redraws correctly.
                             if let Some(fresh) = task_persistence::get_task(&task_id) {
-                                if let Some(existing) = self.clone_tasks.iter_mut().find(|t| t.id == task_id) {
+                                if let Some(existing) =
+                                    self.clone_tasks.iter_mut().find(|t| t.id == task_id)
+                                {
                                     *existing = fresh;
                                 }
                             }
@@ -8695,7 +8784,14 @@ impl Widget for TTSScreen {
                 if self.spinner_phase > 1.0 {
                     self.spinner_phase -= 1.0;
                 }
-                self.view.view(ids!(loading_overlay.loading_center.loading_content.loading_spinner_area.loading_spinner))
+                self.view
+                    .view(ids!(
+                        loading_overlay
+                            .loading_center
+                            .loading_content
+                            .loading_spinner_area
+                            .loading_spinner
+                    ))
                     .apply_over(cx, live! { draw_bg: { phase: (self.spinner_phase) } });
 
                 if self.runtime_init_state == RuntimeInitState::Running
@@ -8707,13 +8803,28 @@ impl Widget for TTSScreen {
                     let is_running = self.dora.as_ref().map(|d| d.is_running()).unwrap_or(false);
                     if is_running {
                         self.view
-                            .label(ids!(loading_overlay.loading_center.loading_content.loading_status))
+                            .label(ids!(
+                                loading_overlay
+                                    .loading_center
+                                    .loading_content
+                                    .loading_status
+                            ))
                             .set_text(cx, self.tr("已连接", "Connected"));
                         self.view
-                            .label(ids!(loading_overlay.loading_center.loading_content.loading_detail))
+                            .label(ids!(
+                                loading_overlay
+                                    .loading_center
+                                    .loading_content
+                                    .loading_detail
+                            ))
                             .set_text(cx, self.tr("TTS 引擎已就绪", "TTS engine ready"));
                         self.view
-                            .label(ids!(loading_overlay.loading_progress_container.loading_progress_status_row.loading_progress_status))
+                            .label(ids!(
+                                loading_overlay
+                                    .loading_progress_container
+                                    .loading_progress_status_row
+                                    .loading_progress_status
+                            ))
                             .set_text(cx, "");
                         self.view
                             .view(ids!(loading_overlay.loading_progress_container))
@@ -8726,13 +8837,28 @@ impl Widget for TTSScreen {
                         let startup_detail =
                             self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine");
                         self.view
-                            .label(ids!(loading_overlay.loading_center.loading_content.loading_status))
+                            .label(ids!(
+                                loading_overlay
+                                    .loading_center
+                                    .loading_content
+                                    .loading_status
+                            ))
                             .set_text(cx, self.tr("连接中...", "Connecting..."));
                         self.view
-                            .label(ids!(loading_overlay.loading_center.loading_content.loading_detail))
+                            .label(ids!(
+                                loading_overlay
+                                    .loading_center
+                                    .loading_content
+                                    .loading_detail
+                            ))
                             .set_text(cx, startup_detail);
                         self.view
-                            .label(ids!(loading_overlay.loading_progress_container.loading_progress_status_row.loading_progress_status))
+                            .label(ids!(
+                                loading_overlay
+                                    .loading_progress_container
+                                    .loading_progress_status_row
+                                    .loading_progress_status
+                            ))
                             .set_text(cx, "");
                         self.view
                             .view(ids!(loading_overlay.loading_progress_container))
@@ -8774,7 +8900,16 @@ impl Widget for TTSScreen {
             self.library_language_filter = LanguageFilter::All;
             self.library_search_query.clear();
             self.view
-                .text_input(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.search_input))
+                .text_input(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .library_page
+                        .library_header
+                        .title_and_tags
+                        .search_input
+                ))
                 .set_text(cx, "");
             // Ensure library content is refreshed whenever user opens Voice Library.
             self.load_voice_library(cx);
@@ -8828,14 +8963,32 @@ impl Widget for TTSScreen {
         // ── Translation page: start / stop / settings buttons ────────────────
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_start_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .translation_start_btn
+            ))
             .clicked(&actions)
         {
             self.start_translation_dataflow(cx);
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_stop_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+                    .translation_stop_btn
+            ))
             .clicked(&actions)
         {
             self.stop_translation_dataflow(cx);
@@ -8845,7 +8998,18 @@ impl Widget for TTSScreen {
         // Index layout: 0 = System Audio, 1 = System Default Mic, 2..N = CPAL devices
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_source
+                    .translation_source_dropdown
+            ))
             .changed(&actions)
         {
             self.translation_device_idx = idx;
@@ -8874,7 +9038,18 @@ impl Widget for TTSScreen {
         // Overlay style: compact / fullscreen
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .overlay_style_compact
+            ))
             .clicked(&actions)
         {
             self.translation_overlay_fullscreen = false;
@@ -8885,7 +9060,18 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .overlay_style_full
+            ))
             .clicked(&actions)
         {
             self.translation_overlay_fullscreen = true;
@@ -8900,7 +9086,18 @@ impl Widget for TTSScreen {
             let opacity_values: [f64; 7] = [1.0, 0.9, 0.85, 0.75, 0.65, 0.5, 0.35];
             if let Some(idx) = self
                 .view
-                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.opacity_dropdown))
+                .drop_down(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_opacity
+                        .opacity_dropdown
+                ))
                 .changed(&actions)
             {
                 let opacity = opacity_values.get(idx).copied().unwrap_or(0.85);
@@ -8916,7 +9113,18 @@ impl Widget for TTSScreen {
             let lang_codes = ["zh", "en", "ja", "fr"];
             if let Some(idx) = self
                 .view
-                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown))
+                .drop_down(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_src_lang
+                        .src_lang_dropdown
+                ))
                 .changed(&actions)
             {
                 if let Some(code) = lang_codes.get(idx) {
@@ -8945,7 +9153,18 @@ impl Widget for TTSScreen {
             let lang_codes = ["en", "zh", "ja", "fr", "none"];
             if let Some(idx) = self
                 .view
-                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown))
+                .drop_down(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_tgt_lang
+                        .tgt_lang_dropdown
+                ))
                 .changed(&actions)
             {
                 if let Some(code) = lang_codes.get(idx) {
@@ -8974,7 +9193,18 @@ impl Widget for TTSScreen {
             let presets = ["small", "normal", "large"];
             if let Some(idx) = self
                 .view
-                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.font_size_dropdown))
+                .drop_down(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_font_size
+                        .font_size_dropdown
+                ))
                 .changed(&actions)
             {
                 if let Some(preset) = presets.get(idx) {
@@ -8990,7 +9220,18 @@ impl Widget for TTSScreen {
             let presets = ["50", "60", "70", "80", "90", "100"];
             if let Some(idx) = self
                 .view
-                .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.anchor_position_dropdown))
+                .drop_down(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_anchor_position
+                        .anchor_position_dropdown
+                ))
                 .changed(&actions)
             {
                 if let Some(preset) = presets.get(idx) {
@@ -9022,7 +9263,15 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_profile_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_profile_btn
+            ))
             .clicked(&actions)
         {
             self.user_settings_tab = 0;
@@ -9030,7 +9279,15 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_app_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_app_btn
+            ))
             .clicked(&actions)
         {
             self.user_settings_tab = 1;
@@ -9038,7 +9295,15 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_runtime_btn
+            ))
             .clicked(&actions)
         {
             self.user_settings_tab = 2;
@@ -9083,13 +9348,16 @@ impl Widget for TTSScreen {
             self.model_options = get_project_tts_models();
             // Always sync with current inference_backend when opening picker
             let current_backend = self.app_preferences.inference_backend.clone();
-            self.selected_tts_model_id = if self.model_options.iter().any(|m| m.id == current_backend) {
-                Some(current_backend)
-            } else {
-                self.model_options.first().map(|m| m.id.clone())
-            };
+            self.selected_tts_model_id =
+                if self.model_options.iter().any(|m| m.id == current_backend) {
+                    Some(current_backend)
+                } else {
+                    self.model_options.first().map(|m| m.id.clone())
+                };
             self.model_picker_visible = true;
-            self.view.view(ids!(model_picker_modal)).set_visible(cx, true);
+            self.view
+                .view(ids!(model_picker_modal))
+                .set_visible(cx, true);
             self.update_model_picker_controls(cx);
             self.view.redraw(cx);
         }
@@ -9097,11 +9365,18 @@ impl Widget for TTSScreen {
         // Handle model picker close button
         if self
             .view
-            .button(ids!(model_picker_modal.model_picker_dialog.model_picker_header.model_picker_back_btn))
+            .button(ids!(
+                model_picker_modal
+                    .model_picker_dialog
+                    .model_picker_header
+                    .model_picker_back_btn
+            ))
             .clicked(&actions)
         {
             self.model_picker_visible = false;
-            self.view.view(ids!(model_picker_modal)).set_visible(cx, false);
+            self.view
+                .view(ids!(model_picker_modal))
+                .set_visible(cx, false);
             self.view.redraw(cx);
         }
 
@@ -9113,7 +9388,9 @@ impl Widget for TTSScreen {
             .is_some()
         {
             self.model_picker_visible = false;
-            self.view.view(ids!(model_picker_modal)).set_visible(cx, false);
+            self.view
+                .view(ids!(model_picker_modal))
+                .set_visible(cx, false);
             self.view.redraw(cx);
         }
 
@@ -9121,8 +9398,18 @@ impl Widget for TTSScreen {
         let speed_slider_area = self
             .view
             .view(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container
-                    .input_section.bottom_bar.param_controls.speed_row.speed_slider_row.speed_slider
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .bottom_bar
+                    .param_controls
+                    .speed_row
+                    .speed_slider_row
+                    .speed_slider
             ))
             .area();
         self.handle_tts_param_slider_event(cx, event, speed_slider_area, TtsParamSliderKind::Speed);
@@ -9130,8 +9417,18 @@ impl Widget for TTSScreen {
         let pitch_slider_area = self
             .view
             .view(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container
-                    .input_section.bottom_bar.param_controls.pitch_row.pitch_slider_row.pitch_slider
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .bottom_bar
+                    .param_controls
+                    .pitch_row
+                    .pitch_slider_row
+                    .pitch_slider
             ))
             .area();
         self.handle_tts_param_slider_event(cx, event, pitch_slider_area, TtsParamSliderKind::Pitch);
@@ -9139,20 +9436,59 @@ impl Widget for TTSScreen {
         let volume_slider_area = self
             .view
             .view(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container
-                    .input_section.bottom_bar.param_controls.volume_row.volume_slider_row.volume_slider
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .bottom_bar
+                    .param_controls
+                    .volume_row
+                    .volume_slider_row
+                    .volume_slider
             ))
             .area();
-        self.handle_tts_param_slider_event(cx, event, volume_slider_area, TtsParamSliderKind::Volume);
+        self.handle_tts_param_slider_event(
+            cx,
+            event,
+            volume_slider_area,
+            TtsParamSliderKind::Volume,
+        );
 
         // Handle voice picker "select voice" click (legacy button + inline selected voice button).
         let legacy_voice_picker_btn_clicked = self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_picker_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .voice_row
+                    .voice_picker_btn
+            ))
             .clicked(&actions);
         let inline_selected_voice_btn_clicked = self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.selected_voice_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .select_voice_row
+                    .selected_voice_btn
+            ))
             .clicked(&actions);
         if legacy_voice_picker_btn_clicked || inline_selected_voice_btn_clicked {
             // Always refresh so My Voices immediately reflects newly cloned voices.
@@ -9169,27 +9505,74 @@ impl Widget for TTSScreen {
         // Voice picker chips (multi-select; male/female are mutually exclusive)
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_male_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .gender_male_btn
+            ))
             .clicked(&actions)
         {
             let was_active = self.voice_picker_gender_filter == VoiceFilter::Male;
-            self.voice_picker_gender_filter = if was_active { VoiceFilter::All } else { VoiceFilter::Male };
+            self.voice_picker_gender_filter = if was_active {
+                VoiceFilter::All
+            } else {
+                VoiceFilter::Male
+            };
             self.update_voice_picker_controls(cx);
         }
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_female_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .gender_female_btn
+            ))
             .clicked(&actions)
         {
             let was_active = self.voice_picker_gender_filter == VoiceFilter::Female;
-            self.voice_picker_gender_filter = if was_active { VoiceFilter::All } else { VoiceFilter::Female };
+            self.voice_picker_gender_filter = if was_active {
+                VoiceFilter::All
+            } else {
+                VoiceFilter::Female
+            };
             self.update_voice_picker_controls(cx);
         }
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_sweet_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_style
+                    .style_sweet_btn
+            ))
             .clicked(&actions)
         {
             const SWEET_BIT: u8 = 0b01;
@@ -9203,7 +9586,20 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_magnetic_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_style
+                    .style_magnetic_btn
+            ))
             .clicked(&actions)
         {
             const MAGNETIC_BIT: u8 = 0b10;
@@ -9217,7 +9613,20 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_adult_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .age_adult_btn
+            ))
             .clicked(&actions)
         {
             const ADULT_BIT: u8 = 0b01;
@@ -9231,7 +9640,20 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_youth_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .age_youth_btn
+            ))
             .clicked(&actions)
         {
             const YOUTH_BIT: u8 = 0b10;
@@ -9245,7 +9667,20 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_prof_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_trait
+                    .trait_prof_btn
+            ))
             .clicked(&actions)
         {
             const PROF_BIT: u8 = 0b01;
@@ -9259,7 +9694,20 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_character_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_trait
+                    .trait_character_btn
+            ))
             .clicked(&actions)
         {
             const CHARACTER_BIT: u8 = 0b10;
@@ -9274,13 +9722,37 @@ impl Widget for TTSScreen {
         if self
             .view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_actions
+                    .save_profile_btn
             ))
             .clicked(&actions)
         {
             let raw_name = self
                 .view
-                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input))
+                .text_input(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .profile_panel
+                        .profile_card
+                        .profile_body
+                        .profile_form
+                        .name_row
+                        .name_input
+                ))
                 .text();
             let trimmed = raw_name.trim().to_string();
             if !trimmed.is_empty() {
@@ -9299,27 +9771,76 @@ impl Widget for TTSScreen {
         if self
             .view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.save_defaults_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_actions
+                    .save_defaults_btn
             ))
             .clicked(&actions)
         {
             let speed = self
                 .view
-                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_input))
+                .text_input(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .app_panel
+                        .defaults_card
+                        .defaults_row
+                        .speed_col
+                        .speed_input
+                ))
                 .text()
                 .parse::<f64>()
                 .unwrap_or(self.tts_speed)
                 .clamp(0.5, 2.0);
             let pitch = self
                 .view
-                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_input))
+                .text_input(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .app_panel
+                        .defaults_card
+                        .defaults_row
+                        .pitch_col
+                        .pitch_input
+                ))
                 .text()
                 .parse::<f64>()
                 .unwrap_or(self.tts_pitch)
                 .clamp(-12.0, 12.0);
             let volume = self
                 .view
-                .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_input))
+                .text_input(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .app_panel
+                        .defaults_card
+                        .defaults_row
+                        .volume_col
+                        .volume_input
+                ))
                 .text()
                 .parse::<f64>()
                 .unwrap_or(self.tts_volume)
@@ -9330,13 +9851,26 @@ impl Widget for TTSScreen {
             self.app_preferences.default_voice_id = self.selected_voice_id.clone();
             self.persist_app_preferences(cx);
             self.update_user_settings_page(cx);
-            self.show_toast(cx, self.tr("默认参数已保存", "Default synthesis settings saved"));
+            self.show_toast(
+                cx,
+                self.tr("默认参数已保存", "Default synthesis settings saved"),
+            );
         }
 
         if self
             .view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.apply_defaults_now_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_actions
+                    .apply_defaults_now_btn
             ))
             .clicked(&actions)
         {
@@ -9344,12 +9878,26 @@ impl Widget for TTSScreen {
             self.tts_pitch = self.app_preferences.default_pitch.clamp(-12.0, 12.0);
             self.tts_volume = self.app_preferences.default_volume.clamp(0.0, 100.0);
             self.update_tts_param_controls(cx);
-            self.show_toast(cx, self.tr("已应用默认参数", "Applied defaults to current controls"));
+            self.show_toast(
+                cx,
+                self.tr("已应用默认参数", "Applied defaults to current controls"),
+            );
         }
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_refresh_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .runtime_refresh_btn
+            ))
             .clicked(&actions)
         {
             self.update_user_settings_page(cx);
@@ -9357,7 +9905,39 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_model_dir_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_version_row
+                    .about_install_update_btn
+            ))
+            .clicked(&actions)
+        {
+            self.install_ready_update(cx);
+        }
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_model_dir_btn
+            ))
             .clicked(&actions)
         {
             match Self::open_path_in_finder(Self::models_dir().as_path()) {
@@ -9367,7 +9947,19 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_log_dir_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_log_dir_btn
+            ))
             .clicked(&actions)
         {
             match Self::open_path_in_finder(Self::app_logs_dir().as_path()) {
@@ -9377,7 +9969,19 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_workspace_dir_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_workspace_dir_btn
+            ))
             .clicked(&actions)
         {
             match Self::open_path_in_finder(Self::workspace_dir().as_path()) {
@@ -9387,7 +9991,18 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.clear_cache_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .clear_cache_btn
+            ))
             .clicked(&actions)
         {
             self.clear_app_cache(cx);
@@ -9396,7 +10011,19 @@ impl Widget for TTSScreen {
 
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .retention_pick_row
+                    .retention_dropdown
+            ))
             .changed(&actions)
         {
             self.app_preferences.history_retention_days = match idx {
@@ -9410,7 +10037,19 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_tts_history_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .privacy_actions
+                    .clear_tts_history_btn
+            ))
             .clicked(&actions)
         {
             self.clear_tts_history(cx);
@@ -9418,16 +10057,43 @@ impl Widget for TTSScreen {
         }
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_training_artifacts_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .privacy_actions
+                    .clear_training_artifacts_btn
+            ))
             .clicked(&actions)
         {
             self.clear_training_artifacts(cx);
-            self.show_toast(cx, self.tr("训练中间产物已清理", "Training artifacts cleared"));
+            self.show_toast(
+                cx,
+                self.tr("训练中间产物已清理", "Training artifacts cleared"),
+            );
         }
 
         if self
             .view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_header.refresh_devices_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .devices_header
+                    .refresh_devices_btn
+            ))
             .clicked(&actions)
         {
             self.available_output_devices = list_output_devices();
@@ -9442,7 +10108,19 @@ impl Widget for TTSScreen {
         }
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_device_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .input_pick_row
+                    .input_device_dropdown
+            ))
             .changed(&actions)
         {
             if idx == 0 {
@@ -9458,7 +10136,19 @@ impl Widget for TTSScreen {
         }
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_device_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .output_pick_row
+                    .output_device_dropdown
+            ))
             .changed(&actions)
         {
             if idx == 0 {
@@ -9478,7 +10168,19 @@ impl Widget for TTSScreen {
         // Qwen3-only mode: these dropdowns are hidden. See doc/REFACTOR_QWEN3_ONLY.md.
         if let Some(idx) = self
             .view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .debug_pick_row
+                    .debug_logs_dropdown
+            ))
             .changed(&actions)
         {
             self.app_preferences.debug_logs_enabled = idx == 1;
@@ -9497,11 +10199,18 @@ impl Widget for TTSScreen {
         // Handle global settings modal close button
         if self
             .view
-            .button(ids!(global_settings_modal.settings_dialog.settings_header.settings_close_btn))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_header
+                    .settings_close_btn
+            ))
             .clicked(&actions)
         {
             self.global_settings_visible = false;
-            self.view.view(ids!(global_settings_modal)).set_visible(cx, false);
+            self.view
+                .view(ids!(global_settings_modal))
+                .set_visible(cx, false);
             self.view.redraw(cx);
         }
 
@@ -9513,18 +10222,40 @@ impl Widget for TTSScreen {
             .is_some()
         {
             self.global_settings_visible = false;
-            self.view.view(ids!(global_settings_modal)).set_visible(cx, false);
+            self.view
+                .view(ids!(global_settings_modal))
+                .set_visible(cx, false);
             self.view.redraw(cx);
         }
 
         // Handle language selection in global settings
         if self
             .view
-            .button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_en_option))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .language_section
+                    .language_options
+                    .lang_en_option
+            ))
             .clicked(&actions)
             || self
                 .view
-                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_en_option))
+                .button(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .profile_panel
+                        .app_settings_card
+                        .language_section
+                        .language_options
+                        .lang_en_option
+                ))
                 .clicked(&actions)
         {
             self.app_language = "en".to_string();
@@ -9537,11 +10268,31 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_zh_option))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .language_section
+                    .language_options
+                    .lang_zh_option
+            ))
             .clicked(&actions)
             || self
                 .view
-                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_zh_option))
+                .button(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .profile_panel
+                        .app_settings_card
+                        .language_section
+                        .language_options
+                        .lang_zh_option
+                ))
                 .clicked(&actions)
         {
             self.app_language = "zh".to_string();
@@ -9555,11 +10306,31 @@ impl Widget for TTSScreen {
         // Handle theme selection in global settings
         if self
             .view
-            .button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_light_option))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .theme_section
+                    .theme_options
+                    .theme_light_option
+            ))
             .clicked(&actions)
             || self
                 .view
-                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_light_option))
+                .button(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .profile_panel
+                        .app_settings_card
+                        .theme_section
+                        .theme_options
+                        .theme_light_option
+                ))
                 .clicked(&actions)
         {
             self.dark_mode = 0.0;
@@ -9569,11 +10340,31 @@ impl Widget for TTSScreen {
 
         if self
             .view
-            .button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_dark_option))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .theme_section
+                    .theme_options
+                    .theme_dark_option
+            ))
             .clicked(&actions)
             || self
                 .view
-                .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
+                .button(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .profile_panel
+                        .app_settings_card
+                        .theme_section
+                        .theme_options
+                        .theme_dark_option
+                ))
                 .clicked(&actions)
         {
             self.dark_mode = 1.0;
@@ -9600,35 +10391,45 @@ impl Widget for TTSScreen {
             }
             if self
                 .view
-                .button(ids!(share_modal.share_dialog.share_actions.share_system_btn))
+                .button(ids!(
+                    share_modal.share_dialog.share_actions.share_system_btn
+                ))
                 .clicked(&actions)
             {
                 self.share_audio_to_target(cx, ShareTarget::System);
             }
             if self
                 .view
-                .button(ids!(share_modal.share_dialog.share_actions.share_capcut_btn))
+                .button(ids!(
+                    share_modal.share_dialog.share_actions.share_capcut_btn
+                ))
                 .clicked(&actions)
             {
                 self.share_audio_to_target(cx, ShareTarget::CapCut);
             }
             if self
                 .view
-                .button(ids!(share_modal.share_dialog.share_actions.share_premiere_btn))
+                .button(ids!(
+                    share_modal.share_dialog.share_actions.share_premiere_btn
+                ))
                 .clicked(&actions)
             {
                 self.share_audio_to_target(cx, ShareTarget::Premiere);
             }
             if self
                 .view
-                .button(ids!(share_modal.share_dialog.share_actions.share_wechat_btn))
+                .button(ids!(
+                    share_modal.share_dialog.share_actions.share_wechat_btn
+                ))
                 .clicked(&actions)
             {
                 self.share_audio_to_target(cx, ShareTarget::WeChat);
             }
             if self
                 .view
-                .button(ids!(share_modal.share_dialog.share_actions.share_finder_btn))
+                .button(ids!(
+                    share_modal.share_dialog.share_actions.share_finder_btn
+                ))
                 .clicked(&actions)
             {
                 self.share_audio_to_target(cx, ShareTarget::Finder);
@@ -9638,7 +10439,12 @@ impl Widget for TTSScreen {
         if self.download_modal_visible {
             if self
                 .view
-                .button(ids!(download_modal.download_dialog.download_footer.download_cancel_btn))
+                .button(ids!(
+                    download_modal
+                        .download_dialog
+                        .download_footer
+                        .download_cancel_btn
+                ))
                 .clicked(&actions)
             {
                 self.close_download_modal(cx);
@@ -9653,14 +10459,24 @@ impl Widget for TTSScreen {
             }
             if self
                 .view
-                .button(ids!(download_modal.download_dialog.download_actions.download_mp3_btn))
+                .button(ids!(
+                    download_modal
+                        .download_dialog
+                        .download_actions
+                        .download_mp3_btn
+                ))
                 .clicked(&actions)
             {
                 self.download_audio_to_format(cx, DownloadFormat::Mp3);
             }
             if self
                 .view
-                .button(ids!(download_modal.download_dialog.download_actions.download_wav_btn))
+                .button(ids!(
+                    download_modal
+                        .download_dialog
+                        .download_actions
+                        .download_wav_btn
+                ))
                 .clicked(&actions)
             {
                 self.download_audio_to_format(cx, DownloadFormat::Wav);
@@ -9688,19 +10504,69 @@ impl Widget for TTSScreen {
         }
 
         // Handle Voice Library category tags
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_male_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .filter_male_btn
+            ))
+            .clicked(&actions)
+        {
             let was_active = self.library_category_filter == VoiceFilter::Male;
-            self.library_category_filter = if was_active { VoiceFilter::All } else { VoiceFilter::Male };
+            self.library_category_filter = if was_active {
+                VoiceFilter::All
+            } else {
+                VoiceFilter::Male
+            };
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_female_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .filter_female_btn
+            ))
+            .clicked(&actions)
+        {
             let was_active = self.library_category_filter == VoiceFilter::Female;
-            self.library_category_filter = if was_active { VoiceFilter::All } else { VoiceFilter::Female };
+            self.library_category_filter = if was_active {
+                VoiceFilter::All
+            } else {
+                VoiceFilter::Female
+            };
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_adult_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .age_adult_btn
+            ))
+            .clicked(&actions)
+        {
             const ADULT_BIT: u8 = 0b01;
             if self.library_age_filter & ADULT_BIT != 0 {
                 self.library_age_filter &= !ADULT_BIT;
@@ -9710,7 +10576,21 @@ impl Widget for TTSScreen {
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_youth_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .age_youth_btn
+            ))
+            .clicked(&actions)
+        {
             const YOUTH_BIT: u8 = 0b10;
             if self.library_age_filter & YOUTH_BIT != 0 {
                 self.library_age_filter &= !YOUTH_BIT;
@@ -9720,7 +10600,21 @@ impl Widget for TTSScreen {
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_sweet_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .style_sweet_btn
+            ))
+            .clicked(&actions)
+        {
             const SWEET_BIT: u8 = 0b01;
             if self.library_style_filter & SWEET_BIT != 0 {
                 self.library_style_filter &= !SWEET_BIT;
@@ -9730,7 +10624,21 @@ impl Widget for TTSScreen {
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_magnetic_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .style_magnetic_btn
+            ))
+            .clicked(&actions)
+        {
             const MAGNETIC_BIT: u8 = 0b10;
             if self.library_style_filter & MAGNETIC_BIT != 0 {
                 self.library_style_filter &= !MAGNETIC_BIT;
@@ -9740,7 +10648,21 @@ impl Widget for TTSScreen {
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_prof_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .trait_prof_btn
+            ))
+            .clicked(&actions)
+        {
             const PROF_BIT: u8 = 0b01;
             if self.library_trait_filter & PROF_BIT != 0 {
                 self.library_trait_filter &= !PROF_BIT;
@@ -9750,7 +10672,21 @@ impl Widget for TTSScreen {
             self.update_category_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_character_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .trait_character_btn
+            ))
+            .clicked(&actions)
+        {
             const CHARACTER_BIT: u8 = 0b10;
             if self.library_trait_filter & CHARACTER_BIT != 0 {
                 self.library_trait_filter &= !CHARACTER_BIT;
@@ -9762,17 +10698,59 @@ impl Widget for TTSScreen {
         }
 
         // Handle Voice Library language filter buttons
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_all_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_all_btn
+            ))
+            .clicked(&actions)
+        {
             self.library_language_filter = LanguageFilter::All;
             self.update_language_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_zh_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_zh_btn
+            ))
+            .clicked(&actions)
+        {
             self.library_language_filter = LanguageFilter::Chinese;
             self.update_language_filter_buttons(cx);
             self.update_library_display(cx);
         }
-        if self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_en_btn)).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_en_btn
+            ))
+            .clicked(&actions)
+        {
             self.library_language_filter = LanguageFilter::English;
             self.update_language_filter_buttons(cx);
             self.update_library_display(cx);
@@ -9794,24 +10772,65 @@ impl Widget for TTSScreen {
         {
             self.library_search_query = search_text;
             self.update_library_display(cx);
-            self.add_log(cx, &format!("[INFO] [library] Search query: {}", self.library_search_query));
+            self.add_log(
+                cx,
+                &format!(
+                    "[INFO] [library] Search query: {}",
+                    self.library_search_query
+                ),
+            );
         }
 
         // Handle Voice Clone page mode selector buttons
-        if self.view.button(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
-        )).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .clone_title_section
+                    .mode_selector
+                    .quick_mode_btn
+            ))
+            .clicked(&actions)
+        {
             self.current_clone_mode = CloneMode::Express;
             // Update quick_mode_btn active state
-            self.view.button(ids!(
-                content_wrapper.main_content.left_column.content_area
-                .clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
-            )).apply_over(cx, live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } });
-            self.view.button(ids!(
-                content_wrapper.main_content.left_column.content_area
-                .clone_page.clone_header.clone_title_section.mode_selector.advanced_mode_btn
-            )).apply_over(cx, live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } });
+            self.view
+                .button(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .clone_page
+                        .clone_header
+                        .clone_title_section
+                        .mode_selector
+                        .quick_mode_btn
+                ))
+                .apply_over(
+                    cx,
+                    live! { draw_bg: { active: 1.0 } draw_text: { active: 1.0 } },
+                );
+            self.view
+                .button(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .clone_page
+                        .clone_header
+                        .clone_title_section
+                        .mode_selector
+                        .advanced_mode_btn
+                ))
+                .apply_over(
+                    cx,
+                    live! { draw_bg: { active: 0.0 } draw_text: { active: 0.0 } },
+                );
         }
 
         // advanced_mode_btn handler removed — Qwen3-only, Pro mode hidden.
@@ -9840,17 +10859,35 @@ impl Widget for TTSScreen {
         }
 
         // Handle Task Detail page buttons
-        if self.view.button(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_header.back_btn
-        )).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .back_btn
+            ))
+            .clicked(&actions)
+        {
             self.switch_page(cx, AppPage::VoiceClone);
         }
 
-        if self.view.button(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_header.detail_cancel_btn
-        )).clicked(&actions) {
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .detail_cancel_btn
+            ))
+            .clicked(&actions)
+        {
             if let Some(task_id) = self.current_task_id.clone() {
                 self.cancel_clone_task(cx, task_id.clone());
                 self.refresh_task_detail(cx);
@@ -9891,20 +10928,21 @@ impl Widget for TTSScreen {
 
         // Handle Voice Library card button clicks using stored areas
         let filtered_voices = self.get_filtered_voices();
-        for (voice_idx, _card_area, preview_btn_area, delete_btn_area) in self.library_card_areas.clone() {
+        for (voice_idx, _card_area, preview_btn_area, delete_btn_area) in
+            self.library_card_areas.clone()
+        {
             if voice_idx >= filtered_voices.len() {
                 continue;
             }
-            
+
             let voice = &filtered_voices[voice_idx];
             let can_preview = match voice.source {
                 crate::voice_data::VoiceSource::Builtin
                 | crate::voice_data::VoiceSource::BundledIcl => voice.preview_audio.is_some(),
-                crate::voice_data::VoiceSource::Custom | crate::voice_data::VoiceSource::Trained => {
-                    voice.reference_audio_path.is_some()
-                }
+                crate::voice_data::VoiceSource::Custom
+                | crate::voice_data::VoiceSource::Trained => voice.reference_audio_path.is_some(),
             };
-            
+
             // Check preview button click
             if can_preview {
                 match event.hits(cx, preview_btn_area) {
@@ -9914,26 +10952,34 @@ impl Widget for TTSScreen {
                     _ => {}
                 }
             }
-            
+
             // Check delete button click (only for custom voices)
-            if voice.source != crate::voice_data::VoiceSource::Builtin && voice.source != crate::voice_data::VoiceSource::BundledIcl {
+            if voice.source != crate::voice_data::VoiceSource::Builtin
+                && voice.source != crate::voice_data::VoiceSource::BundledIcl
+            {
                 match event.hits(cx, delete_btn_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
                         // Show confirmation dialog
                         self.pending_delete_voice_id = Some(voice.id.clone());
                         self.pending_delete_voice_name = Some(voice.name.clone());
-                        
+
                         // Update dialog with voice name
                         self.view
                             .label(ids!(confirm_delete_modal.dialog.header.voice_name))
                             .set_text(cx, &format!("\"{}\"", voice.name));
-                        
+
                         // Show dialog
                         self.view
                             .view(ids!(confirm_delete_modal))
                             .set_visible(cx, true);
-                        
-                        self.add_log(cx, &format!("[INFO] [library] Requesting delete confirmation for: {}", voice.name));
+
+                        self.add_log(
+                            cx,
+                            &format!(
+                                "[INFO] [library] Requesting delete confirmation for: {}",
+                                voice.name
+                            ),
+                        );
                     }
                     _ => {}
                 }
@@ -9982,8 +11028,15 @@ impl Widget for TTSScreen {
 
         // Handle history card interactions
         if self.controls_panel_tab == 2 {
-            for (item_idx, card_area, play_area, use_area, download_area, share_area, delete_area) in
-                self.history_item_areas.clone()
+            for (
+                item_idx,
+                card_area,
+                play_area,
+                use_area,
+                download_area,
+                share_area,
+                delete_area,
+            ) in self.history_item_areas.clone()
             {
                 if item_idx >= self.tts_history.len() {
                     continue;
@@ -10057,11 +11110,35 @@ impl Widget for TTSScreen {
 
         // Handle About-card link clicks
         if self.current_page == AppPage::UserSettings {
-            let moxin_area = self.view
-                .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_moxin_link))
+            let moxin_area = self
+                .view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .runtime_panel
+                        .about_card
+                        .about_moxin_link
+                ))
                 .area();
-            let ominix_area = self.view
-                .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_ominix_link))
+            let ominix_area = self
+                .view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .user_settings_page
+                        .settings_scroll
+                        .settings_scroll_content
+                        .runtime_panel
+                        .about_card
+                        .about_ominix_link
+                ))
                 .area();
             if let Hit::FingerUp(fe) = event.hits(cx, moxin_area) {
                 if fe.was_tap() {
@@ -10089,7 +11166,9 @@ impl Widget for TTSScreen {
                         // (if switching, the timer will close the dialog when new dataflow is ready)
                         if !self.backend_switching {
                             self.model_picker_visible = false;
-                            self.view.view(ids!(model_picker_modal)).set_visible(cx, false);
+                            self.view
+                                .view(ids!(model_picker_modal))
+                                .set_visible(cx, false);
                         }
                         self.view.redraw(cx);
                     }
@@ -10099,7 +11178,9 @@ impl Widget for TTSScreen {
         }
 
         // Handle Clone Task card button clicks using stored areas
-        for (task_idx, _card_area, view_btn_area, cancel_btn_area, delete_btn_area) in self.clone_card_areas.clone() {
+        for (task_idx, _card_area, view_btn_area, cancel_btn_area, delete_btn_area) in
+            self.clone_card_areas.clone()
+        {
             if task_idx >= self.clone_tasks.len() {
                 continue;
             }
@@ -10118,7 +11199,8 @@ impl Widget for TTSScreen {
             }
 
             // Check cancel/stop button click
-            if task_status == CloneTaskStatus::Pending || task_status == CloneTaskStatus::Processing {
+            if task_status == CloneTaskStatus::Pending || task_status == CloneTaskStatus::Processing
+            {
                 match event.hits(cx, cancel_btn_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
                         if task_status == CloneTaskStatus::Processing {
@@ -10135,7 +11217,11 @@ impl Widget for TTSScreen {
                             self.load_clone_tasks(cx);
                         } else {
                             // Pending task — confirm cancel
-                            self.show_cancel_task_confirmation(cx, task_id.clone(), task_name.clone());
+                            self.show_cancel_task_confirmation(
+                                cx,
+                                task_id.clone(),
+                                task_name.clone(),
+                            );
                         }
                     }
                     _ => {}
@@ -10143,7 +11229,10 @@ impl Widget for TTSScreen {
             }
 
             // Check delete button click (only for terminal states)
-            if matches!(task_status, CloneTaskStatus::Completed | CloneTaskStatus::Failed | CloneTaskStatus::Cancelled) {
+            if matches!(
+                task_status,
+                CloneTaskStatus::Completed | CloneTaskStatus::Failed | CloneTaskStatus::Cancelled
+            ) {
                 match event.hits(cx, delete_btn_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
                         let _ = task_persistence::delete_task(&task_id);
@@ -10160,7 +11249,6 @@ impl Widget for TTSScreen {
         }
 
         for action in &actions {
-
             // Handle voice selector actions
             match action.as_widget_action().cast() {
                 VoiceSelectorAction::VoiceSelected(voice_id) => {
@@ -10223,7 +11311,8 @@ impl Widget for TTSScreen {
                     self.delete_voice(cx, voice_id.clone());
                     self.add_log(cx, &format!("[INFO] [tts] Deleted voice: {}", voice_id));
                 }
-                VoiceSelectorAction::FilterCategoryChanged(_) | VoiceSelectorAction::FilterLanguageChanged(_) => {}
+                VoiceSelectorAction::FilterCategoryChanged(_)
+                | VoiceSelectorAction::FilterLanguageChanged(_) => {}
                 VoiceSelectorAction::None => {}
             }
 
@@ -10239,7 +11328,9 @@ impl Widget for TTSScreen {
                 }
                 VoiceCloneModalAction::VoiceCreated(voice) => {
                     // Sync into in-memory library so My Voices updates immediately.
-                    if let Some(existing) = self.library_voices.iter_mut().find(|v| v.id == voice.id) {
+                    if let Some(existing) =
+                        self.library_voices.iter_mut().find(|v| v.id == voice.id)
+                    {
                         *existing = voice.clone();
                     } else {
                         self.library_voices.push(voice.clone());
@@ -10254,13 +11345,26 @@ impl Widget for TTSScreen {
                     self.library_trait_filter = 0;
                     self.library_search_query.clear();
                     self.view
-                        .text_input(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.search_input))
+                        .text_input(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .library_page
+                                .library_header
+                                .title_and_tags
+                                .search_input
+                        ))
                         .set_text(cx, "");
                     self.switch_page(cx, AppPage::VoiceLibrary);
                     self.update_library_display(cx);
                     self.update_voice_picker_controls(cx);
 
-                    if let Some(pos) = self.get_filtered_voices().iter().position(|v| v.id == voice.id) {
+                    if let Some(pos) = self
+                        .get_filtered_voices()
+                        .iter()
+                        .position(|v| v.id == voice.id)
+                    {
                         self.view
                             .portal_list(ids!(
                                 content_wrapper
@@ -10507,7 +11611,9 @@ impl Widget for TTSScreen {
                 .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
                 .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
                 .unwrap_or(false);
-            if Self::is_qwen_backend(&self.app_preferences.inference_backend) && selected_voice_is_trained {
+            if Self::is_qwen_backend(&self.app_preferences.inference_backend)
+                && selected_voice_is_trained
+            {
                 self.show_toast(
                     cx,
                     self.tr(
@@ -10547,10 +11653,16 @@ impl Widget for TTSScreen {
                                     bridge_count
                                 )
                             } else {
-                                format!("数据流启动中（已连接 {}/4 个桥接），请稍候...", bridge_count)
+                                format!(
+                                    "数据流启动中（已连接 {}/4 个桥接），请稍候...",
+                                    bridge_count
+                                )
                             },
                         );
-                        self.add_log(cx, &format!("[WARN] [tts] Bridges not ready yet: {}/4", bridge_count));
+                        self.add_log(
+                            cx,
+                            &format!("[WARN] [tts] Bridges not ready yet: {}/4", bridge_count),
+                        );
                     } else {
                         // Ready to generate
                         self.generate_speech(cx);
@@ -10612,10 +11724,7 @@ impl Widget for TTSScreen {
         if self
             .view
             .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .download_section
-                    .share_btn
+                content_wrapper.audio_player_bar.download_section.share_btn
             ))
             .clicked(&actions)
         {
@@ -10681,19 +11790,48 @@ impl Widget for TTSScreen {
         self.history_item_areas.clear();
 
         // Get UIDs of our PortalLists using full paths to avoid name collisions
-        let voice_list_uid = self.view.portal_list(ids!(
-            content_wrapper.main_content.left_column.content_area.library_page.voice_list
-        )).widget_uid();
-        let task_list_uid = self.view.portal_list(ids!(
-            content_wrapper.main_content.left_column.content_area.clone_page.task_portal_list
-        )).widget_uid();
+        let voice_list_uid = self
+            .view
+            .portal_list(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .voice_list
+            ))
+            .widget_uid();
+        let task_list_uid = self
+            .view
+            .portal_list(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .task_portal_list
+            ))
+            .widget_uid();
         let voice_picker_list_uid = self
             .view
-            .portal_list(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_list))
+            .portal_list(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_picker_list
+            ))
             .widget_uid();
         let model_picker_list_uid = self
             .view
-            .portal_list(ids!(model_picker_modal.model_picker_dialog.model_picker_list))
+            .portal_list(ids!(
+                model_picker_modal.model_picker_dialog.model_picker_list
+            ))
             .widget_uid();
         let history_list_uid = self
             .view
@@ -10732,15 +11870,23 @@ impl Widget for TTSScreen {
                             let source = voice.source.clone();
                             let type_text = match source {
                                 crate::voice_data::VoiceSource::Builtin
-                                | crate::voice_data::VoiceSource::BundledIcl => self.tr("内置", "Built-in"),
-                                crate::voice_data::VoiceSource::Custom => self.tr("自定义", "Custom"),
-                                crate::voice_data::VoiceSource::Trained => self.tr("训练", "Trained"),
+                                | crate::voice_data::VoiceSource::BundledIcl => {
+                                    self.tr("内置", "Built-in")
+                                }
+                                crate::voice_data::VoiceSource::Custom => {
+                                    self.tr("自定义", "Custom")
+                                }
+                                crate::voice_data::VoiceSource::Trained => {
+                                    self.tr("训练", "Trained")
+                                }
                             };
                             let is_custom = source != crate::voice_data::VoiceSource::Builtin
                                 && source != crate::voice_data::VoiceSource::BundledIcl;
                             let can_preview = match source {
                                 crate::voice_data::VoiceSource::Builtin
-                                | crate::voice_data::VoiceSource::BundledIcl => voice.preview_audio.is_some(),
+                                | crate::voice_data::VoiceSource::BundledIcl => {
+                                    voice.preview_audio.is_some()
+                                }
                                 crate::voice_data::VoiceSource::Custom
                                 | crate::voice_data::VoiceSource::Trained => {
                                     voice.reference_audio_path.is_some()
@@ -10754,27 +11900,47 @@ impl Widget for TTSScreen {
                             let card = list.item(cx, item_id, live_id!(VoiceCard));
 
                             // Set voice data
-                            card.label(ids!(avatar.avatar_initial)).set_text(cx, &initial);
+                            card.label(ids!(avatar.avatar_initial))
+                                .set_text(cx, &initial);
                             card.label(ids!(voice_info.voice_name)).set_text(cx, &name);
-                            card.label(ids!(voice_info.voice_meta.voice_language)).set_text(cx, &language);
-                            card.label(ids!(voice_info.voice_meta.voice_type)).set_text(cx, type_text);
+                            card.label(ids!(voice_info.voice_meta.voice_language))
+                                .set_text(cx, &language);
+                            card.label(ids!(voice_info.voice_meta.voice_type))
+                                .set_text(cx, type_text);
 
                             // Apply dark mode
-                            card.apply_over(cx, live! {
-                                draw_bg: { dark_mode: (dark_mode) }
-                            });
-                            card.view(ids!(avatar)).apply_over(cx, live! {
-                                draw_bg: { dark_mode: (dark_mode) }
-                            });
-                            card.label(ids!(voice_info.voice_name)).apply_over(cx, live! {
-                                draw_text: { dark_mode: (dark_mode) }
-                            });
-                            card.label(ids!(voice_info.voice_meta.voice_language)).apply_over(cx, live! {
-                                draw_text: { dark_mode: (dark_mode) }
-                            });
-                            card.label(ids!(voice_info.voice_meta.voice_type)).apply_over(cx, live! {
-                                draw_text: { dark_mode: (dark_mode) }
-                            });
+                            card.apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: { dark_mode: (dark_mode) }
+                                },
+                            );
+                            card.view(ids!(avatar)).apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: { dark_mode: (dark_mode) }
+                                },
+                            );
+                            card.label(ids!(voice_info.voice_name)).apply_over(
+                                cx,
+                                live! {
+                                    draw_text: { dark_mode: (dark_mode) }
+                                },
+                            );
+                            card.label(ids!(voice_info.voice_meta.voice_language))
+                                .apply_over(
+                                    cx,
+                                    live! {
+                                        draw_text: { dark_mode: (dark_mode) }
+                                    },
+                                );
+                            card.label(ids!(voice_info.voice_meta.voice_type))
+                                .apply_over(
+                                    cx,
+                                    live! {
+                                        draw_text: { dark_mode: (dark_mode) }
+                                    },
+                                );
                             // Apply play/pause icon state
                             card.view(ids!(actions.preview_btn)).apply_over(
                                 cx,
@@ -10790,9 +11956,11 @@ impl Widget for TTSScreen {
                             );
 
                             // Show delete button only for custom/trained voices
-                            card.view(ids!(actions.delete_btn)).set_visible(cx, is_custom);
+                            card.view(ids!(actions.delete_btn))
+                                .set_visible(cx, is_custom);
                             // Show preview button only when preview audio exists.
-                            card.view(ids!(actions.preview_btn)).set_visible(cx, can_preview);
+                            card.view(ids!(actions.preview_btn))
+                                .set_visible(cx, can_preview);
 
                             // Draw the card
                             card.draw_all(cx, &mut Scope::empty());
@@ -10801,7 +11969,12 @@ impl Widget for TTSScreen {
                             let card_area = card.area();
                             let preview_area = card.view(ids!(actions.preview_btn)).area();
                             let delete_area = card.view(ids!(actions.delete_btn)).area();
-                            self.library_card_areas.push((item_id, card_area, preview_area, delete_area));
+                            self.library_card_areas.push((
+                                item_id,
+                                card_area,
+                                preview_area,
+                                delete_area,
+                            ));
                         }
                     }
                 } else if list_id == task_list_uid {
@@ -10819,20 +11992,34 @@ impl Widget for TTSScreen {
                             let dark_mode = self.dark_mode;
 
                             let (status_text, status_color) = match task_status {
-                                CloneTaskStatus::Completed => (self.tr("已完成", "Completed"), vec4(0.16, 0.65, 0.37, 1.0)),
-                                CloneTaskStatus::Processing => (self.tr("处理中", "Processing"), vec4(0.39, 0.40, 0.95, 1.0)),
-                                CloneTaskStatus::Pending => (self.tr("排队中", "Pending"), vec4(0.6, 0.6, 0.65, 1.0)),
-                                CloneTaskStatus::Failed => (self.tr("失败", "Failed"), vec4(0.8, 0.2, 0.2, 1.0)),
-                                CloneTaskStatus::Cancelled => (self.tr("已取消", "Cancelled"), vec4(0.5, 0.5, 0.5, 1.0)),
+                                CloneTaskStatus::Completed => {
+                                    (self.tr("已完成", "Completed"), vec4(0.16, 0.65, 0.37, 1.0))
+                                }
+                                CloneTaskStatus::Processing => {
+                                    (self.tr("处理中", "Processing"), vec4(0.39, 0.40, 0.95, 1.0))
+                                }
+                                CloneTaskStatus::Pending => {
+                                    (self.tr("排队中", "Pending"), vec4(0.6, 0.6, 0.65, 1.0))
+                                }
+                                CloneTaskStatus::Failed => {
+                                    (self.tr("失败", "Failed"), vec4(0.8, 0.2, 0.2, 1.0))
+                                }
+                                CloneTaskStatus::Cancelled => {
+                                    (self.tr("已取消", "Cancelled"), vec4(0.5, 0.5, 0.5, 1.0))
+                                }
                             };
 
                             let card = list.item(cx, item_id, live_id!(TaskCard));
 
                             card.label(ids!(top_row.task_name)).set_text(cx, &task_name);
-                            card.label(ids!(top_row.status_badge.status_label)).set_text(cx, status_text);
-                            card.view(ids!(top_row.status_badge)).apply_over(cx, live! {
-                                draw_bg: { status_color: (status_color) }
-                            });
+                            card.label(ids!(top_row.status_badge.status_label))
+                                .set_text(cx, status_text);
+                            card.view(ids!(top_row.status_badge)).apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: { status_color: (status_color) }
+                                },
+                            );
 
                             let show_progress = task_status == CloneTaskStatus::Processing;
                             card.view(ids!(progress_row)).set_visible(cx, show_progress);
@@ -10842,21 +12029,32 @@ impl Widget for TTSScreen {
                                 } else {
                                     format!("进度：{:.0}%", task_progress * 100.0)
                                 };
-                                card.label(ids!(progress_row.progress_text)).set_text(cx, &progress_text);
-                                card.view(ids!(progress_row.progress_bar)).apply_over(cx, live! {
-                                    draw_bg: { progress: (task_progress as f64) }
-                                });
+                                card.label(ids!(progress_row.progress_text))
+                                    .set_text(cx, &progress_text);
+                                card.view(ids!(progress_row.progress_bar)).apply_over(
+                                    cx,
+                                    live! {
+                                        draw_bg: { progress: (task_progress as f64) }
+                                    },
+                                );
                             }
 
-                            card.label(ids!(bottom_row.task_meta.created_time)).set_text(cx, &task_created);
+                            card.label(ids!(bottom_row.task_meta.created_time))
+                                .set_text(cx, &task_created);
 
                             // Show cancel/stop for pending/processing; show delete for terminal states
                             let can_cancel = task_status == CloneTaskStatus::Pending;
                             let can_stop = task_status == CloneTaskStatus::Processing;
-                            let can_delete = matches!(task_status, CloneTaskStatus::Completed | CloneTaskStatus::Failed | CloneTaskStatus::Cancelled);
+                            let can_delete = matches!(
+                                task_status,
+                                CloneTaskStatus::Completed
+                                    | CloneTaskStatus::Failed
+                                    | CloneTaskStatus::Cancelled
+                            );
 
                             // Reuse cancel_btn for both Pending (Cancel) and Processing (Stop)
-                            card.button(ids!(bottom_row.actions.cancel_btn)).set_visible(cx, can_cancel || can_stop);
+                            card.button(ids!(bottom_row.actions.cancel_btn))
+                                .set_visible(cx, can_cancel || can_stop);
                             if can_stop {
                                 card.button(ids!(bottom_row.actions.cancel_btn))
                                     .set_text(cx, self.tr("停止", "Stop"));
@@ -10864,15 +12062,19 @@ impl Widget for TTSScreen {
                                 card.button(ids!(bottom_row.actions.cancel_btn))
                                     .set_text(cx, self.tr("取消", "Cancel"));
                             }
-                            card.button(ids!(bottom_row.actions.delete_btn)).set_visible(cx, can_delete);
+                            card.button(ids!(bottom_row.actions.delete_btn))
+                                .set_visible(cx, can_delete);
                             card.button(ids!(bottom_row.actions.view_btn))
                                 .set_text(cx, self.tr("查看", "View"));
                             card.button(ids!(bottom_row.actions.delete_btn))
                                 .set_text(cx, self.tr("删除", "Delete"));
 
-                            card.apply_over(cx, live! {
-                                draw_bg: { dark_mode: (dark_mode) }
-                            });
+                            card.apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: { dark_mode: (dark_mode) }
+                                },
+                            );
 
                             // Draw the card
                             card.draw_all(cx, &mut Scope::empty());
@@ -10880,9 +12082,17 @@ impl Widget for TTSScreen {
                             // Store card areas for hit testing (valid after draw_all)
                             let card_area = card.area();
                             let view_area = card.button(ids!(bottom_row.actions.view_btn)).area();
-                            let cancel_area = card.button(ids!(bottom_row.actions.cancel_btn)).area();
-                            let delete_area = card.button(ids!(bottom_row.actions.delete_btn)).area();
-                            self.clone_card_areas.push((item_id, card_area, view_area, cancel_area, delete_area));
+                            let cancel_area =
+                                card.button(ids!(bottom_row.actions.cancel_btn)).area();
+                            let delete_area =
+                                card.button(ids!(bottom_row.actions.delete_btn)).area();
+                            self.clone_card_areas.push((
+                                item_id,
+                                card_area,
+                                view_area,
+                                cancel_area,
+                                delete_area,
+                            ));
                         }
                     }
                 } else if list_id == voice_picker_list_uid {
@@ -10907,8 +12117,10 @@ impl Widget for TTSScreen {
                             let item = list.item(cx, item_id, live_id!(VoicePickerItem));
                             item.label(ids!(picker_avatar.picker_initial))
                                 .set_text(cx, &initial);
-                            item.label(ids!(picker_info.picker_name)).set_text(cx, &name);
-                            item.label(ids!(picker_info.picker_desc)).set_text(cx, &desc);
+                            item.label(ids!(picker_info.picker_name))
+                                .set_text(cx, &name);
+                            item.label(ids!(picker_info.picker_desc))
+                                .set_text(cx, &desc);
 
                             item.apply_over(
                                 cx,
@@ -10954,10 +12166,9 @@ impl Widget for TTSScreen {
                             let dark_mode = self.dark_mode;
                             let created_text = self.format_history_time(entry.created_at);
                             let duration_text = Self::format_duration(entry.duration_secs);
-                            let model_name = entry
-                                .model_name
-                                .clone()
-                                .unwrap_or_else(|| self.tr("默认模型", "Default Model").to_string());
+                            let model_name = entry.model_name.clone().unwrap_or_else(|| {
+                                self.tr("默认模型", "Default Model").to_string()
+                            });
 
                             let card = list.item(cx, item_id, live_id!(HistoryCard));
                             card.label(ids!(top_row.left_info.voice_name))
@@ -10986,26 +12197,16 @@ impl Widget for TTSScreen {
                                     draw_bg: { dark_mode: (dark_mode) }
                                 },
                             );
-                            card.label(ids!(top_row.left_info.voice_name)).apply_over(
-                                cx,
-                                live! { draw_text: { dark_mode: (dark_mode) } },
-                            );
-                            card.label(ids!(top_row.left_info.created_time)).apply_over(
-                                cx,
-                                live! { draw_text: { dark_mode: (dark_mode) } },
-                            );
-                            card.label(ids!(text_preview)).apply_over(
-                                cx,
-                                live! { draw_text: { dark_mode: (dark_mode) } },
-                            );
-                            card.label(ids!(meta_row.model_name)).apply_over(
-                                cx,
-                                live! { draw_text: { dark_mode: (dark_mode) } },
-                            );
-                            card.label(ids!(meta_row.duration)).apply_over(
-                                cx,
-                                live! { draw_text: { dark_mode: (dark_mode) } },
-                            );
+                            card.label(ids!(top_row.left_info.voice_name))
+                                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+                            card.label(ids!(top_row.left_info.created_time))
+                                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+                            card.label(ids!(text_preview))
+                                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+                            card.label(ids!(meta_row.model_name))
+                                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+                            card.label(ids!(meta_row.duration))
+                                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
                             card.button(ids!(actions_row.use_btn)).apply_over(
                                 cx,
                                 live! {
@@ -11036,9 +12237,7 @@ impl Widget for TTSScreen {
                             );
 
                             let is_playing = self.tts_status == TTSStatus::Playing
-                                && self
-                                    .currently_playing_history_id
-                                    .as_deref()
+                                && self.currently_playing_history_id.as_deref()
                                     == Some(entry.id.as_str());
                             let playing_flag: f32 = if is_playing { 1.0 } else { 0.0 };
                             card.view(ids!(actions_row.play_btn)).apply_over(
@@ -11132,27 +12331,16 @@ impl Widget for TTSScreen {
                                     draw_bg: { dark_mode: (dark_mode), selected: (selected) }
                                 },
                             );
-                            card.label(ids!(model_top.model_name)).apply_over(
-                                cx,
-                                live! { draw_text: { dark_mode: (dark_mode) } },
-                            );
-                            card.label(ids!(model_desc)).apply_over(
-                                cx,
-                                live! { draw_text: { dark_mode: (dark_mode) } },
-                            );
-                            card.view(ids!(model_top.model_badge)).apply_over(
-                                cx,
-                                live! { draw_bg: { dark_mode: (dark_mode) } },
-                            );
+                            card.label(ids!(model_top.model_name))
+                                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+                            card.label(ids!(model_desc))
+                                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+                            card.view(ids!(model_top.model_badge))
+                                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
                             card.label(ids!(model_top.model_badge.model_badge_label))
-                                .apply_over(
-                                    cx,
-                                    live! { draw_text: { dark_mode: (dark_mode) } },
-                                );
-                            card.view(ids!(model_top.model_check)).apply_over(
-                                cx,
-                                live! { draw_bg: { selected: (selected) } },
-                            );
+                                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+                            card.view(ids!(model_top.model_check))
+                                .apply_over(cx, live! { draw_bg: { selected: (selected) } });
 
                             card.draw_all(cx, &mut Scope::empty());
 
@@ -11356,14 +12544,146 @@ impl TTSScreen {
 
     fn sync_user_profile_ui(&mut self, cx: &mut Cx) {
         self.view
-            .label(ids!(app_layout.sidebar.sidebar_footer.user_details.user_name))
-            .set_text(cx, &self.user_display_name);
+            .label(ids!(
+                app_layout.sidebar.sidebar_footer.user_details.user_name
+            ))
+            .set_text(cx, self.tr("设置", "Settings"));
         self.view
-            .label(ids!(app_layout.sidebar.sidebar_footer.user_avatar.avatar_letter))
-            .set_text(cx, &self.user_avatar_letter);
+            .view(ids!(app_layout.sidebar.sidebar_footer.user_avatar))
+            .set_visible(cx, false);
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input))
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_body
+                    .profile_form
+                    .name_row
+                    .name_input
+            ))
             .set_text(cx, &self.user_display_name);
+        self.refresh_update_affordances(cx);
+    }
+
+    fn ready_update(&self) -> Option<&PreparedUpdate> {
+        match &self.app_update_state {
+            AppUpdateState::Ready(update) => Some(update),
+            _ => None,
+        }
+    }
+
+    fn current_display_version(&self) -> String {
+        app_update::display_version()
+    }
+
+    fn refresh_update_affordances(&mut self, cx: &mut Cx) {
+        let has_ready_update = self.ready_update().is_some();
+        let settings_label = self.tr("设置", "Settings");
+        let update_badge = self.tr("新版本", "New Version");
+        let runtime_tab_label = if has_ready_update {
+            self.tr("系统 · 新版本", "System · New Version")
+        } else {
+            self.tr("系统", "System")
+        };
+        let version_label = format!("Moxin Voice v{}", self.current_display_version());
+
+        self.view
+            .label(ids!(
+                app_layout.sidebar.sidebar_footer.user_details.user_name
+            ))
+            .set_text(cx, settings_label);
+        self.view
+            .label(ids!(
+                app_layout.sidebar.sidebar_footer.user_details.update_badge
+            ))
+            .set_text(cx, update_badge);
+        self.view
+            .view(ids!(
+                app_layout.sidebar.sidebar_footer.user_details.update_badge
+            ))
+            .set_visible(cx, has_ready_update);
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .user_settings_header
+                    .user_settings_title
+            ))
+            .set_text(cx, settings_label);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_runtime_btn
+            ))
+            .set_text(cx, runtime_tab_label);
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_version_row
+                    .about_version_label
+            ))
+            .set_text(cx, &version_label);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_version_row
+                    .about_install_update_btn
+            ))
+            .set_text(cx, self.tr("安装新版本", "Install New Version"));
+        self.view
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_version_row
+                    .about_install_update_btn
+            ))
+            .set_visible(cx, has_ready_update);
+        self.view
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .about_section
+                    .about_version
+            ))
+            .set_text(cx, &version_label);
     }
 
     fn persist_app_preferences(&mut self, cx: &mut Cx) {
@@ -11376,7 +12696,10 @@ impl TTSScreen {
         self.app_preferences.default_voice_id = self.selected_voice_id.clone();
         self.app_preferences.training_backend = self.runtime_status_training_backend.clone();
         if let Err(e) = app_preferences::save_preferences(&self.app_preferences) {
-            self.add_log(cx, &format!("[WARN] [prefs] Failed to save preferences: {}", e));
+            self.add_log(
+                cx,
+                &format!("[WARN] [prefs] Failed to save preferences: {}", e),
+            );
         }
     }
 
@@ -11433,9 +12756,7 @@ impl TTSScreen {
     fn qwen_custom_model_dir() -> PathBuf {
         std::env::var("QWEN3_TTS_CUSTOMVOICE_MODEL_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit")
-            })
+            .unwrap_or_else(|_| Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"))
     }
     fn qwen_base_model_dir() -> PathBuf {
         std::env::var("QWEN3_TTS_BASE_MODEL_DIR")
@@ -11443,7 +12764,11 @@ impl TTSScreen {
             .unwrap_or_else(|_| Self::qwen_root_dir().join("Qwen3-TTS-12Hz-1.7B-Base-8bit"))
     }
     fn qwen_model_dir_ready(model_dir: &Path) -> bool {
-        let has_content = |path: PathBuf| path.metadata().map(|m| m.is_file() && m.len() > 0).unwrap_or(false);
+        let has_content = |path: PathBuf| {
+            path.metadata()
+                .map(|m| m.is_file() && m.len() > 0)
+                .unwrap_or(false)
+        };
         has_content(model_dir.join("config.json"))
             && has_content(model_dir.join("generation_config.json"))
             && has_content(model_dir.join("vocab.json"))
@@ -11585,26 +12910,95 @@ impl TTSScreen {
     fn update_runtime_status_ui(&mut self, cx: &mut Cx) {
         self.refresh_runtime_status();
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.dora_status))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .dora_status
+            ))
             .set_text(cx, &format!("Dora: {}", self.runtime_status_dora));
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.asr_status))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .asr_status
+            ))
             .set_text(cx, &format!("ASR: {}", self.runtime_status_asr));
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.tts_status))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .tts_status
+            ))
             .set_text(cx, &format!("TTS: {}", self.runtime_status_tts));
     }
 
     fn update_system_paths_ui(&mut self, cx: &mut Cx) {
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.model_path_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .model_path_label
+            ))
             .set_text(cx, &format!("Models: {}", Self::models_dir().display()));
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.log_path_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .log_path_label
+            ))
             .set_text(cx, &format!("Logs: {}", Self::app_logs_dir().display()));
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.workspace_path_label))
-            .set_text(cx, &format!("Workspace: {}", Self::workspace_dir().display()));
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .workspace_path_label
+            ))
+            .set_text(
+                cx,
+                &format!("Workspace: {}", Self::workspace_dir().display()),
+            );
     }
 
     fn update_audio_devices_ui(&mut self, cx: &mut Cx) {
@@ -11615,7 +13009,19 @@ impl TTSScreen {
         let mut input_labels = vec!["系统默认".to_string()];
         input_labels.extend(self.available_input_devices.clone());
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_device_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .input_pick_row
+                    .input_device_dropdown
+            ))
             .set_labels(cx, input_labels);
         let input_selected_idx = self
             .app_preferences
@@ -11626,13 +13032,37 @@ impl TTSScreen {
             .unwrap_or(0);
         self.selected_input_device_idx = input_selected_idx.saturating_sub(1);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_device_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .input_pick_row
+                    .input_device_dropdown
+            ))
             .set_selected_item(cx, input_selected_idx);
 
         let mut output_labels = vec!["系统默认".to_string()];
         output_labels.extend(self.available_output_devices.clone());
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_device_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .output_pick_row
+                    .output_device_dropdown
+            ))
             .set_labels(cx, output_labels);
         let output_selected_idx = self
             .app_preferences
@@ -11643,7 +13073,19 @@ impl TTSScreen {
             .unwrap_or(0);
         self.selected_output_device_idx = output_selected_idx.saturating_sub(1);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_device_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .output_pick_row
+                    .output_device_dropdown
+            ))
             .set_selected_item(cx, output_selected_idx);
     }
 
@@ -11654,33 +13096,125 @@ impl TTSScreen {
         let en = self.is_english();
 
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_section_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_section_title
+            ))
             .set_text(cx, self.tr("关于", "About"));
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_version_label))
-            .set_text(cx, &format!("Moxin Voice v{}", crate::APP_VERSION));
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_version_row
+                    .about_version_label
+            ))
+            .set_text(
+                cx,
+                &format!("Moxin Voice v{}", self.current_display_version()),
+            );
         let voice = self
             .selected_voice_id
             .clone()
             .unwrap_or_else(|| "Doubao".to_string());
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_voice_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_voice_label
+            ))
             .set_text(cx, &format!("默认音色: {}", voice));
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_input))
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .speed_col
+                    .speed_input
+            ))
             .set_text(cx, &format!("{:.2}", self.app_preferences.default_speed));
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_input))
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .pitch_col
+                    .pitch_input
+            ))
             .set_text(cx, &format!("{:.1}", self.app_preferences.default_pitch));
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_input))
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .volume_col
+                    .volume_input
+            ))
             .set_text(cx, &format!("{:.0}", self.app_preferences.default_volume));
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .retention_pick_row
+                    .retention_dropdown
+            ))
             .set_labels(
                 cx,
                 if en {
-                    vec!["Forever".to_string(), "30 days".to_string(), "7 days".to_string()]
+                    vec![
+                        "Forever".to_string(),
+                        "30 days".to_string(),
+                        "7 days".to_string(),
+                    ]
                 } else {
                     vec!["永久".to_string(), "30天".to_string(), "7天".to_string()]
                 },
@@ -11691,21 +13225,67 @@ impl TTSScreen {
             _ => 0,
         };
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .retention_pick_row
+                    .retention_dropdown
+            ))
             .set_selected_item(cx, retention_idx);
 
         // Qwen3-only: hide zero-shot backend picker and training backend picker.
         // These rows are kept in live_design for easy restoration.
         // See doc/REFACTOR_QWEN3_ONLY.md.
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .zero_shot_backend_pick_row
+            ))
             .set_visible(cx, false);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .backend_pick_row
+            ))
             .set_visible(cx, false);
 
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .debug_pick_row
+                    .debug_logs_dropdown
+            ))
             .set_labels(
                 cx,
                 if en {
@@ -11715,22 +13295,57 @@ impl TTSScreen {
                 },
             );
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown))
-            .set_selected_item(cx, if self.app_preferences.debug_logs_enabled { 1 } else { 0 });
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .debug_pick_row
+                    .debug_logs_dropdown
+            ))
+            .set_selected_item(
+                cx,
+                if self.app_preferences.debug_logs_enabled {
+                    1
+                } else {
+                    0
+                },
+            );
 
         let custom_ready = Self::qwen_custom_ready();
         let base_ready = Self::qwen_base_ready();
         if !self.qwen_download_in_progress {
             self.qwen_model_status_text = if custom_ready && base_ready {
-                self.tr("已就绪（推理+克隆）", "Ready (inference + clone)").to_string()
+                self.tr("已就绪（推理+克隆）", "Ready (inference + clone)")
+                    .to_string()
             } else if custom_ready {
-                self.tr("部分就绪（仅推理）", "Partially ready (inference only)").to_string()
+                self.tr("部分就绪（仅推理）", "Partially ready (inference only)")
+                    .to_string()
             } else {
                 self.tr("未就绪", "Not ready").to_string()
             };
         }
+
+        self.refresh_update_affordances(cx);
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.qwen_status_row.qwen_status_value))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .qwen_status_row
+                    .qwen_status_value
+            ))
             .set_text(cx, &self.qwen_model_status_text);
 
         self.update_user_settings_tabs(cx);
@@ -11797,62 +13412,163 @@ impl TTSScreen {
 
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.page_header.page_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .page_header
+                    .page_title
             ))
             .set_text(cx, self.tr("实时翻译", "Live Translation"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.page_header.translation_status_badge.translation_status_text
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .page_header
+                    .translation_status_badge
+                    .translation_status_text
             ))
             .set_text(cx, self.tr("运行中", "Running"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_source
+                    .translation_source_label
             ))
             .set_text(cx, self.tr("输入源", "Input Source"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.translation_src_lang_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_src_lang
+                    .translation_src_lang_label
             ))
             .set_text(cx, self.tr("输入语言", "Source Language"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.translation_tgt_lang_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_tgt_lang
+                    .translation_tgt_lang_label
             ))
             .set_text(cx, self.tr("目标语言", "Target Language"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .translation_overlay_style_label
             ))
             .set_text(cx, self.tr("浮窗样式", "Overlay Style"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.translation_font_size_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_font_size
+                    .translation_font_size_label
             ))
             .set_text(cx, self.tr("文字大小", "Text Size"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.translation_anchor_position_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_anchor_position
+                    .translation_anchor_position_label
             ))
             .set_text(cx, self.tr("滚动位置", "Scroll Position"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .overlay_style_compact
             ))
             .set_text(cx, self.tr("紧凑", "Compact"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .overlay_style_full
             ))
             .set_text(cx, self.tr("全屏", "Fullscreen"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_opacity
+                    .translation_opacity_label
             ))
             .set_text(cx, self.tr("浮窗不透明度", "Overlay Opacity"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_start_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .translation_start_btn
             ))
             .set_text(cx, self.tr("启动实时翻译", "Start Live Translation"));
         #[cfg(target_os = "macos")]
@@ -11866,12 +13582,27 @@ impl TTSScreen {
             ));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+                    .translation_log_card
+                    .translation_log_title
             ))
             .set_text(cx, self.tr("运行日志", "Runtime Logs"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_stop_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+                    .translation_stop_btn
             ))
             .set_text(cx, self.tr("停止翻译", "Stop Translation"));
         self.update_translation_settings_layout_for_locale(cx);
@@ -11883,16 +13614,21 @@ impl TTSScreen {
         self.update_translation_opacity_dropdown(cx);
         self.sync_translation_overlay_locale();
 
-        let tts_page_title = if self.current_page == AppPage::TextToSpeech
-            && self.controls_panel_tab == 2
-        {
-            self.tr("历史", "History")
-        } else {
-            self.tr("文本转语音", "Text to Speech")
-        };
+        let tts_page_title =
+            if self.current_page == AppPage::TextToSpeech && self.controls_panel_tab == 2 {
+                self.tr("历史", "History")
+            } else {
+                self.tr("文本转语音", "Text to Speech")
+            };
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.page_header.page_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .page_header
+                    .page_title
             ))
             .set_text(cx, tts_page_title);
         self.view
@@ -12120,77 +13856,196 @@ impl TTSScreen {
             .set_text(cx, self.tr("音色库", "Voice Library"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.row_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .row_label
             ))
             .set_text(cx, self.tr("性别年龄", "Gender/Age"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_male_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .filter_male_btn
             ))
             .set_text(cx, self.tr("男声", "Male"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_female_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .filter_female_btn
             ))
             .set_text(cx, self.tr("女声", "Female"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_adult_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .age_adult_btn
             ))
             .set_text(cx, self.tr("成年", "Adult"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_youth_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .age_youth_btn
             ))
             .set_text(cx, self.tr("青年", "Youth"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.row_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .row_label
             ))
             .set_text(cx, self.tr("风格", "Style"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_sweet_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .style_sweet_btn
             ))
             .set_text(cx, self.tr("甜美", "Sweet"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_magnetic_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .style_magnetic_btn
             ))
             .set_text(cx, self.tr("磁性", "Magnetic"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.row_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .row_label
             ))
             .set_text(cx, self.tr("声音特质", "Traits"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_prof_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .trait_prof_btn
             ))
             .set_text(cx, self.tr("专业播音", "Pro Voice"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_character_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .trait_character_btn
             ))
             .set_text(cx, self.tr("特色人物", "Character"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_all_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_all_btn
             ))
             .set_text(cx, self.tr("全部语言", "All"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_zh_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_zh_btn
             ))
             .set_text(cx, self.tr("中文", "ZH"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_en_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_en_btn
             ))
             .set_text(cx, self.tr("英文", "EN"));
         self.view
             .text_input(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.search_input
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .search_input
             ))
             .apply_over(
                 cx,
@@ -12200,35 +14055,76 @@ impl TTSScreen {
             );
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.clone_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .clone_btn
             ))
             .set_text(cx, self.tr("克隆音色", "Clone Voice"));
 
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.clone_page.clone_header.clone_title_section.clone_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .clone_title_section
+                    .clone_title
             ))
             .set_text(cx, self.tr("音色克隆", "Voice Clone"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.clone_page.clone_header.clone_title_section.mode_selector.quick_mode_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .clone_title_section
+                    .mode_selector
+                    .quick_mode_btn
             ))
             .set_text(cx, self.tr("快速模式", "Quick Mode"));
         // Qwen3-only: Pro/Advanced mode removed. Hide advanced_mode_btn.
         // Restore by un-commenting and re-enabling CloneMode::Pro. See doc/REFACTOR_QWEN3_ONLY.md.
         self.view
             .view(ids!(
-                content_wrapper.main_content.left_column.content_area.clone_page.clone_header.clone_title_section.mode_selector
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .clone_title_section
+                    .mode_selector
             ))
             .set_visible(cx, false); // hide entire mode_selector (both tabs)
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.clone_page.clone_header.create_task_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_header
+                    .create_task_btn
             ))
             .set_text(cx, self.tr("创建任务", "Create Task"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.clone_page.clone_empty_state.clone_empty_text
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .clone_page
+                    .clone_empty_state
+                    .clone_empty_text
             ))
             .set_text(
                 cx,
@@ -12240,303 +14136,793 @@ impl TTSScreen {
 
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_header.back_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .back_btn
             ))
             .set_text(cx, self.tr("← 返回", "← Back"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_header.detail_task_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .detail_task_name
             ))
             .set_text(cx, self.tr("任务详情", "Task Detail"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_header.detail_cancel_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .detail_cancel_btn
             ))
             .set_text(cx, self.tr("取消任务", "Cancel Task"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_info_card.detail_info_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_info_card
+                    .detail_info_title
             ))
             .set_text(cx, self.tr("任务信息", "Task Info"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_info_card.detail_times_row.detail_created_section.detail_created_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_info_card
+                    .detail_times_row
+                    .detail_created_section
+                    .detail_created_title
             ))
             .set_text(cx, self.tr("创建时间", "Created"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_info_card.detail_times_row.detail_started_section.detail_started_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_info_card
+                    .detail_times_row
+                    .detail_started_section
+                    .detail_started_title
             ))
             .set_text(cx, self.tr("开始时间", "Started"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_info_card.detail_times_row.detail_completed_section.detail_completed_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_info_card
+                    .detail_times_row
+                    .detail_completed_section
+                    .detail_completed_title
             ))
             .set_text(cx, self.tr("完成时间", "Completed"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.detail_progress_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .detail_progress_title
             ))
             .set_text(cx, self.tr("训练进度", "Training Progress"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_1_row.stage_1_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .stage_1_row
+                    .stage_1_name
             ))
             .set_text(cx, self.tr("音频切片", "Audio Slicing"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_2_row.stage_2_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .stage_2_row
+                    .stage_2_name
             ))
             .set_text(cx, self.tr("语音识别", "ASR"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_3_row.stage_3_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .stage_3_row
+                    .stage_3_name
             ))
             .set_text(cx, self.tr("文本特征", "Text Features"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_4_row.stage_4_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .stage_4_row
+                    .stage_4_name
             ))
             .set_text(cx, self.tr("HuBERT特征", "HuBERT Features"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_5_row.stage_5_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .stage_5_row
+                    .stage_5_name
             ))
             .set_text(cx, self.tr("语义Token", "Semantic Tokens"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_6_row.stage_6_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .stage_6_row
+                    .stage_6_name
             ))
             .set_text(cx, self.tr("SoVITS训练", "SoVITS Training"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_7_row.stage_7_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .stage_7_row
+                    .stage_7_name
             ))
             .set_text(cx, self.tr("GPT训练", "GPT Training"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_8_row.stage_8_name
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .stage_8_row
+                    .stage_8_name
             ))
             .set_text(cx, self.tr("推理测试", "Inference Test"));
 
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.user_settings_header.user_settings_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .user_settings_header
+                    .user_settings_title
             ))
-            .set_text(cx, self.tr("用户设置", "User Settings"));
+            .set_text(cx, self.tr("设置", "Settings"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_profile_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_profile_btn
             ))
             .set_text(cx, self.tr("通用", "General"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_app_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_app_btn
             ))
             .set_text(cx, self.tr("语音", "Voice"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_runtime_btn
             ))
             .set_text(cx, self.tr("系统", "System"));
+        self.refresh_update_affordances(cx);
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.app_settings_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .app_settings_title
             ))
             .set_text(cx, self.tr("通用设置", "General Settings"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .language_section
+                    .language_title
             ))
             .set_text(cx, self.tr("语言", "Language"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .theme_section
+                    .theme_title
             ))
             .set_text(cx, self.tr("主题", "Theme"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_title
             ))
             .set_text(cx, self.tr("个人资料", "Profile"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_body
+                    .profile_form
+                    .name_row
+                    .name_label
             ))
             .set_text(cx, self.tr("用户名", "Username"));
         self.view
             .text_input(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_body
+                    .profile_form
+                    .name_row
+                    .name_input
             ))
             .set_empty_text(cx, self.tr("输入用户名", "Enter username").to_string());
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_actions
+                    .save_profile_btn
             ))
             .set_text(cx, self.tr("保存", "Save"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_title
             ))
             .set_text(cx, self.tr("推理默认参数", "Default Inference Params"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .speed_col
+                    .speed_label
             ))
             .set_text(cx, self.tr("语速", "Speed"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .pitch_col
+                    .pitch_label
             ))
             .set_text(cx, self.tr("音高", "Pitch"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .volume_col
+                    .volume_label
             ))
             .set_text(cx, self.tr("音量", "Volume"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.save_defaults_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_actions
+                    .save_defaults_btn
             ))
             .set_text(cx, self.tr("保存默认", "Save Defaults"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.apply_defaults_now_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_actions
+                    .apply_defaults_now_btn
             ))
             .set_text(cx, self.tr("应用到当前", "Apply to Current"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .runtime_title
             ))
             .set_text(cx, self.tr("运行状态", "Runtime Status"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_refresh_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .runtime_refresh_btn
             ))
             .set_text(cx, self.tr("刷新状态", "Refresh Status"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.paths_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .paths_title
             ))
             .set_text(cx, self.tr("本地路径与资源", "Local Paths & Resources"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_model_dir_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_model_dir_btn
             ))
             .set_text(cx, self.tr("打开模型目录", "Open Models"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_log_dir_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_log_dir_btn
             ))
             .set_text(cx, self.tr("打开日志目录", "Open Logs"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_workspace_dir_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_workspace_dir_btn
             ))
             .set_text(cx, self.tr("打开工作目录", "Open Workspace"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.clear_cache_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .clear_cache_btn
             ))
             .set_text(cx, self.tr("清理缓存", "Clear Cache"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .privacy_title
             ))
             .set_text(cx, self.tr("隐私与数据", "Privacy & Data"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_pick_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .retention_pick_row
+                    .retention_pick_label
             ))
             .set_text(cx, self.tr("历史保留", "History retention"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_tts_history_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .privacy_actions
+                    .clear_tts_history_btn
             ))
             .set_text(cx, self.tr("清空 TTS 历史", "Clear TTS History"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_training_artifacts_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .privacy_actions
+                    .clear_training_artifacts_btn
             ))
             .set_text(cx, self.tr("清理训练中间产物", "Clear Training Artifacts"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .devices_title
             ))
             .set_text(cx, self.tr("音频设备", "Audio Devices"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_pick_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .input_pick_row
+                    .input_pick_label
             ))
             .set_text(cx, self.tr("输入", "Input"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_pick_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .output_pick_row
+                    .output_pick_label
             ))
             .set_text(cx, self.tr("输出", "Output"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_header.refresh_devices_btn
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .devices_header
+                    .refresh_devices_btn
             ))
             .set_text(cx, self.tr("刷新设备", "Refresh Devices"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.experiments_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .experiments_title
             ))
             .set_text(cx, self.tr("实验功能", "Experimental"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .zero_shot_backend_pick_row
+                    .zero_shot_backend_pick_label
             ))
             .set_text(cx, self.tr("Zero-shot 后端", "Zero-shot backend"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row.backend_pick_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .backend_pick_row
+                    .backend_pick_label
             ))
             .set_text(cx, self.tr("训练后端", "Training backend"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_pick_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .debug_pick_row
+                    .debug_pick_label
             ))
             .set_text(cx, self.tr("Debug 日志", "Debug logs"));
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.qwen_status_row.qwen_status_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .qwen_status_row
+                    .qwen_status_label
             ))
             .set_text(cx, self.tr("Qwen 模型", "Qwen models"));
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_dropdown
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .retention_pick_row
+                    .retention_dropdown
             ))
             .set_labels(
                 cx,
                 if en {
-                    vec!["Forever".to_string(), "30 days".to_string(), "7 days".to_string()]
+                    vec![
+                        "Forever".to_string(),
+                        "30 days".to_string(),
+                        "7 days".to_string(),
+                    ]
                 } else {
                     vec!["永久".to_string(), "30天".to_string(), "7天".to_string()]
                 },
             );
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_dropdown
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .zero_shot_backend_pick_row
+                    .zero_shot_backend_dropdown
             ))
             .set_labels(
                 cx,
                 if en {
-                    vec![
-                        "PrimeSpeech MLX".to_string(),
-                        "Qwen3 TTS MLX".to_string(),
-                    ]
+                    vec!["PrimeSpeech MLX".to_string(), "Qwen3 TTS MLX".to_string()]
                 } else {
-                    vec![
-                        "PrimeSpeech MLX".to_string(),
-                        "Qwen3 TTS MLX".to_string(),
-                    ]
+                    vec!["PrimeSpeech MLX".to_string(), "Qwen3 TTS MLX".to_string()]
                 },
             );
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row.training_backend_dropdown
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .backend_pick_row
+                    .training_backend_dropdown
             ))
             .set_labels(
                 cx,
@@ -12556,7 +14942,17 @@ impl TTSScreen {
             );
         self.view
             .drop_down(ids!(
-                content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_logs_dropdown
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .debug_pick_row
+                    .debug_logs_dropdown
             ))
             .set_labels(
                 cx,
@@ -12569,43 +14965,82 @@ impl TTSScreen {
 
         self.view
             .label(ids!(
-                content_wrapper.main_content.log_section.log_content_column.log_title_row.log_title_label
+                content_wrapper
+                    .main_content
+                    .log_section
+                    .log_content_column
+                    .log_title_row
+                    .log_title_label
             ))
             .set_text(cx, self.tr("系统日志", "System Log"));
         self.view
             .button(ids!(
-                content_wrapper.main_content.log_section.log_content_column.log_title_row.clear_log_btn
+                content_wrapper
+                    .main_content
+                    .log_section
+                    .log_content_column
+                    .log_title_row
+                    .clear_log_btn
             ))
             .set_text(cx, self.tr("清空", "Clear"));
 
         self.view
-            .button(ids!(content_wrapper.audio_player_bar.download_section.download_btn))
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .download_btn
+            ))
             .set_text(cx, self.tr("下载", "Download"));
         self.view
-            .button(ids!(content_wrapper.audio_player_bar.download_section.share_btn))
+            .button(ids!(
+                content_wrapper.audio_player_bar.download_section.share_btn
+            ))
             .set_text(cx, self.tr("分享", "Share"));
         self.update_audio_player_action_layout_for_locale(cx);
 
         self.view
-            .label(ids!(download_modal.download_dialog.download_header.download_title))
+            .label(ids!(
+                download_modal
+                    .download_dialog
+                    .download_header
+                    .download_title
+            ))
             .set_text(cx, self.tr("下载音频", "Download audio"));
         self.view
-            .label(ids!(download_modal.download_dialog.download_header.download_subtitle))
+            .label(ids!(
+                download_modal
+                    .download_dialog
+                    .download_header
+                    .download_subtitle
+            ))
             .set_text(
                 cx,
-                self.tr(
-                    "选择要导出的音频格式",
-                    "Choose the audio format to export",
-                ),
+                self.tr("选择要导出的音频格式", "Choose the audio format to export"),
             );
         self.view
-            .button(ids!(download_modal.download_dialog.download_actions.download_mp3_btn))
+            .button(ids!(
+                download_modal
+                    .download_dialog
+                    .download_actions
+                    .download_mp3_btn
+            ))
             .set_text(cx, self.tr("MP3 文件", "MP3 file"));
         self.view
-            .button(ids!(download_modal.download_dialog.download_actions.download_wav_btn))
+            .button(ids!(
+                download_modal
+                    .download_dialog
+                    .download_actions
+                    .download_wav_btn
+            ))
             .set_text(cx, self.tr("WAV 文件", "WAV file"));
         self.view
-            .button(ids!(download_modal.download_dialog.download_footer.download_cancel_btn))
+            .button(ids!(
+                download_modal
+                    .download_dialog
+                    .download_footer
+                    .download_cancel_btn
+            ))
             .set_text(cx, self.tr("取消", "Cancel"));
 
         self.view
@@ -12621,103 +15056,390 @@ impl TTSScreen {
                 ),
             );
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_system_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_system_btn
+            ))
             .set_text(cx, self.tr("系统打开", "Open with system app"));
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_capcut_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_capcut_btn
+            ))
             .set_text(cx, self.tr("打开剪映", "Open CapCut (manual import)"));
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_premiere_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_premiere_btn
+            ))
             .set_text(cx, self.tr("分享到 Premiere Pro", "Share to Premiere Pro"));
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_wechat_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_wechat_btn
+            ))
             .set_text(cx, self.tr("打开微信", "Open WeChat (manual send)"));
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_finder_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_finder_btn
+            ))
             .set_text(cx, self.tr("在访达中显示", "Reveal in Finder"));
         self.view
             .button(ids!(share_modal.share_dialog.share_footer.share_cancel_btn))
             .set_text(cx, self.tr("取消", "Cancel"));
 
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.select_voice_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .select_voice_row
+                    .select_voice_title
+            ))
             .set_text(cx, self.tr("选择音色", "Select Voice"));
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.tag_group_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .tag_group_label
+            ))
             .set_text(cx, self.tr("性别年龄", "Gender/Age"));
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.tag_group_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_style
+                    .tag_group_label
+            ))
             .set_text(cx, self.tr("风格", "Style"));
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.tag_group_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_trait
+                    .tag_group_label
+            ))
             .set_text(cx, self.tr("声音特质", "Traits"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_male_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .gender_male_btn
+            ))
             .set_text(cx, self.tr("男声", "Male"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.gender_female_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .gender_female_btn
+            ))
             .set_text(cx, self.tr("女声", "Female"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_adult_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .age_adult_btn
+            ))
             .set_text(cx, self.tr("成年", "Adult"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.age_youth_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .age_youth_btn
+            ))
             .set_text(cx, self.tr("青年", "Youth"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_sweet_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_style
+                    .style_sweet_btn
+            ))
             .set_text(cx, self.tr("甜美", "Sweet"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.style_magnetic_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_style
+                    .style_magnetic_btn
+            ))
             .set_text(cx, self.tr("磁性", "Magnetic"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_prof_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_trait
+                    .trait_prof_btn
+            ))
             .set_text(cx, self.tr("专业播音", "Pro Voice"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.trait_character_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_trait
+                    .trait_character_btn
+            ))
             .set_text(cx, self.tr("特色人物", "Character"));
 
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_header.settings_title))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_header
+                    .settings_title
+            ))
             .set_text(cx, self.tr("设置", "Settings"));
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_title))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .language_section
+                    .language_title
+            ))
             .set_text(cx, self.tr("语言", "Language"));
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_title))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .theme_section
+                    .theme_title
+            ))
             .set_text(cx, self.tr("主题", "Theme"));
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_title))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .about_section
+                    .about_title
+            ))
             .set_text(cx, self.tr("关于", "About"));
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_engine))
-            .set_text(cx, self.tr("基于 OminiX MLX · Qwen3-TTS-MLX", "Powered by OminiX MLX · Qwen3-TTS-MLX"));
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .about_section
+                    .about_engine
+            ))
+            .set_text(
+                cx,
+                self.tr(
+                    "基于 OminiX MLX · Qwen3-TTS-MLX",
+                    "Powered by OminiX MLX · Qwen3-TTS-MLX",
+                ),
+            );
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_ominix))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .about_section
+                    .about_ominix
+            ))
             .set_text(cx, "github.com/OminiX-ai/OminiX-MLX");
         self.view
-            .button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_en_option))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .language_section
+                    .language_options
+                    .lang_en_option
+            ))
             .set_text(cx, "English");
         self.view
-            .button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_zh_option))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .language_section
+                    .language_options
+                    .lang_zh_option
+            ))
             .set_text(cx, if en { "Chinese" } else { "中文" });
         self.view
-            .button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_light_option))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .theme_section
+                    .theme_options
+                    .theme_light_option
+            ))
             .set_text(cx, self.tr("☀️ 浅色", "☀️ Light"));
         self.view
-            .button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_dark_option))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .theme_section
+                    .theme_options
+                    .theme_dark_option
+            ))
             .set_text(cx, self.tr("🌙 深色", "🌙 Dark"));
 
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_en_option))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .language_section
+                    .language_options
+                    .lang_en_option
+            ))
             .set_text(cx, "English");
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_zh_option))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .language_section
+                    .language_options
+                    .lang_zh_option
+            ))
             .set_text(cx, if en { "Chinese" } else { "中文" });
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_light_option))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .theme_section
+                    .theme_options
+                    .theme_light_option
+            ))
             .set_text(cx, self.tr("☀️ 浅色", "☀️ Light"));
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .theme_section
+                    .theme_options
+                    .theme_dark_option
+            ))
             .set_text(cx, self.tr("🌙 深色", "🌙 Dark"));
 
         if !self.user_profile_customized {
@@ -12727,21 +15449,45 @@ impl TTSScreen {
         self.update_user_settings_page(cx);
 
         self.view
-            .label(ids!(loading_overlay.loading_center.loading_content.loading_subtitle))
-            .set_text(cx, self.tr("音色克隆与文本转语音", "Voice Cloning & Text-to-Speech"));
+            .label(ids!(
+                loading_overlay
+                    .loading_center
+                    .loading_content
+                    .loading_subtitle
+            ))
+            .set_text(
+                cx,
+                self.tr("音色克隆与文本转语音", "Voice Cloning & Text-to-Speech"),
+            );
         self.view
-            .label(ids!(loading_overlay.loading_center.loading_content.loading_status))
+            .label(ids!(
+                loading_overlay
+                    .loading_center
+                    .loading_content
+                    .loading_status
+            ))
             .set_text(cx, self.tr("初始化中...", "Initializing..."));
         self.view
-            .label(ids!(loading_overlay.loading_center.loading_content.loading_detail))
-            .set_text(cx, self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine"));
+            .label(ids!(
+                loading_overlay
+                    .loading_center
+                    .loading_content
+                    .loading_detail
+            ))
+            .set_text(
+                cx,
+                self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine"),
+            );
 
         self.view
             .label(ids!(confirm_delete_modal.dialog.header.title))
             .set_text(cx, self.tr("删除音色？", "Delete Voice?"));
         self.view
             .label(ids!(confirm_delete_modal.dialog.header.message))
-            .set_text(cx, self.tr("此操作不可撤销。", "This action cannot be undone."));
+            .set_text(
+                cx,
+                self.tr("此操作不可撤销。", "This action cannot be undone."),
+            );
         self.view
             .button(ids!(confirm_delete_modal.dialog.footer.cancel_btn))
             .set_text(cx, self.tr("取消", "Cancel"));
@@ -12784,13 +15530,40 @@ impl TTSScreen {
         let show_history = self.controls_panel_tab == 2;
 
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.voice_management_panel))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .voice_management_panel
+            ))
             .set_visible(cx, show_voice);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+            ))
             .set_visible(cx, show_settings);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.history_panel))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .history_panel
+            ))
             .set_visible(cx, show_history);
         self.apply_tts_history_mode_layout(cx);
     }
@@ -12806,37 +15579,81 @@ impl TTSScreen {
         };
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.page_header.page_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .page_header
+                    .page_title
             ))
             .set_text(cx, title);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.input_section))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+            ))
             .set_visible(cx, !history_mode);
 
         // Hide audio player bar when in History mode
-        let show_player = self.has_generated_audio && !history_mode
-            && self.current_page == AppPage::TextToSpeech;
+        let show_player =
+            self.has_generated_audio && !history_mode && self.current_page == AppPage::TextToSpeech;
         self.view
             .view(ids!(content_wrapper.audio_player_bar))
             .set_visible(cx, show_player);
 
         if history_mode {
             self.view
-                .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel))
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                ))
                 .apply_over(cx, live! { width: Fill });
         } else {
             self.view
-                .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel))
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                ))
                 .apply_over(cx, live! { width: 320 });
         }
     }
 
     fn update_sidebar_nav_states(&mut self, cx: &mut Cx) {
         let tts_context = self.current_page == AppPage::TextToSpeech;
-        let tts_active = if tts_context && self.controls_panel_tab != 2 { 1.0 } else { 0.0 };
-        let history_active = if tts_context && self.controls_panel_tab == 2 { 1.0 } else { 0.0 };
-        let library_active = if self.current_page == AppPage::VoiceLibrary { 1.0 } else { 0.0 };
-        let clone_active = if self.current_page == AppPage::VoiceClone || self.current_page == AppPage::TaskDetail {
+        let tts_active = if tts_context && self.controls_panel_tab != 2 {
+            1.0
+        } else {
+            0.0
+        };
+        let history_active = if tts_context && self.controls_panel_tab == 2 {
+            1.0
+        } else {
+            0.0
+        };
+        let library_active = if self.current_page == AppPage::VoiceLibrary {
+            1.0
+        } else {
+            0.0
+        };
+        let clone_active = if self.current_page == AppPage::VoiceClone
+            || self.current_page == AppPage::TaskDetail
+        {
             1.0
         } else {
             0.0
@@ -12846,7 +15663,11 @@ impl TTSScreen {
         } else {
             0.0
         };
-        let translation_active = if self.current_page == AppPage::Translation { 1.0 } else { 0.0 };
+        let translation_active = if self.current_page == AppPage::Translation {
+            1.0
+        } else {
+            0.0
+        };
 
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_tts))
@@ -13093,15 +15914,18 @@ impl TTSScreen {
             .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
             .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
             .unwrap_or(false);
-        let trained_voice_supported = !(
-            Self::is_qwen_backend(&self.app_preferences.inference_backend) && selected_voice_is_trained
-        );
+        let trained_voice_supported =
+            !(Self::is_qwen_backend(&self.app_preferences.inference_backend)
+                && selected_voice_is_trained);
 
         // Update button text
         let button_text = if loading {
             self.tr("生成中...", "Generating...")
         } else if !trained_voice_supported {
-            self.tr("Qwen 暂不支持训练音色", "Qwen does not support trained voices")
+            self.tr(
+                "Qwen 暂不支持训练音色",
+                "Qwen does not support trained voices",
+            )
         } else {
             self.tr("生成语音", "Generate Speech")
         };
@@ -13393,8 +16217,7 @@ impl TTSScreen {
         let audio_len = self.effective_audio_samples().len();
         let effective_rate = self.effective_audio_sample_rate();
         let has_playable_audio = self.has_generated_audio && audio_len > 0 && effective_rate > 0;
-        let controls_enabled =
-            has_playable_audio && self.tts_status != TTSStatus::Generating;
+        let controls_enabled = has_playable_audio && self.tts_status != TTSStatus::Generating;
 
         self.view
             .button(ids!(
@@ -13415,10 +16238,7 @@ impl TTSScreen {
             .set_enabled(cx, controls_enabled);
         self.view
             .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .download_section
-                    .share_btn
+                content_wrapper.audio_player_bar.download_section.share_btn
             ))
             .set_enabled(cx, controls_enabled);
 
@@ -13548,7 +16368,10 @@ impl TTSScreen {
 
     fn persist_tts_history(&mut self, cx: &mut Cx) {
         if let Err(e) = tts_history::save_history(&self.tts_history) {
-            self.add_log(cx, &format!("[WARN] [history] Failed to save history: {}", e));
+            self.add_log(
+                cx,
+                &format!("[WARN] [history] Failed to save history: {}", e),
+            );
         }
     }
 
@@ -13595,24 +16418,21 @@ impl TTSScreen {
             .map(|v| v.name.clone())
             .unwrap_or_else(|| self.current_voice_name.clone());
 
-        let text = self
-            .pending_generation_text
-            .clone()
-            .unwrap_or_else(|| {
-                self.view
-                    .text_input(ids!(
-                        content_wrapper
-                            .main_content
-                            .left_column
-                            .content_area
-                            .tts_page
-                            .cards_container
-                            .input_section
-                            .input_container
-                            .text_input
-                    ))
-                    .text()
-            });
+        let text = self.pending_generation_text.clone().unwrap_or_else(|| {
+            self.view
+                .text_input(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .input_section
+                        .input_container
+                        .text_input
+                ))
+                .text()
+        });
 
         let duration_secs = samples.len() as f32 / effective_rate as f32;
         let entry = TtsHistoryEntry {
@@ -13636,7 +16456,9 @@ impl TTSScreen {
         self.tts_history.insert(0, entry);
 
         if self.tts_history.len() > tts_history::DEFAULT_MAX_HISTORY_ITEMS {
-            let removed = self.tts_history.split_off(tts_history::DEFAULT_MAX_HISTORY_ITEMS);
+            let removed = self
+                .tts_history
+                .split_off(tts_history::DEFAULT_MAX_HISTORY_ITEMS);
             for old in removed {
                 let _ = tts_history::delete_audio_file(&old.audio_file);
             }
@@ -13752,7 +16574,10 @@ impl TTSScreen {
         if self.tts_status == TTSStatus::Generating {
             self.show_toast(
                 cx,
-                self.tr("生成中，请稍候再操作历史记录", "Generation in progress, please wait"),
+                self.tr(
+                    "生成中，请稍候再操作历史记录",
+                    "Generation in progress, please wait",
+                ),
             );
             return;
         }
@@ -13806,7 +16631,10 @@ impl TTSScreen {
             Err(e) => {
                 self.add_log(
                     cx,
-                    &format!("[ERROR] [history] Failed to load audio for {}: {}", entry.id, e),
+                    &format!(
+                        "[ERROR] [history] Failed to load audio for {}: {}",
+                        entry.id, e
+                    ),
                 );
                 self.show_toast(
                     cx,
@@ -13860,7 +16688,10 @@ impl TTSScreen {
 
         self.show_toast(
             cx,
-            self.tr("已将历史记录填充到编辑区", "History entry loaded into editor"),
+            self.tr(
+                "已将历史记录填充到编辑区",
+                "History entry loaded into editor",
+            ),
         );
     }
 
@@ -13996,7 +16827,10 @@ impl TTSScreen {
             match self.resolve_bundled_icl_ref_path(&voice.id, ref_filename) {
                 Some(path) => path,
                 None => {
-                    self.add_log(cx, &format!("[WARN] [tts] Bundled ref audio not found for: {}", voice_id));
+                    self.add_log(
+                        cx,
+                        &format!("[WARN] [tts] Bundled ref audio not found for: {}", voice_id),
+                    );
                     return;
                 }
             }
@@ -14111,7 +16945,10 @@ impl TTSScreen {
     fn resolve_bundled_icl_ref_path(&self, voice_id: &str, filename: &str) -> Option<PathBuf> {
         // 1. App bundle
         if let Ok(res) = std::env::var("MOXIN_APP_RESOURCES") {
-            let p = PathBuf::from(&res).join("qwen3-voices").join(voice_id).join(filename);
+            let p = PathBuf::from(&res)
+                .join("qwen3-voices")
+                .join(voice_id)
+                .join(filename);
             if p.exists() {
                 return Some(p);
             }
@@ -14130,7 +16967,11 @@ impl TTSScreen {
         }
         // 3. Dev: exe path → target/{debug,release}/../../../ (project root)
         if let Ok(exe) = std::env::current_exe() {
-            if let Some(project_dir) = exe.parent().and_then(|d| d.parent()).and_then(|d| d.parent()) {
+            if let Some(project_dir) = exe
+                .parent()
+                .and_then(|d| d.parent())
+                .and_then(|d| d.parent())
+            {
                 let p = project_dir
                     .join("node-hub")
                     .join("dora-qwen3-tts-mlx")
@@ -14226,6 +17067,168 @@ impl TTSScreen {
             .view(ids!(toast_overlay.download_toast))
             .set_visible(cx, false);
         self.view.redraw(cx);
+    }
+
+    fn maybe_start_background_update_check(&mut self) {
+        if self.app_update_check_started {
+            return;
+        }
+
+        let Some(started_at) = self.app_update_check_started_at else {
+            self.app_update_check_started_at = Some(std::time::Instant::now());
+            return;
+        };
+
+        if started_at.elapsed() < Duration::from_secs(8) {
+            return;
+        }
+
+        if matches!(self.runtime_init_state, RuntimeInitState::Running) {
+            return;
+        }
+
+        let current_version = self.current_display_version();
+        let (tx, rx) = mpsc::channel::<AppUpdateEvent>();
+        self.app_update_rx = Some(rx);
+        self.app_update_check_started = true;
+
+        thread::spawn(move || {
+            let _ = tx.send(AppUpdateEvent::Checking);
+            match app_update::check_and_prepare_update(&current_version) {
+                Ok(app_update::CheckOutcome::NoUpdate) => {
+                    let _ = tx.send(AppUpdateEvent::NoUpdate);
+                }
+                Ok(app_update::CheckOutcome::Ready {
+                    update,
+                    fresh_download,
+                }) => {
+                    let _ = tx.send(AppUpdateEvent::Ready {
+                        update,
+                        fresh_download,
+                    });
+                }
+                Err(err) => {
+                    let _ = tx.send(AppUpdateEvent::Failed(err));
+                }
+            }
+        });
+    }
+
+    fn poll_app_update(&mut self, cx: &mut Cx) {
+        let mut latest_event: Option<AppUpdateEvent> = None;
+        if let Some(rx) = &self.app_update_rx {
+            while let Ok(ev) = rx.try_recv() {
+                latest_event = Some(ev);
+            }
+        }
+
+        let Some(event) = latest_event else {
+            return;
+        };
+
+        match event {
+            AppUpdateEvent::Checking => {
+                self.app_update_state = AppUpdateState::Checking;
+                self.add_log(cx, "[INFO] [update] Checking for app updates...");
+            }
+            AppUpdateEvent::Ready {
+                update,
+                fresh_download,
+            } => {
+                let version = update.version.clone();
+                self.app_update_state = AppUpdateState::Ready(update);
+                self.app_update_rx = None;
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [update] Update {} is ready to install", version),
+                );
+                if fresh_download {
+                    let message = if self.is_english() {
+                        format!(
+                            "New version {} is ready. Open Settings to install.",
+                            version
+                        )
+                    } else {
+                        format!("新版本 {} 已下载完成，请前往设置安装。", version)
+                    };
+                    self.show_toast(cx, &message);
+                }
+            }
+            AppUpdateEvent::NoUpdate => {
+                self.app_update_state = AppUpdateState::Idle;
+                self.app_update_rx = None;
+            }
+            AppUpdateEvent::Failed(err) => {
+                self.app_update_state = AppUpdateState::Failed;
+                self.app_update_rx = None;
+                self.add_log(cx, &format!("[WARN] [update] {}", err));
+            }
+        }
+
+        self.refresh_update_affordances(cx);
+        self.update_user_settings_tabs(cx);
+    }
+
+    fn install_ready_update(&mut self, cx: &mut Cx) {
+        let Some(update) = self.ready_update().cloned() else {
+            self.show_toast(
+                cx,
+                self.tr("暂无可安装的新版本", "No downloaded update is ready yet"),
+            );
+            return;
+        };
+
+        if let Err(err) = app_update::launch_update_installer(&update) {
+            self.show_toast(
+                cx,
+                self.tr(
+                    "启动安装失败，请稍后重试",
+                    "Failed to start update installer",
+                ),
+            );
+            self.add_log(cx, &format!("[ERROR] [update] {}", err));
+            return;
+        }
+
+        self.perform_shutdown_cleanup_for_update();
+        std::process::exit(0);
+    }
+
+    fn perform_shutdown_cleanup_for_update(&mut self) {
+        if let Some(player) = &self.audio_player {
+            player.stop();
+        }
+        if let Some(player) = &self.preview_player {
+            player.stop();
+        }
+
+        drop(self.translation_dora.take());
+        drop(self.dora.take());
+
+        Self::ensure_bundle_bin_on_path();
+        let startup_lock_path = Self::dora_startup_lock_path();
+        match DoraStartupLockGuard::acquire(startup_lock_path, Duration::from_secs(5)) {
+            Ok(_lock) => match Command::new("dora").arg("destroy").status() {
+                Ok(status) if status.success() => {
+                    ::log::info!("Dora runtime destroyed for update install");
+                }
+                Ok(status) => {
+                    ::log::warn!(
+                        "`dora destroy` exited with status {} during update install",
+                        status
+                    );
+                }
+                Err(err) => {
+                    ::log::warn!("Failed to run `dora destroy` for update install: {}", err);
+                }
+            },
+            Err(err) => {
+                ::log::warn!(
+                    "Failed to acquire Dora startup lock during update install: {}",
+                    err
+                );
+            }
+        }
     }
 
     fn update_log_display(&mut self, cx: &mut Cx) {
@@ -14333,7 +17336,10 @@ impl TTSScreen {
         if self.qwen_download_in_progress {
             self.show_toast(
                 cx,
-                self.tr("Qwen 模型下载中，请稍候", "Qwen model download already running"),
+                self.tr(
+                    "Qwen 模型下载中，请稍候",
+                    "Qwen model download already running",
+                ),
             );
             return;
         }
@@ -14385,13 +17391,15 @@ impl TTSScreen {
                     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
                     format!("{}/.moxinvoice/conda/bin/conda", home)
                 });
-            let conda_env_prefix = std::env::var("MOXIN_CONDA_ENV_PREFIX")
-                .ok()
-                .unwrap_or_else(|| {
-                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                    let env = std::env::var("MOXIN_CONDA_ENV").unwrap_or_else(|_| "moxin-studio".to_string());
-                    format!("{}/.moxinvoice/conda/envs/{}", home, env)
-                });
+            let conda_env_prefix =
+                std::env::var("MOXIN_CONDA_ENV_PREFIX")
+                    .ok()
+                    .unwrap_or_else(|| {
+                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                        let env = std::env::var("MOXIN_CONDA_ENV")
+                            .unwrap_or_else(|_| "moxin-studio".to_string());
+                        format!("{}/.moxinvoice/conda/envs/{}", home, env)
+                    });
 
             let log_file = match OpenOptions::new()
                 .create(true)
@@ -14419,7 +17427,8 @@ impl TTSScreen {
                 }
             };
 
-            let mut cmd = if Path::new(&conda_bin).exists() && Path::new(&conda_env_prefix).exists() {
+            let mut cmd = if Path::new(&conda_bin).exists() && Path::new(&conda_env_prefix).exists()
+            {
                 let mut c = Command::new(&conda_bin);
                 c.arg("run")
                     .arg("-p")
@@ -14488,9 +17497,11 @@ impl TTSScreen {
                 let custom_ready = Self::qwen_custom_ready();
                 let base_ready = Self::qwen_base_ready();
                 self.qwen_model_status_text = if custom_ready && base_ready {
-                    self.tr("已就绪（推理+克隆）", "Ready (inference + clone)").to_string()
+                    self.tr("已就绪（推理+克隆）", "Ready (inference + clone)")
+                        .to_string()
                 } else if custom_ready {
-                    self.tr("部分就绪（仅推理）", "Partially ready (inference only)").to_string()
+                    self.tr("部分就绪（仅推理）", "Partially ready (inference only)")
+                        .to_string()
                 } else {
                     self.tr("未就绪", "Not ready").to_string()
                 };
@@ -14536,9 +17547,11 @@ impl TTSScreen {
                     cwd
                 } else {
                     self.runtime_init_state = RuntimeInitState::Ready;
-                    self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
-                    self.runtime_init_detail_text =
-                        self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+                    self.runtime_init_status_text =
+                        self.tr("连接中...", "Connecting...").to_string();
+                    self.runtime_init_detail_text = self
+                        .tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine")
+                        .to_string();
                     self.runtime_init_progress = 0.0;
                     self.runtime_init_download_ui_active = false;
                     return;
@@ -14551,8 +17564,9 @@ impl TTSScreen {
         if !pre.exists() || !boot.exists() {
             self.runtime_init_state = RuntimeInitState::Ready;
             self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
-            self.runtime_init_detail_text =
-                self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+            self.runtime_init_detail_text = self
+                .tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine")
+                .to_string();
             self.runtime_init_progress = 0.0;
             self.runtime_init_download_ui_active = false;
             return;
@@ -14567,10 +17581,10 @@ impl TTSScreen {
         let _ = std::fs::remove_file(&bootstrap_state);
 
         self.runtime_init_state = RuntimeInitState::Running;
-        self.runtime_init_status_text =
-            self.tr("初始化中...", "Initializing...").to_string();
-        self.runtime_init_detail_text =
-            self.tr("正在检查运行环境", "Checking runtime environment").to_string();
+        self.runtime_init_status_text = self.tr("初始化中...", "Initializing...").to_string();
+        self.runtime_init_detail_text = self
+            .tr("正在检查运行环境", "Checking runtime environment")
+            .to_string();
         self.runtime_init_progress = 0.0;
         self.runtime_init_download_ui_active = false;
 
@@ -14604,8 +17618,9 @@ impl TTSScreen {
 
             let _ = tx.send(RuntimeInitEvent::Stage {
                 status: "Initializing runtime (0/10)".to_string(),
-                detail: "Installing dependencies and models (first launch may take several minutes)"
-                    .to_string(),
+                detail:
+                    "Installing dependencies and models (first launch may take several minutes)"
+                        .to_string(),
                 progress: 0.0,
             });
 
@@ -14666,7 +17681,10 @@ impl TTSScreen {
                             let detail_and_pct = parts.next().unwrap_or("");
                             // 4th field is optional pct float
                             let (detail, pct) = if let Some(p) = parts.next() {
-                                (detail_and_pct.trim(), p.trim().parse::<f64>().unwrap_or(0.0))
+                                (
+                                    detail_and_pct.trim(),
+                                    p.trim().parse::<f64>().unwrap_or(0.0),
+                                )
                             } else {
                                 (detail_and_pct.trim(), 0.0)
                             };
@@ -14716,7 +17734,11 @@ impl TTSScreen {
         if let Some(rx) = &self.runtime_init_rx {
             while let Ok(ev) = rx.try_recv() {
                 match ev {
-                RuntimeInitEvent::Stage { status, detail, progress } => {
+                    RuntimeInitEvent::Stage {
+                        status,
+                        detail,
+                        progress,
+                    } => {
                         // Apply every Stage immediately so progress is never dropped.
                         self.runtime_init_status_text = status;
                         self.runtime_init_detail_text = detail;
@@ -14734,9 +17756,11 @@ impl TTSScreen {
             match ev {
                 RuntimeInitEvent::DoneOk => {
                     self.runtime_init_state = RuntimeInitState::Ready;
-                    self.runtime_init_status_text = self.tr("连接中...", "Connecting...").to_string();
-                    self.runtime_init_detail_text =
-                        self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine").to_string();
+                    self.runtime_init_status_text =
+                        self.tr("连接中...", "Connecting...").to_string();
+                    self.runtime_init_detail_text = self
+                        .tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine")
+                        .to_string();
                     self.runtime_init_progress = 0.0;
                     self.runtime_init_download_ui_active = false;
                     self.runtime_init_rx = None;
@@ -14895,9 +17919,7 @@ impl TTSScreen {
 
             thread::sleep(Duration::from_millis(500));
 
-            let _ = tx.send(DoraStartupEvent::Stage(
-                "Starting Dora runtime".to_string(),
-            ));
+            let _ = tx.send(DoraStartupEvent::Stage("Starting Dora runtime".to_string()));
 
             match Command::new("dora").args(["up"]).status() {
                 Ok(status) if status.success() => {}
@@ -15048,7 +18070,10 @@ impl TTSScreen {
             match event {
                 crate::dora_integration::DoraEvent::DataflowStarted { dataflow_id } => {
                     self.dora_start_in_flight = false;
-                    self.add_log(cx, &format!("[INFO] [tts] Dora dataflow started: {}", dataflow_id));
+                    self.add_log(
+                        cx,
+                        &format!("[INFO] [tts] Dora dataflow started: {}", dataflow_id),
+                    );
                 }
                 crate::dora_integration::DoraEvent::DataflowStopped => {
                     self.dora_start_in_flight = false;
@@ -15139,9 +18164,7 @@ impl TTSScreen {
     }
 
     fn absolutize_dataflow_paths(template_path: &Path, content: &str) -> String {
-        let base_dir = template_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."));
+        let base_dir = template_path.parent().unwrap_or_else(|| Path::new("."));
         let mut output = String::with_capacity(content.len() + 256);
         let has_trailing_newline = content.ends_with('\n');
 
@@ -15214,13 +18237,8 @@ impl TTSScreen {
 
     fn materialize_runtime_dataflow(&mut self, cx: &mut Cx) -> Result<PathBuf, String> {
         let template_path = self.resolve_dataflow_template_path();
-        let template = fs::read_to_string(&template_path).map_err(|e| {
-            format!(
-                "read template failed ({}): {}",
-                template_path.display(),
-                e
-            )
-        })?;
+        let template = fs::read_to_string(&template_path)
+            .map_err(|e| format!("read template failed ({}): {}", template_path.display(), e))?;
 
         let inference_backend =
             Self::normalize_inference_backend(&self.app_preferences.inference_backend).to_string();
@@ -15344,17 +18362,44 @@ impl TTSScreen {
         if self.dora_started {
             self.tts_paused_for_translation = true;
             self.stop_dora(cx);
-            self.add_translation_log(cx, &format!("[INFO] {}", self.tr("已暂停 TTS 数据流", "TTS dataflow paused")));
+            self.add_translation_log(
+                cx,
+                &format!(
+                    "[INFO] {}",
+                    self.tr("已暂停 TTS 数据流", "TTS dataflow paused")
+                ),
+            );
         }
 
         // Reset in-page translation log view each run to avoid stale scroll/content
         // bleeding through the semi-transparent overlay.
         self.translation_log_lines.clear();
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_scroll.translation_log_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+                    .translation_log_card
+                    .translation_log_scroll
+                    .translation_log_label
+            ))
             .set_text(cx, "");
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_scroll))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+                    .translation_log_card
+                    .translation_log_scroll
+            ))
             .set_scroll_pos(cx, dvec2(0.0, 0.0));
 
         self.add_translation_log(
@@ -15388,7 +18433,11 @@ impl TTSScreen {
             Err(e) => {
                 self.add_translation_log(
                     cx,
-                    &format!("[ERROR] {}: {}", self.tr("读取模板失败", "Failed to read template"), e),
+                    &format!(
+                        "[ERROR] {}: {}",
+                        self.tr("读取模板失败", "Failed to read template"),
+                        e
+                    ),
                 );
                 return;
             }
@@ -15411,10 +18460,18 @@ impl TTSScreen {
             end_rms_threshold,
         ) = match self.translation_src_lang.as_str() {
             // Chinese: lower endpoint/min-segment latency while preserving stability.
-            "zh" => (5_i32, 10_i32, 420_i32, 1200_i32, 420_i32, 0.018_f32, 0.010_f32),
-            "en" => (4_i32, 10_i32, 300_i32, 900_i32, 300_i32, 0.015_f32, 0.009_f32),
-            "fr" => (4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32),
-            _ => (4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32),
+            "zh" => (
+                5_i32, 10_i32, 420_i32, 1200_i32, 420_i32, 0.018_f32, 0.010_f32,
+            ),
+            "en" => (
+                4_i32, 10_i32, 300_i32, 900_i32, 300_i32, 0.015_f32, 0.009_f32,
+            ),
+            "fr" => (
+                4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32,
+            ),
+            _ => (
+                4_i32, 10_i32, 320_i32, 1000_i32, 320_i32, 0.016_f32, 0.009_f32,
+            ),
         };
         let max_segment_ms = 8000_i32;
 
@@ -15443,7 +18500,11 @@ impl TTSScreen {
                 String::new()
             });
 
-        let passthrough_flag = if self.translation_tgt_lang == "none" { "1" } else { "0" };
+        let passthrough_flag = if self.translation_tgt_lang == "none" {
+            "1"
+        } else {
+            "0"
+        };
         let rendered = template_content
             .replace("__TRANSLATION_SRC_LANG__", &self.translation_src_lang)
             .replace("__TRANSLATION_TGT_LANG__", &self.translation_tgt_lang)
@@ -15463,7 +18524,10 @@ impl TTSScreen {
                 "__START_RMS_THRESHOLD__",
                 &format!("{:.4}", start_rms_threshold),
             )
-            .replace("__END_RMS_THRESHOLD__", &format!("{:.4}", end_rms_threshold));
+            .replace(
+                "__END_RMS_THRESHOLD__",
+                &format!("{:.4}", end_rms_threshold),
+            );
         let rendered = Self::absolutize_dataflow_paths(&template_path, &rendered);
 
         // Write rendered dataflow to a temp file
@@ -15471,7 +18535,11 @@ impl TTSScreen {
         if let Err(e) = std::fs::write(&tmp_path, &rendered) {
             self.add_translation_log(
                 cx,
-                &format!("[ERROR] {}: {}", self.tr("写入临时文件失败", "Failed to write temp file"), e),
+                &format!(
+                    "[ERROR] {}: {}",
+                    self.tr("写入临时文件失败", "Failed to write temp file"),
+                    e
+                ),
             );
             return;
         }
@@ -15566,7 +18634,10 @@ impl TTSScreen {
     fn stop_translation_dataflow(&mut self, cx: &mut Cx) {
         self.add_translation_log(
             cx,
-            &format!("[INFO] {}...", self.tr("正在停止翻译", "Stopping translation")),
+            &format!(
+                "[INFO] {}...",
+                self.tr("正在停止翻译", "Stopping translation")
+            ),
         );
 
         // Capture translation history before clearing shared state.
@@ -15612,7 +18683,10 @@ impl TTSScreen {
             self.tts_paused_for_translation = false;
             // dora_started is already false after stop_dora; clearing the pause flag
             // lets the event-loop auto-start block restart TTS on the next tick.
-            self.add_log(cx, "[INFO] [tts] Resuming TTS dataflow after translation stop...");
+            self.add_log(
+                cx,
+                "[INFO] [tts] Resuming TTS dataflow after translation stop...",
+            );
         }
     }
 
@@ -15625,7 +18699,8 @@ impl TTSScreen {
                 // Mirror newly arrived translation to the log WITHOUT consuming dirty flag.
                 let fingerprint = format!(
                     "h{}|p={}",
-                    update.history.len(), update.pending_source_text.len()
+                    update.history.len(),
+                    update.pending_source_text.len()
                 );
                 let should_log = self
                     .translation_last_logged_fingerprint
@@ -15653,19 +18728,49 @@ impl TTSScreen {
     fn show_translation_running_panel(&mut self, cx: &mut Cx, running: bool) {
         // Status badge in page header
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.page_header.translation_status_badge))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .page_header
+                    .translation_status_badge
+            ))
             .set_visible(cx, running);
 
         // Settings panel ↔ running panel
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+            ))
             .set_visible(cx, !running);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+            ))
             .set_visible(cx, running);
 
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+            ))
             .redraw(cx);
     }
 
@@ -15681,14 +18786,27 @@ impl TTSScreen {
             let ss = now % 60;
             format!("{:02}:{:02}:{:02}", hh, mm, ss)
         };
-        self.translation_log_lines.push(format!("[{}] {}", ts, line));
+        self.translation_log_lines
+            .push(format!("[{}] {}", ts, line));
         // Keep at most 200 lines
         if self.translation_log_lines.len() > 200 {
-            self.translation_log_lines.drain(..self.translation_log_lines.len() - 200);
+            self.translation_log_lines
+                .drain(..self.translation_log_lines.len() - 200);
         }
         let text = self.translation_log_lines.join("\n");
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_scroll.translation_log_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+                    .translation_log_card
+                    .translation_log_scroll
+                    .translation_log_label
+            ))
             .set_text(cx, &text);
     }
 
@@ -15697,8 +18815,14 @@ impl TTSScreen {
         let src_codes = ["zh", "en", "ja", "fr"];
         let tgt_codes = ["en", "zh", "ja", "fr", "none"];
 
-        let src_idx = src_codes.iter().position(|c| *c == self.translation_src_lang).unwrap_or(0);
-        let tgt_idx = tgt_codes.iter().position(|c| *c == self.translation_tgt_lang).unwrap_or(0);
+        let src_idx = src_codes
+            .iter()
+            .position(|c| *c == self.translation_src_lang)
+            .unwrap_or(0);
+        let tgt_idx = tgt_codes
+            .iter()
+            .position(|c| *c == self.translation_tgt_lang)
+            .unwrap_or(0);
 
         let (src_labels, tgt_labels) = if self.is_english() {
             (
@@ -15735,34 +18859,114 @@ impl TTSScreen {
         };
 
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_src_lang
+                    .src_lang_dropdown
+            ))
             .set_labels(cx, src_labels);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_tgt_lang
+                    .tgt_lang_dropdown
+            ))
             .set_labels(cx, tgt_labels);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_src_lang
+                    .src_lang_dropdown
+            ))
             .set_selected_item(cx, src_idx);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_tgt_lang
+                    .tgt_lang_dropdown
+            ))
             .set_selected_item(cx, tgt_idx);
     }
 
     /// Update the active state of the 紧凑/全屏 overlay style buttons.
     fn update_translation_overlay_style_buttons(&mut self, cx: &mut Cx) {
-        let full = if self.translation_overlay_fullscreen { 1.0_f64 } else { 0.0 };
+        let full = if self.translation_overlay_fullscreen {
+            1.0_f64
+        } else {
+            0.0
+        };
         let compact = 1.0 - full;
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact))
-            .apply_over(cx, live! { draw_bg: { active: (compact) } draw_text: { active: (compact) } });
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .overlay_style_compact
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (compact) } draw_text: { active: (compact) } },
+            );
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full))
-            .apply_over(cx, live! { draw_bg: { active: (full) } draw_text: { active: (full) } });
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .overlay_style_full
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (full) } draw_text: { active: (full) } },
+            );
     }
 
     fn send_audio_source_to_bridge(&self, use_system_audio: bool) {
         use moxin_dora_bridge::widgets::AudioSource;
-        let source = if use_system_audio { AudioSource::SystemAudio } else { AudioSource::Microphone };
+        let source = if use_system_audio {
+            AudioSource::SystemAudio
+        } else {
+            AudioSource::Microphone
+        };
         // Write to shared state — the AEC bridge polls this and switches source live.
         if let Some(shared) = self.translation_shared_state() {
             shared.translation_audio_source.set(source);
@@ -15774,49 +18978,203 @@ impl TTSScreen {
     fn update_translation_settings_layout_for_locale(&mut self, cx: &mut Cx) {
         if self.is_english() {
             self.view
-                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label))
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_source
+                        .translation_source_label
+                ))
                 .apply_over(cx, live! { width: 160.0 });
             self.view
-                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.translation_src_lang_label))
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_src_lang
+                        .translation_src_lang_label
+                ))
                 .apply_over(cx, live! { width: 160.0 });
             self.view
-                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.translation_tgt_lang_label))
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_tgt_lang
+                        .translation_tgt_lang_label
+                ))
                 .apply_over(cx, live! { width: 160.0 });
             self.view
-                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label))
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_overlay
+                        .translation_overlay_style_label
+                ))
                 .apply_over(cx, live! { width: 160.0 });
             self.view
-                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.translation_font_size_label))
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_font_size
+                        .translation_font_size_label
+                ))
                 .apply_over(cx, live! { width: 160.0 });
             self.view
-                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.translation_anchor_position_label))
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_anchor_position
+                        .translation_anchor_position_label
+                ))
                 .apply_over(cx, live! { width: 160.0 });
             self.view
-                .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label))
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_opacity
+                        .translation_opacity_label
+                ))
                 .apply_over(cx, live! { width: 160.0 });
             return;
         }
 
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_source
+                    .translation_source_label
+            ))
             .apply_over(cx, live! { width: 90.0 });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.translation_src_lang_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_src_lang
+                    .translation_src_lang_label
+            ))
             .apply_over(cx, live! { width: 90.0 });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.translation_tgt_lang_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_tgt_lang
+                    .translation_tgt_lang_label
+            ))
             .apply_over(cx, live! { width: 90.0 });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .translation_overlay_style_label
+            ))
             .apply_over(cx, live! { width: 90.0 });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.translation_font_size_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_font_size
+                    .translation_font_size_label
+            ))
             .apply_over(cx, live! { width: 90.0 });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.translation_anchor_position_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_anchor_position
+                    .translation_anchor_position_label
+            ))
             .apply_over(cx, live! { width: 90.0 });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_opacity
+                    .translation_opacity_label
+            ))
             .apply_over(cx, live! { width: 90.0 });
     }
 
@@ -15826,10 +19184,17 @@ impl TTSScreen {
                 .view(ids!(content_wrapper.audio_player_bar.download_section))
                 .apply_over(cx, live! { width: 250.0 });
             self.view
-                .button(ids!(content_wrapper.audio_player_bar.download_section.download_btn))
+                .button(ids!(
+                    content_wrapper
+                        .audio_player_bar
+                        .download_section
+                        .download_btn
+                ))
                 .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
             self.view
-                .button(ids!(content_wrapper.audio_player_bar.download_section.share_btn))
+                .button(ids!(
+                    content_wrapper.audio_player_bar.download_section.share_btn
+                ))
                 .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
             return;
         }
@@ -15837,10 +19202,17 @@ impl TTSScreen {
             .view(ids!(content_wrapper.audio_player_bar.download_section))
             .apply_over(cx, live! { width: 220.0 });
         self.view
-            .button(ids!(content_wrapper.audio_player_bar.download_section.download_btn))
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .download_btn
+            ))
             .apply_over(cx, live! { padding: { left: 24.0, right: 24.0 } });
         self.view
-            .button(ids!(content_wrapper.audio_player_bar.download_section.share_btn))
+            .button(ids!(
+                content_wrapper.audio_player_bar.download_section.share_btn
+            ))
             .apply_over(cx, live! { padding: { left: 24.0, right: 24.0 } });
     }
 
@@ -15852,7 +19224,18 @@ impl TTSScreen {
             .position(|v| (*v - self.translation_overlay_opacity).abs() < 0.01)
             .unwrap_or(0); // default to 100%
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.opacity_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_opacity
+                    .opacity_dropdown
+            ))
             .set_selected_item(cx, idx);
     }
 
@@ -15872,10 +19255,32 @@ impl TTSScreen {
             _ => 1,
         };
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.font_size_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_font_size
+                    .font_size_dropdown
+            ))
             .set_labels(cx, labels);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.font_size_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_font_size
+                    .font_size_dropdown
+            ))
             .set_selected_item(cx, idx);
     }
 
@@ -15898,10 +19303,32 @@ impl TTSScreen {
             _ => 0,
         };
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.anchor_position_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_anchor_position
+                    .anchor_position_dropdown
+            ))
             .set_labels(cx, labels);
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.anchor_position_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_anchor_position
+                    .anchor_position_dropdown
+            ))
             .set_selected_item(cx, idx);
     }
 
@@ -15910,7 +19337,16 @@ impl TTSScreen {
     fn update_translation_permission_hint(&mut self, cx: &mut Cx) {
         let denied = moxin_dora_bridge::widgets::permission_granted() == Some(false);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.translation_permission_hint))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .translation_permission_hint
+            ))
             .set_visible(cx, denied);
     }
 
@@ -15934,17 +19370,40 @@ impl TTSScreen {
         // Index 0 = System Audio, 1 = System Default Mic, 2..N = CPAL devices
         let mut labels = vec![
             self.tr("系统音频", "System Audio").to_string(),
-            self.tr("系统默认麦克风", "System Default Microphone").to_string(),
+            self.tr("系统默认麦克风", "System Default Microphone")
+                .to_string(),
         ];
         labels.extend(self.translation_audio_devices.clone());
 
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_source
+                    .translation_source_dropdown
+            ))
             .set_labels(cx, labels);
         let total = self.translation_audio_devices.len() + 2;
         let selected_idx = self.translation_device_idx.min(total.saturating_sub(1));
         self.view
-            .drop_down(ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown))
+            .drop_down(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_source
+                    .translation_source_dropdown
+            ))
             .set_selected_item(cx, selected_idx);
     }
 
@@ -16021,7 +19480,9 @@ impl TTSScreen {
             .and_then(|id| self.library_voices.iter().find(|v| &v.id == id))
             .map(|voice| voice.source == crate::voice_data::VoiceSource::Trained)
             .unwrap_or(false);
-        if Self::is_qwen_backend(&self.app_preferences.inference_backend) && selected_voice_is_trained {
+        if Self::is_qwen_backend(&self.app_preferences.inference_backend)
+            && selected_voice_is_trained
+        {
             self.add_log(
                 cx,
                 "[WARN] [tts] Qwen backend does not support trained voices (VOICE:TRAINED)",
@@ -16145,10 +19606,22 @@ impl TTSScreen {
         // Debug: log voice source
         if let Some(ref v) = voice_info {
             self.add_log(cx, &format!("[DEBUG] [tts] Voice source: {:?}", v.source));
-            self.add_log(cx, &format!("[DEBUG] [tts] Has GPT weights: {}", v.gpt_weights.is_some()));
-            self.add_log(cx, &format!("[DEBUG] [tts] Has SoVITS weights: {}", v.sovits_weights.is_some()));
+            self.add_log(
+                cx,
+                &format!("[DEBUG] [tts] Has GPT weights: {}", v.gpt_weights.is_some()),
+            );
+            self.add_log(
+                cx,
+                &format!(
+                    "[DEBUG] [tts] Has SoVITS weights: {}",
+                    v.sovits_weights.is_some()
+                ),
+            );
         } else {
-            self.add_log(cx, "[DEBUG] [tts] Voice info is None - voice not found in library");
+            self.add_log(
+                cx,
+                "[DEBUG] [tts] Voice info is None - voice not found in library",
+            );
         }
         self.add_log(cx, "========== VOICE DEBUG END ==========");
 
@@ -16169,21 +19642,26 @@ impl TTSScreen {
         let prompt = if let Some(voice) = voice_info {
             if voice.source == crate::voice_data::VoiceSource::Trained {
                 // Trained voice (Pro Mode) - need to send model weights, reference audio, and prompt text
-                if let (Some(gpt_weights), Some(sovits_weights), Some(ref_audio), Some(prompt_text)) =
-                    (&voice.gpt_weights, &voice.sovits_weights, &voice.reference_audio_path, &voice.prompt_text)
-                {
+                if let (
+                    Some(gpt_weights),
+                    Some(sovits_weights),
+                    Some(ref_audio),
+                    Some(prompt_text),
+                ) = (
+                    &voice.gpt_weights,
+                    &voice.sovits_weights,
+                    &voice.reference_audio_path,
+                    &voice.prompt_text,
+                ) {
                     self.add_log(
                         cx,
-                        &format!("[INFO] [tts] Using trained voice with custom models: {}", voice.name),
+                        &format!(
+                            "[INFO] [tts] Using trained voice with custom models: {}",
+                            voice.name
+                        ),
                     );
-                    self.add_log(
-                        cx,
-                        &format!("[INFO] [tts] GPT: {}", gpt_weights),
-                    );
-                    self.add_log(
-                        cx,
-                        &format!("[INFO] [tts] SoVITS: {}", sovits_weights),
-                    );
+                    self.add_log(cx, &format!("[INFO] [tts] GPT: {}", gpt_weights));
+                    self.add_log(cx, &format!("[INFO] [tts] SoVITS: {}", sovits_weights));
 
                     // VOICE:TRAINED|<gpt_weights>|<sovits_weights>|<ref_audio>|<prompt_text>|<language>|<text>
                     format!(
@@ -16234,16 +19712,22 @@ impl TTSScreen {
                         .unwrap_or_default();
 
                     if ref_audio_path.is_empty() {
-                        self.add_log(cx, &format!(
+                        self.add_log(
+                            cx,
+                            &format!(
                             "[WARN] [tts] BundledIcl voice '{}' ref audio not found, using default",
                             voice.id
-                        ));
+                        ),
+                        );
                         format!("VOICE:vivian|{}", text)
                     } else {
-                        self.add_log(cx, &format!(
-                            "[INFO] [tts] BundledIcl voice '{}' ref audio (x-vector mode): {}",
-                            voice.id, ref_audio_path
-                        ));
+                        self.add_log(
+                            cx,
+                            &format!(
+                                "[INFO] [tts] BundledIcl voice '{}' ref audio (x-vector mode): {}",
+                                voice.id, ref_audio_path
+                            ),
+                        );
                         format!(
                             "VOICE:CUSTOM|{}|{}|{}|{}",
                             ref_audio_path, "", voice.language, text
@@ -16263,7 +19747,11 @@ impl TTSScreen {
 
         // Debug: log the formatted prompt (use char boundary safe truncation)
         let prompt_preview = if prompt.chars().count() > 100 {
-            let end: usize = prompt.char_indices().nth(100).map(|(i, _)| i).unwrap_or(prompt.len());
+            let end: usize = prompt
+                .char_indices()
+                .nth(100)
+                .map(|(i, _)| i)
+                .unwrap_or(prompt.len());
             format!("{}...", &prompt[..end])
         } else {
             prompt.clone()
@@ -16333,7 +19821,13 @@ impl TTSScreen {
                 player.pause();
             }
             self.tts_status = TTSStatus::Ready;
-            self.add_log(cx, &format!("[INFO] [tts] Playback paused at {:.1}s", self.audio_playing_time));
+            self.add_log(
+                cx,
+                &format!(
+                    "[INFO] [tts] Playback paused at {:.1}s",
+                    self.audio_playing_time
+                ),
+            );
         } else {
             let playback_samples = self.effective_audio_samples().to_vec();
             if playback_samples.is_empty() {
@@ -16345,8 +19839,8 @@ impl TTSScreen {
             // Check if we're resuming from a paused state or starting fresh
             let effective_rate = self.effective_audio_sample_rate();
             let total_duration = playback_samples.len() as f64 / effective_rate as f64;
-            let is_resuming = self.audio_playing_time > 0.1
-                && self.audio_playing_time < (total_duration - 0.1);
+            let is_resuming =
+                self.audio_playing_time > 0.1 && self.audio_playing_time < (total_duration - 0.1);
 
             if let Some(player) = &self.audio_player {
                 // Always stop and clear buffer first to avoid audio overlap
@@ -16354,12 +19848,19 @@ impl TTSScreen {
 
                 if is_resuming {
                     // Resume from paused position - write remaining audio from current position
-                    let current_sample_index = (self.audio_playing_time * effective_rate as f64) as usize;
+                    let current_sample_index =
+                        (self.audio_playing_time * effective_rate as f64) as usize;
                     if current_sample_index < playback_samples.len() {
                         let remaining_samples = &playback_samples[current_sample_index..];
                         player.write_audio(remaining_samples);
                         player.resume();
-                        self.add_log(cx, &format!("[INFO] [tts] Resuming playback from {:.1}s", self.audio_playing_time));
+                        self.add_log(
+                            cx,
+                            &format!(
+                                "[INFO] [tts] Resuming playback from {:.1}s",
+                                self.audio_playing_time
+                            ),
+                        );
                     }
                 } else {
                     // Start from beginning
@@ -16399,7 +19900,10 @@ impl TTSScreen {
     fn open_share_modal(&mut self, cx: &mut Cx, source: ShareSource) {
         if matches!(source, ShareSource::CurrentAudio) {
             if self.tts_status == TTSStatus::Generating {
-                self.add_log(cx, "[INFO] [share] Share is disabled while generating new audio");
+                self.add_log(
+                    cx,
+                    "[INFO] [share] Share is disabled while generating new audio",
+                );
                 self.show_toast(
                     cx,
                     self.tr("生成中，暂不可分享", "Sharing is disabled while generating"),
@@ -16423,16 +19927,25 @@ impl TTSScreen {
         match &source {
             DownloadSource::CurrentAudio => {
                 if self.tts_status == TTSStatus::Generating {
-                    self.add_log(cx, "[INFO] [download] Download is disabled while generating new audio");
+                    self.add_log(
+                        cx,
+                        "[INFO] [download] Download is disabled while generating new audio",
+                    );
                     self.show_toast(
                         cx,
-                        self.tr("生成中，暂不可下载", "Download is disabled while generating"),
+                        self.tr(
+                            "生成中，暂不可下载",
+                            "Download is disabled while generating",
+                        ),
                     );
                     return;
                 }
                 if self.effective_audio_samples().is_empty() {
                     self.add_log(cx, "[WARN] [download] No audio available to download");
-                    self.show_toast(cx, self.tr("暂无可下载音频", "No audio available to download"));
+                    self.show_toast(
+                        cx,
+                        self.tr("暂无可下载音频", "No audio available to download"),
+                    );
                     return;
                 }
             }
@@ -16498,7 +20011,11 @@ impl TTSScreen {
         if shared {
             self.add_log(
                 cx,
-                &format!("[INFO] [share] Shared audio via {}: {}", Self::share_target_key(target), share_file.display()),
+                &format!(
+                    "[INFO] [share] Shared audio via {}: {}",
+                    Self::share_target_key(target),
+                    share_file.display()
+                ),
             );
             let success_toast = match target {
                 ShareTarget::CapCut => self.tr(
@@ -16525,7 +20042,13 @@ impl TTSScreen {
                     share_file.display()
                 ),
             );
-            self.show_toast(cx, self.tr("分享失败，请检查目标应用", "Share failed, please check target app"));
+            self.show_toast(
+                cx,
+                self.tr(
+                    "分享失败，请检查目标应用",
+                    "Share failed, please check target app",
+                ),
+            );
         }
     }
 
@@ -16698,14 +20221,23 @@ impl TTSScreen {
         let effective_rate = self.effective_audio_sample_rate();
         if samples.is_empty() {
             self.add_log(cx, "[WARN] [download] No current audio available");
-            self.show_toast(cx, self.tr("暂无可下载音频", "No audio available to download"));
+            self.show_toast(
+                cx,
+                self.tr("暂无可下载音频", "No audio available to download"),
+            );
             return None;
         }
         if effective_rate == 0 {
-            self.add_log(cx, "[ERROR] [download] Current audio sample rate is invalid");
+            self.add_log(
+                cx,
+                "[ERROR] [download] Current audio sample rate is invalid",
+            );
             self.show_toast(
                 cx,
-                self.tr("音频采样率无效，无法下载", "Invalid sample rate, download failed"),
+                self.tr(
+                    "音频采样率无效，无法下载",
+                    "Invalid sample rate, download failed",
+                ),
             );
             return None;
         }
@@ -16737,7 +20269,10 @@ impl TTSScreen {
             Err(error) => {
                 self.add_log(
                     cx,
-                    &format!("[ERROR] [download] Failed to export current audio: {}", error),
+                    &format!(
+                        "[ERROR] [download] Failed to export current audio: {}",
+                        error
+                    ),
                 );
                 self.show_toast(cx, self.tr("下载失败", "Download failed"));
                 None
@@ -16781,7 +20316,9 @@ impl TTSScreen {
         let target = Self::export_path_for_filename(&filename);
 
         let export_result = match format {
-            DownloadFormat::Wav => std::fs::copy(&src, &target).map(|_| ()).map_err(|e| e.to_string()),
+            DownloadFormat::Wav => std::fs::copy(&src, &target)
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
             DownloadFormat::Mp3 => Self::convert_wav_file_to_mp3(&src, &target),
         };
 
@@ -16812,7 +20349,10 @@ impl TTSScreen {
     }
 
     fn command_succeeds(command: &mut std::process::Command) -> bool {
-        command.status().map(|status| status.success()).unwrap_or(false)
+        command
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
     }
 
     fn open_url(url: &str) -> bool {
@@ -17138,10 +20678,15 @@ impl TTSScreen {
         self.library_voices = voices;
         self.library_loading = false;
 
-        self.add_log(cx, &format!(
-            "[INFO] [library] Loaded {} voices ({} builtin, {} custom/trained)",
-            self.library_voices.len(), builtin_count, custom_count
-        ));
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [library] Loaded {} voices ({} builtin, {} custom/trained)",
+                self.library_voices.len(),
+                builtin_count,
+                custom_count
+            ),
+        );
         self.update_library_display(cx);
         self.sync_selected_voice_ui(cx);
         self.update_voice_picker_controls(cx);
@@ -17149,53 +20694,221 @@ impl TTSScreen {
 
     /// Update category filter button states
     fn update_category_filter_buttons(&mut self, cx: &mut Cx) {
-        let male_active = if self.library_category_filter == VoiceFilter::Male { 1.0 } else { 0.0 };
-        let female_active = if self.library_category_filter == VoiceFilter::Female { 1.0 } else { 0.0 };
-        let adult_active = if self.library_age_filter & 0b01 != 0 { 1.0 } else { 0.0 };
-        let youth_active = if self.library_age_filter & 0b10 != 0 { 1.0 } else { 0.0 };
-        let sweet_active = if self.library_style_filter & 0b01 != 0 { 1.0 } else { 0.0 };
-        let magnetic_active = if self.library_style_filter & 0b10 != 0 { 1.0 } else { 0.0 };
-        let prof_active = if self.library_trait_filter & 0b01 != 0 { 1.0 } else { 0.0 };
-        let character_active = if self.library_trait_filter & 0b10 != 0 { 1.0 } else { 0.0 };
+        let male_active = if self.library_category_filter == VoiceFilter::Male {
+            1.0
+        } else {
+            0.0
+        };
+        let female_active = if self.library_category_filter == VoiceFilter::Female {
+            1.0
+        } else {
+            0.0
+        };
+        let adult_active = if self.library_age_filter & 0b01 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let youth_active = if self.library_age_filter & 0b10 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let sweet_active = if self.library_style_filter & 0b01 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let magnetic_active = if self.library_style_filter & 0b10 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let prof_active = if self.library_trait_filter & 0b01 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let character_active = if self.library_trait_filter & 0b10 != 0 {
+            1.0
+        } else {
+            0.0
+        };
 
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_male_btn))
-            .apply_over(cx, live! { draw_bg: { active: (male_active) } draw_text: { active: (male_active) } });
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .filter_male_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (male_active) } draw_text: { active: (male_active) } },
+            );
         self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_female_btn))
             .apply_over(cx, live! { draw_bg: { active: (female_active) } draw_text: { active: (female_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_adult_btn))
-            .apply_over(cx, live! { draw_bg: { active: (adult_active) } draw_text: { active: (adult_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_youth_btn))
-            .apply_over(cx, live! { draw_bg: { active: (youth_active) } draw_text: { active: (youth_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_sweet_btn))
-            .apply_over(cx, live! { draw_bg: { active: (sweet_active) } draw_text: { active: (sweet_active) } });
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .age_adult_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (adult_active) } draw_text: { active: (adult_active) } },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .age_youth_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (youth_active) } draw_text: { active: (youth_active) } },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .style_sweet_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (sweet_active) } draw_text: { active: (sweet_active) } },
+            );
         self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_magnetic_btn))
             .apply_over(cx, live! { draw_bg: { active: (magnetic_active) } draw_text: { active: (magnetic_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_prof_btn))
-            .apply_over(cx, live! { draw_bg: { active: (prof_active) } draw_text: { active: (prof_active) } });
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .trait_prof_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (prof_active) } draw_text: { active: (prof_active) } },
+            );
         self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_character_btn))
             .apply_over(cx, live! { draw_bg: { active: (character_active) } draw_text: { active: (character_active) } });
     }
 
     /// Update language filter button states
     fn update_language_filter_buttons(&mut self, cx: &mut Cx) {
-        let all_active = if self.library_language_filter == LanguageFilter::All { 1.0 } else { 0.0 };
-        let zh_active = if self.library_language_filter == LanguageFilter::Chinese { 1.0 } else { 0.0 };
-        let en_active = if self.library_language_filter == LanguageFilter::English { 1.0 } else { 0.0 };
+        let all_active = if self.library_language_filter == LanguageFilter::All {
+            1.0
+        } else {
+            0.0
+        };
+        let zh_active = if self.library_language_filter == LanguageFilter::Chinese {
+            1.0
+        } else {
+            0.0
+        };
+        let en_active = if self.library_language_filter == LanguageFilter::English {
+            1.0
+        } else {
+            0.0
+        };
 
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_all_btn))
-            .apply_over(cx, live! { draw_bg: { active: (all_active) } draw_text: { active: (all_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_zh_btn))
-            .apply_over(cx, live! { draw_bg: { active: (zh_active) } draw_text: { active: (zh_active) } });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter.lang_en_btn))
-            .apply_over(cx, live! { draw_bg: { active: (en_active) } draw_text: { active: (en_active) } });
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_all_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (all_active) } draw_text: { active: (all_active) } },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_zh_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (zh_active) } draw_text: { active: (zh_active) } },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+                    .lang_en_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { active: (en_active) } draw_text: { active: (en_active) } },
+            );
     }
 
     fn update_settings_tabs(&mut self, _cx: &mut Cx) {}
 
     fn update_user_settings_tabs(&mut self, cx: &mut Cx) {
-        let general_active = if self.user_settings_tab == 0 { 1.0 } else { 0.0 };
-        let voice_active = if self.user_settings_tab == 1 { 1.0 } else { 0.0 };
-        let system_active = if self.user_settings_tab == 2 { 1.0 } else { 0.0 };
+        let general_active = if self.user_settings_tab == 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let voice_active = if self.user_settings_tab == 1 {
+            1.0
+        } else {
+            0.0
+        };
+        let system_active = if self.user_settings_tab == 2 {
+            1.0
+        } else {
+            0.0
+        };
         let dark_mode = self.dark_mode;
 
         self.view
@@ -17218,13 +20931,40 @@ impl TTSScreen {
             );
 
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+            ))
             .set_visible(cx, self.user_settings_tab == 0);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+            ))
             .set_visible(cx, self.user_settings_tab == 1);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+            ))
             .set_visible(cx, self.user_settings_tab == 2);
     }
 
@@ -17234,26 +20974,82 @@ impl TTSScreen {
         let zh_active = if self.app_language == "zh" { 1.0 } else { 0.0 };
         let dark_mode = self.dark_mode;
 
-        self.view.button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_en_option))
-            .apply_over(cx, live! {
-                draw_bg: { active: (en_active), dark_mode: (dark_mode) }
-                draw_text: { active: (en_active), dark_mode: (dark_mode) }
-            });
-        self.view.button(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_options.lang_zh_option))
-            .apply_over(cx, live! {
-                draw_bg: { active: (zh_active), dark_mode: (dark_mode) }
-                draw_text: { active: (zh_active), dark_mode: (dark_mode) }
-            });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_en_option))
-            .apply_over(cx, live! {
-                draw_bg: { active: (en_active), dark_mode: (dark_mode) }
-                draw_text: { active: (en_active), dark_mode: (dark_mode) }
-            });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_options.lang_zh_option))
-            .apply_over(cx, live! {
-                draw_bg: { active: (zh_active), dark_mode: (dark_mode) }
-                draw_text: { active: (zh_active), dark_mode: (dark_mode) }
-            });
+        self.view
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .language_section
+                    .language_options
+                    .lang_en_option
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (en_active), dark_mode: (dark_mode) }
+                    draw_text: { active: (en_active), dark_mode: (dark_mode) }
+                },
+            );
+        self.view
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .language_section
+                    .language_options
+                    .lang_zh_option
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (zh_active), dark_mode: (dark_mode) }
+                    draw_text: { active: (zh_active), dark_mode: (dark_mode) }
+                },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .language_section
+                    .language_options
+                    .lang_en_option
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (en_active), dark_mode: (dark_mode) }
+                    draw_text: { active: (en_active), dark_mode: (dark_mode) }
+                },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .language_section
+                    .language_options
+                    .lang_zh_option
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (zh_active), dark_mode: (dark_mode) }
+                    draw_text: { active: (zh_active), dark_mode: (dark_mode) }
+                },
+            );
         self.view.redraw(cx);
     }
 
@@ -17263,26 +21059,82 @@ impl TTSScreen {
         let dark_active = if self.dark_mode >= 0.5 { 1.0 } else { 0.0 };
         let dark_mode = self.dark_mode;
 
-        self.view.button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_light_option))
-            .apply_over(cx, live! {
-                draw_bg: { active: (light_active), dark_mode: (dark_mode) }
-                draw_text: { active: (light_active), dark_mode: (dark_mode) }
-            });
-        self.view.button(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_options.theme_dark_option))
-            .apply_over(cx, live! {
-                draw_bg: { active: (dark_active), dark_mode: (dark_mode) }
-                draw_text: { active: (dark_active), dark_mode: (dark_mode) }
-            });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_light_option))
-            .apply_over(cx, live! {
-                draw_bg: { active: (light_active), dark_mode: (dark_mode) }
-                draw_text: { active: (light_active), dark_mode: (dark_mode) }
-            });
-        self.view.button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_options.theme_dark_option))
-            .apply_over(cx, live! {
-                draw_bg: { active: (dark_active), dark_mode: (dark_mode) }
-                draw_text: { active: (dark_active), dark_mode: (dark_mode) }
-            });
+        self.view
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .theme_section
+                    .theme_options
+                    .theme_light_option
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (light_active), dark_mode: (dark_mode) }
+                    draw_text: { active: (light_active), dark_mode: (dark_mode) }
+                },
+            );
+        self.view
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .theme_section
+                    .theme_options
+                    .theme_dark_option
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (dark_active), dark_mode: (dark_mode) }
+                    draw_text: { active: (dark_active), dark_mode: (dark_mode) }
+                },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .theme_section
+                    .theme_options
+                    .theme_light_option
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (light_active), dark_mode: (dark_mode) }
+                    draw_text: { active: (light_active), dark_mode: (dark_mode) }
+                },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .theme_section
+                    .theme_options
+                    .theme_dark_option
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (dark_active), dark_mode: (dark_mode) }
+                    draw_text: { active: (dark_active), dark_mode: (dark_mode) }
+                },
+            );
         self.view.redraw(cx);
     }
 
@@ -17596,9 +21448,11 @@ impl TTSScreen {
     /// Apply dark mode to the entire UI
     fn apply_dark_mode(&mut self, cx: &mut Cx) {
         let dark_mode = self.dark_mode;
-        
+
         // Apply to main layout
-        self.view.view(ids!(content_wrapper)).apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(content_wrapper))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
 
         self.view
             .label(ids!(
@@ -17664,9 +21518,18 @@ impl TTSScreen {
                     .char_count
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-        
+
         // Apply to settings panel
-        self.view.view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel))
+        self.view
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
 
         self.view
@@ -17675,64 +21538,170 @@ impl TTSScreen {
 
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.page_header.page_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .page_header
+                    .page_title
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .view(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.page_header.translation_status_badge
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .page_header
+                    .translation_status_badge
             ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
             .view(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
             ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_source
+                    .translation_source_label
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.translation_src_lang_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_src_lang
+                    .translation_src_lang_label
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.translation_tgt_lang_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_tgt_lang
+                    .translation_tgt_lang_label
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.translation_overlay_style_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .translation_overlay_style_label
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_font_size.translation_font_size_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_font_size
+                    .translation_font_size_label
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_anchor_position.translation_anchor_position_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_anchor_position
+                    .translation_anchor_position_label
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_opacity.translation_opacity_label
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_opacity
+                    .translation_opacity_label
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_compact
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .overlay_style_compact
             ))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         self.view
             .button(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_overlay.overlay_style_full
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_overlay
+                    .overlay_style_full
             ))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         self.view
             .drop_down(ids!(
                 content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown
@@ -17765,21 +21734,38 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } popup_menu: { draw_bg: { dark_mode: (dark_mode) } menu_item: { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } } } });
         self.view
             .view(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+                    .translation_log_card
             ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
             .label(ids!(
-                content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_running_panel.translation_log_card.translation_log_title
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_running_panel
+                    .translation_log_card
+                    .translation_log_title
             ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
         // Apply to global settings modal
-        self.view.view(ids!(global_settings_modal.settings_dialog))
+        self.view
+            .view(ids!(global_settings_modal.settings_dialog))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-        
+
         // Apply to model picker modal
-        self.view.view(ids!(model_picker_modal.model_picker_dialog))
+        self.view
+            .view(ids!(model_picker_modal.model_picker_dialog))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
 
         // Voice picker container itself has no draw_bg.dark_mode field.
@@ -17825,13 +21811,28 @@ impl TTSScreen {
             .view(ids!(download_modal.download_dialog))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(download_modal.download_dialog.download_header.download_title))
+            .label(ids!(
+                download_modal
+                    .download_dialog
+                    .download_header
+                    .download_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(download_modal.download_dialog.download_header.download_subtitle))
+            .label(ids!(
+                download_modal
+                    .download_dialog
+                    .download_header
+                    .download_subtitle
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .button(ids!(download_modal.download_dialog.download_actions.download_mp3_btn))
+            .button(ids!(
+                download_modal
+                    .download_dialog
+                    .download_actions
+                    .download_mp3_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17840,7 +21841,12 @@ impl TTSScreen {
                 },
             );
         self.view
-            .button(ids!(download_modal.download_dialog.download_actions.download_wav_btn))
+            .button(ids!(
+                download_modal
+                    .download_dialog
+                    .download_actions
+                    .download_wav_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17849,7 +21855,12 @@ impl TTSScreen {
                 },
             );
         self.view
-            .button(ids!(download_modal.download_dialog.download_footer.download_cancel_btn))
+            .button(ids!(
+                download_modal
+                    .download_dialog
+                    .download_footer
+                    .download_cancel_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17864,7 +21875,9 @@ impl TTSScreen {
             .label(ids!(share_modal.share_dialog.share_header.share_subtitle))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_system_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_system_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17873,7 +21886,9 @@ impl TTSScreen {
                 },
             );
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_capcut_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_capcut_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17882,7 +21897,9 @@ impl TTSScreen {
                 },
             );
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_premiere_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_premiere_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17891,7 +21908,9 @@ impl TTSScreen {
                 },
             );
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_wechat_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_wechat_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17900,7 +21919,9 @@ impl TTSScreen {
                 },
             );
         self.view
-            .button(ids!(share_modal.share_dialog.share_actions.share_finder_btn))
+            .button(ids!(
+                share_modal.share_dialog.share_actions.share_finder_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17918,7 +21939,12 @@ impl TTSScreen {
                 },
             );
         self.view
-            .button(ids!(global_settings_modal.settings_dialog.settings_header.settings_close_btn))
+            .button(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_header
+                    .settings_close_btn
+            ))
             .apply_over(
                 cx,
                 live! {
@@ -17927,134 +21953,593 @@ impl TTSScreen {
                 },
             );
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_header.settings_title))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_header
+                    .settings_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.language_section.language_title))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .language_section
+                    .language_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.theme_section.theme_title))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .theme_section
+                    .theme_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_title))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .about_section
+                    .about_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_version))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .about_section
+                    .about_version
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_engine))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .about_section
+                    .about_engine
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(global_settings_modal.settings_dialog.settings_content.about_section.about_ominix))
+            .label(ids!(
+                global_settings_modal
+                    .settings_dialog
+                    .settings_content
+                    .about_section
+                    .about_ominix
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.user_settings_header.user_settings_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .user_settings_header
+                    .user_settings_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.app_settings_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .app_settings_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.language_section.language_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .language_section
+                    .language_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.app_settings_card.theme_section.theme_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .app_settings_card
+                    .theme_section
+                    .theme_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .speed_col
+                    .speed_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .pitch_col
+                    .pitch_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .volume_col
+                    .volume_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.speed_col.speed_input))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .speed_col
+                    .speed_input
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.pitch_col.pitch_input))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .pitch_col
+                    .pitch_input
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_row.volume_col.volume_input))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_row
+                    .volume_col
+                    .volume_input
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .runtime_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.dora_status))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .dora_status
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.asr_status))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .asr_status
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.tts_status))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .tts_status
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.paths_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .paths_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.model_path_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .model_path_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.log_path_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .log_path_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.workspace_path_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .workspace_path_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .privacy_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.retention_pick_row.retention_pick_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .retention_pick_row
+                    .retention_pick_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_header.devices_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .devices_header
+                    .devices_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_pick_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .input_pick_row
+                    .input_pick_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.output_pick_row.output_pick_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .output_pick_row
+                    .output_pick_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.experiments_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .experiments_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.zero_shot_backend_pick_row.zero_shot_backend_pick_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .zero_shot_backend_pick_row
+                    .zero_shot_backend_pick_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.backend_pick_row.backend_pick_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .backend_pick_row
+                    .backend_pick_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.debug_pick_row.debug_pick_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .debug_pick_row
+                    .debug_pick_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.qwen_status_row.qwen_status_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .qwen_status_row
+                    .qwen_status_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.experiments_card.qwen_status_row.qwen_status_value))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .experiments_card
+                    .qwen_status_row
+                    .qwen_status_value
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
             .drop_down(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.input_pick_row.input_device_dropdown))
@@ -18077,69 +22562,363 @@ impl TTSScreen {
 
         // profile_card
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_body
+                    .profile_form
+                    .name_row
+                    .name_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_body.profile_form.name_row.name_input))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_body
+                    .profile_form
+                    .name_row
+                    .name_input
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.profile_panel.profile_card.profile_actions.save_profile_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .profile_panel
+                    .profile_card
+                    .profile_actions
+                    .save_profile_btn
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
 
         // defaults_card labels + action buttons
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_voice_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_voice_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         // 11-segment paths (through an actions sub-view)
         for btn_id in [
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.save_defaults_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.defaults_card.defaults_actions.apply_defaults_now_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.app_panel.devices_card.devices_header.refresh_devices_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_model_dir_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_log_dir_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.path_actions.open_workspace_dir_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_tts_history_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.privacy_card.privacy_actions.clear_training_artifacts_btn),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_actions
+                    .save_defaults_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .defaults_card
+                    .defaults_actions
+                    .apply_defaults_now_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .app_panel
+                    .devices_card
+                    .devices_header
+                    .refresh_devices_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_model_dir_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_log_dir_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .path_actions
+                    .open_workspace_dir_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .privacy_actions
+                    .clear_tts_history_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .privacy_card
+                    .privacy_actions
+                    .clear_training_artifacts_btn
+            ),
         ] {
-            self.view
-                .button(btn_id)
-                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            self.view.button(btn_id).apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         }
         // 10-segment paths (direct child of card)
         for btn_id in [
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.runtime_card.runtime_refresh_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.paths_card.clear_cache_btn),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .runtime_card
+                    .runtime_refresh_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .paths_card
+                    .clear_cache_btn
+            ),
         ] {
-            self.view
-                .button(btn_id)
-                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            self.view.button(btn_id).apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         }
 
         // about_card
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         for label_id in [
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_section_title),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_version_label),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_engine_label),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_section_title
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_engine_label
+            ),
         ] {
             self.view
                 .label(label_id)
                 .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         }
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_version_row
+                    .about_version_label
+            ))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_version_row
+                    .about_install_update_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         for label_id in [
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_moxin_link.about_moxin_label),
-            ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_scroll.settings_scroll_content.runtime_panel.about_card.about_ominix_link.about_ominix_label),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_moxin_link
+                    .about_moxin_label
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_scroll
+                    .settings_scroll_content
+                    .runtime_panel
+                    .about_card
+                    .about_ominix_link
+                    .about_ominix_label
+            ),
         ] {
             self.view
                 .label(label_id)
@@ -18148,42 +22927,199 @@ impl TTSScreen {
 
         // Library page
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.library_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .library_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .text_input(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.search_input))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            .text_input(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .search_input
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.title_and_tags.language_filter))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .title_and_tags
+                    .language_filter
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.row_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .row_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.row_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .row_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.row_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .row_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         for chip_id in [
-            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_male_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.filter_female_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_adult_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_gender.age_youth_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_sweet_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_style.style_magnetic_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_prof_btn),
-            ids!(content_wrapper.main_content.left_column.content_area.library_page.library_header.category_filter.row_trait.trait_character_btn),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .filter_male_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .filter_female_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .age_adult_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_gender
+                    .age_youth_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .style_sweet_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_style
+                    .style_magnetic_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .trait_prof_btn
+            ),
+            ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .library_header
+                    .category_filter
+                    .row_trait
+                    .trait_character_btn
+            ),
         ] {
-            self.view
-                .button(chip_id)
-                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            self.view.button(chip_id).apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         }
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.library_page.empty_state.empty_text))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .empty_state
+                    .empty_text
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
         self.view.redraw(cx);
@@ -18256,8 +23192,8 @@ impl TTSScreen {
             // Sweet / warm / gentle oriented built-in presets.
             "Yang Mi" | "Maple" | "Juniper" | "Ellen" => return 1,
             // Stronger / deeper / distinctive built-in presets.
-            "Luo Xiang" | "Zhou Jielun" | "Ma Yun" | "Chen Yifan" | "Zhao Daniu"
-            | "Ma Baoguo" | "Shen Yi" | "Cove" | "Trump" => return 2,
+            "Luo Xiang" | "Zhou Jielun" | "Ma Yun" | "Chen Yifan" | "Zhao Daniu" | "Ma Baoguo"
+            | "Shen Yi" | "Cove" | "Trump" => return 2,
             _ => {}
         }
 
@@ -18328,7 +23264,9 @@ impl TTSScreen {
         } else {
             match voice.category {
                 crate::voice_data::VoiceCategory::Male => Some(self.tr("男声", "Male").to_string()),
-                crate::voice_data::VoiceCategory::Female => Some(self.tr("女声", "Female").to_string()),
+                crate::voice_data::VoiceCategory::Female => {
+                    Some(self.tr("女声", "Female").to_string())
+                }
                 crate::voice_data::VoiceCategory::Character => None,
             }
         };
@@ -18389,14 +23327,46 @@ impl TTSScreen {
 
     fn update_voice_picker_controls(&mut self, cx: &mut Cx) {
         let dark_mode = self.dark_mode;
-        let male_active = if self.voice_picker_gender_filter == VoiceFilter::Male { 1.0 } else { 0.0 };
-        let female_active = if self.voice_picker_gender_filter == VoiceFilter::Female { 1.0 } else { 0.0 };
-        let adult_active = if self.voice_picker_age_filter & 0b01 != 0 { 1.0 } else { 0.0 };
-        let youth_active = if self.voice_picker_age_filter & 0b10 != 0 { 1.0 } else { 0.0 };
-        let sweet_active = if self.voice_picker_style_filter & 0b01 != 0 { 1.0 } else { 0.0 };
-        let magnetic_active = if self.voice_picker_style_filter & 0b10 != 0 { 1.0 } else { 0.0 };
-        let prof_active = if self.voice_picker_trait_filter & 0b01 != 0 { 1.0 } else { 0.0 };
-        let character_active = if self.voice_picker_trait_filter & 0b10 != 0 { 1.0 } else { 0.0 };
+        let male_active = if self.voice_picker_gender_filter == VoiceFilter::Male {
+            1.0
+        } else {
+            0.0
+        };
+        let female_active = if self.voice_picker_gender_filter == VoiceFilter::Female {
+            1.0
+        } else {
+            0.0
+        };
+        let adult_active = if self.voice_picker_age_filter & 0b01 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let youth_active = if self.voice_picker_age_filter & 0b10 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let sweet_active = if self.voice_picker_style_filter & 0b01 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let magnetic_active = if self.voice_picker_style_filter & 0b10 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let prof_active = if self.voice_picker_trait_filter & 0b01 != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        let character_active = if self.voice_picker_trait_filter & 0b10 != 0 {
+            1.0
+        } else {
+            0.0
+        };
 
         let active_voice_id = self.selected_voice_id.as_ref();
         let active_voice_name = active_voice_id
@@ -18405,26 +23375,118 @@ impl TTSScreen {
             .unwrap_or_else(|| self.tr("请选择", "Select").to_string());
 
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.selected_voice_btn))
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .select_voice_row
+                    .selected_voice_btn
+            ))
             .set_text(cx, &active_voice_name);
 
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.selected_voice_btn))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .select_voice_row
+                    .selected_voice_btn
+            ))
+            .apply_over(
+                cx,
+                live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } },
+            );
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.select_voice_row.select_voice_title))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .select_voice_row
+                    .select_voice_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_gender.tag_group_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_gender
+                    .tag_group_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_style.tag_group_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_style
+                    .tag_group_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_filter_card.tag_row_trait.tag_group_label))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_filter_card
+                    .tag_row_trait
+                    .tag_group_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
         self.view
@@ -18465,13 +23527,46 @@ impl TTSScreen {
         };
 
         self.view
-            .portal_list(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_list))
+            .portal_list(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_picker_list
+            ))
             .set_visible(cx, !is_empty);
         self.view
-            .label(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_empty))
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_picker_empty
+            ))
             .set_text(cx, empty_text);
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_empty_container))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_picker_empty_container
+            ))
             .set_visible(cx, is_empty);
 
         self.view.redraw(cx);
@@ -18480,7 +23575,17 @@ impl TTSScreen {
     fn sync_selected_model_ui(&mut self, cx: &mut Cx) {
         // Qwen3-only: hide model picker row — no backend choice available.
         self.view
-            .view(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.input_section.bottom_bar.model_row))
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .input_section
+                    .bottom_bar
+                    .model_row
+            ))
             .set_visible(cx, false);
 
         if self.model_options.is_empty() {
@@ -18544,29 +23649,58 @@ impl TTSScreen {
         };
 
         self.view
-            .label(ids!(model_picker_modal.model_picker_dialog.model_picker_header.model_picker_title))
+            .label(ids!(
+                model_picker_modal
+                    .model_picker_dialog
+                    .model_picker_header
+                    .model_picker_title
+            ))
             .set_text(cx, self.tr("选择模型", "Select a model"));
         self.view
-            .label(ids!(model_picker_modal.model_picker_dialog.model_picker_footer.model_picker_footer_label))
+            .label(ids!(
+                model_picker_modal
+                    .model_picker_dialog
+                    .model_picker_footer
+                    .model_picker_footer_label
+            ))
             .set_text(cx, &footer_text);
 
         self.view
             .view(ids!(model_picker_modal.model_picker_dialog))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(model_picker_modal.model_picker_dialog.model_picker_header))
+            .view(ids!(
+                model_picker_modal.model_picker_dialog.model_picker_header
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(model_picker_modal.model_picker_dialog.model_picker_header.model_picker_title))
+            .label(ids!(
+                model_picker_modal
+                    .model_picker_dialog
+                    .model_picker_header
+                    .model_picker_title
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .button(ids!(model_picker_modal.model_picker_dialog.model_picker_header.model_picker_back_btn))
+            .button(ids!(
+                model_picker_modal
+                    .model_picker_dialog
+                    .model_picker_header
+                    .model_picker_back_btn
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         self.view
-            .view(ids!(model_picker_modal.model_picker_dialog.model_picker_footer))
+            .view(ids!(
+                model_picker_modal.model_picker_dialog.model_picker_footer
+            ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .label(ids!(model_picker_modal.model_picker_dialog.model_picker_footer.model_picker_footer_label))
+            .label(ids!(
+                model_picker_modal
+                    .model_picker_dialog
+                    .model_picker_footer
+                    .model_picker_footer_label
+            ))
             .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
 
         self.view.redraw(cx);
@@ -18591,7 +23725,12 @@ impl TTSScreen {
             return;
         }
 
-        if let Some(model) = self.model_options.iter().find(|m| m.id == model_id).cloned() {
+        if let Some(model) = self
+            .model_options
+            .iter()
+            .find(|m| m.id == model_id)
+            .cloned()
+        {
             self.selected_tts_model_id = Some(model.id.clone());
             // Update the inference_backend preference to match selected model
             self.app_preferences.inference_backend = model.id.clone();
@@ -18607,7 +23746,11 @@ impl TTSScreen {
             // Show in-dialog switching overlay and wait for new dataflow to be ready
             self.backend_switching = true;
             self.backend_switch_bridges_dropped = false;
-            self.view.view(ids!(model_picker_modal.model_picker_dialog.switching_overlay)).set_visible(cx, true);
+            self.view
+                .view(ids!(
+                    model_picker_modal.model_picker_dialog.switching_overlay
+                ))
+                .set_visible(cx, true);
             self.sync_selected_model_ui(cx);
             self.update_model_picker_controls(cx);
             self.add_log(
@@ -18736,24 +23879,99 @@ impl TTSScreen {
                 ))
                 .set_text(cx, &style_label);
             let dark_mode = self.dark_mode;
-            self.view.view(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.gender_badge
-            )).apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-            self.view.label(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.gender_badge.gender_badge_label
-            )).apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-            self.view.view(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.age_badge
-            )).apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-            self.view.label(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.age_badge.age_badge_label
-            )).apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
-            self.view.view(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.style_badge
-            )).apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
-            self.view.label(ids!(
-                content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.voice_row.voice_tags_row.style_badge.style_badge_label
-            )).apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+            self.view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .gender_badge
+                ))
+                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            self.view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .gender_badge
+                        .gender_badge_label
+                ))
+                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+            self.view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .age_badge
+                ))
+                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            self.view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .age_badge
+                        .age_badge_label
+                ))
+                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+            self.view
+                .view(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .style_badge
+                ))
+                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            self.view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .tts_page
+                        .cards_container
+                        .controls_panel
+                        .settings_panel
+                        .voice_row
+                        .voice_tags_row
+                        .style_badge
+                        .style_badge_label
+                ))
+                .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         } else {
             self.selected_voice_id = None;
             self.voice_picker_active_voice_id = None;
@@ -18838,14 +24056,14 @@ impl TTSScreen {
 
     /// Filter voices based on category tags, language, and search query
     fn get_filtered_voices(&self) -> Vec<Voice> {
-            self.library_voices
-                .iter()
+        self.library_voices
+            .iter()
             .filter(|v| v.matches_filter(&self.library_category_filter))
             .filter(|v| self.matches_library_age_filter(v))
             .filter(|v| self.matches_library_style_filter(v))
             .filter(|v| self.matches_library_trait_filter(v))
             .filter(|v| v.matches_language(&self.library_language_filter))
-                .filter(|v| {
+            .filter(|v| {
                 if self.library_search_query.is_empty() {
                     true
                 } else {
@@ -18853,9 +24071,9 @@ impl TTSScreen {
                     v.name.to_lowercase().contains(&query)
                         || v.language.to_lowercase().contains(&query)
                 }
-                })
-                .cloned()
-                .collect()
+            })
+            .cloned()
+            .collect()
     }
 
     /// Update library display
@@ -18866,7 +24084,7 @@ impl TTSScreen {
         let filtered = self.get_filtered_voices();
         let total_count = self.library_voices.len();
         let filtered_count = filtered.len();
-        
+
         // Update empty state visibility
         let is_empty = filtered.is_empty();
         self.view
@@ -18883,7 +24101,10 @@ impl TTSScreen {
         // Update empty state text based on whether it's a search result or truly empty
         if is_empty {
             let empty_text = if self.library_search_query.is_empty() {
-                self.tr("暂无音色，点击「克隆音色」创建", "No voices yet. Click \"Clone Voice\" to create one.")
+                self.tr(
+                    "暂无音色，点击「克隆音色」创建",
+                    "No voices yet. Click \"Clone Voice\" to create one.",
+                )
             } else {
                 self.tr("未找到匹配的音色", "No matching voices found.")
             };
@@ -18902,12 +24123,18 @@ impl TTSScreen {
 
         // Log the display status
         if self.library_search_query.is_empty() {
-            self.add_log(cx, &format!("[INFO] [library] Displaying {} voices", filtered_count));
+            self.add_log(
+                cx,
+                &format!("[INFO] [library] Displaying {} voices", filtered_count),
+            );
         } else {
-            self.add_log(cx, &format!(
-                "[INFO] [library] Search results: {} of {} voices match '{}'",
-                filtered_count, total_count, self.library_search_query
-            ));
+            self.add_log(
+                cx,
+                &format!(
+                    "[INFO] [library] Search results: {} of {} voices match '{}'",
+                    filtered_count, total_count, self.library_search_query
+                ),
+            );
         }
 
         // Show/hide voice_list vs empty_state
@@ -18928,12 +24155,20 @@ impl TTSScreen {
 
     /// Delete a voice
     fn delete_voice(&mut self, cx: &mut Cx, voice_id: String) {
-        self.add_log(cx, &format!("[INFO] [library] Deleting voice: {}", voice_id));
+        self.add_log(
+            cx,
+            &format!("[INFO] [library] Deleting voice: {}", voice_id),
+        );
 
         // Check if it's a custom/trained voice (only those can be deleted from disk)
-        let is_custom = self.library_voices.iter()
+        let is_custom = self
+            .library_voices
+            .iter()
             .find(|v| v.id == voice_id)
-            .map(|v| v.source != crate::voice_data::VoiceSource::Builtin && v.source != crate::voice_data::VoiceSource::BundledIcl)
+            .map(|v| {
+                v.source != crate::voice_data::VoiceSource::Builtin
+                    && v.source != crate::voice_data::VoiceSource::BundledIcl
+            })
             .unwrap_or(false);
 
         // Remove from in-memory list
@@ -18942,7 +24177,10 @@ impl TTSScreen {
         // Delete from disk if custom/trained
         if is_custom {
             if let Err(e) = crate::voice_persistence::remove_custom_voice(&voice_id) {
-                self.add_log(cx, &format!("[WARN] [library] Failed to remove from disk: {}", e));
+                self.add_log(
+                    cx,
+                    &format!("[WARN] [library] Failed to remove from disk: {}", e),
+                );
             }
         }
 
@@ -18962,16 +24200,37 @@ impl TTSScreen {
 
     fn reset_voice_lists_after_delete(&mut self, _cx: &mut Cx) {
         self.view
-            .portal_list(ids!(content_wrapper.main_content.left_column.content_area.library_page.voice_list))
+            .portal_list(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .library_page
+                    .voice_list
+            ))
             .set_first_id(0);
         self.view
-            .portal_list(ids!(content_wrapper.main_content.left_column.content_area.tts_page.cards_container.controls_panel.settings_panel.inline_voice_picker.voice_picker_list))
+            .portal_list(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .inline_voice_picker
+                    .voice_picker_list
+            ))
             .set_first_id(0);
     }
 
     /// Preview a voice from the library
     fn preview_voice(&mut self, cx: &mut Cx, voice_id: String) {
-        self.add_log(cx, &format!("[INFO] [library] Previewing voice: {}", voice_id));
+        self.add_log(
+            cx,
+            &format!("[INFO] [library] Previewing voice: {}", voice_id),
+        );
 
         // Toggle: stop if already playing this voice
         if self.preview_playing_voice_id.as_deref() == Some(&voice_id) {
@@ -18993,7 +24252,10 @@ impl TTSScreen {
         let voice = match self.library_voices.iter().find(|v| v.id == voice_id) {
             Some(v) => v.clone(),
             None => {
-                self.add_log(cx, &format!("[WARN] [library] Voice not found: {}", voice_id));
+                self.add_log(
+                    cx,
+                    &format!("[WARN] [library] Voice not found: {}", voice_id),
+                );
                 return;
             }
         };
@@ -19001,48 +24263,70 @@ impl TTSScreen {
         // Build audio path based on voice source
         use crate::voice_data::VoiceSource;
         use crate::voice_persistence;
-        let audio_path = if voice.source == VoiceSource::Custom || voice.source == VoiceSource::Trained {
-            match voice_persistence::get_reference_audio_path(&voice) {
-                Some(path) => path,
-                None => {
-                    self.add_log(cx, &format!("[WARN] [library] No reference audio for custom voice: {}", voice_id));
-                    return;
+        let audio_path =
+            if voice.source == VoiceSource::Custom || voice.source == VoiceSource::Trained {
+                match voice_persistence::get_reference_audio_path(&voice) {
+                    Some(path) => path,
+                    None => {
+                        self.add_log(
+                            cx,
+                            &format!(
+                                "[WARN] [library] No reference audio for custom voice: {}",
+                                voice_id
+                            ),
+                        );
+                        return;
+                    }
                 }
-            }
-        } else if voice.source == VoiceSource::BundledIcl {
-            // Use bundled ref audio as preview
-            let ref_filename = voice.reference_audio_path.as_deref().unwrap_or("ref.wav");
-            match self.resolve_bundled_icl_ref_path(&voice.id, ref_filename) {
-                Some(path) => path,
-                None => {
-                    self.add_log(cx, &format!("[WARN] [library] Bundled ref audio not found for: {}", voice_id));
-                    return;
+            } else if voice.source == VoiceSource::BundledIcl {
+                // Use bundled ref audio as preview
+                let ref_filename = voice.reference_audio_path.as_deref().unwrap_or("ref.wav");
+                match self.resolve_bundled_icl_ref_path(&voice.id, ref_filename) {
+                    Some(path) => path,
+                    None => {
+                        self.add_log(
+                            cx,
+                            &format!(
+                                "[WARN] [library] Bundled ref audio not found for: {}",
+                                voice_id
+                            ),
+                        );
+                        return;
+                    }
                 }
-            }
-        } else {
-            let preview_file = match &voice.preview_audio {
-                Some(f) => f.clone(),
-                None => {
-                    self.add_log(cx, &format!("[WARN] [library] No preview audio for: {}", voice_id));
-                    return;
+            } else {
+                let preview_file = match &voice.preview_audio {
+                    Some(f) => f.clone(),
+                    None => {
+                        self.add_log(
+                            cx,
+                            &format!("[WARN] [library] No preview audio for: {}", voice_id),
+                        );
+                        return;
+                    }
+                };
+                if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
+                    // Qwen3 preview audio: bundled in repo/app
+                    self.resolve_qwen_preview_path(&preview_file)
+                } else {
+                    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+                    home.join(".dora")
+                        .join("models")
+                        .join("primespeech")
+                        .join("moyoyo")
+                        .join("ref_audios")
+                        .join(&preview_file)
                 }
             };
-            if self.app_preferences.inference_backend == "qwen3_tts_mlx" {
-                // Qwen3 preview audio: bundled in repo/app
-                self.resolve_qwen_preview_path(&preview_file)
-            } else {
-                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-                home.join(".dora")
-                    .join("models")
-                    .join("primespeech")
-                    .join("moyoyo")
-                    .join("ref_audios")
-                    .join(&preview_file)
-            }
-        };
 
         if !audio_path.exists() {
-            self.add_log(cx, &format!("[WARN] [library] Preview audio file not found: {:?}", audio_path));
+            self.add_log(
+                cx,
+                &format!(
+                    "[WARN] [library] Preview audio file not found: {:?}",
+                    audio_path
+                ),
+            );
             return;
         }
 
@@ -19062,10 +24346,16 @@ impl TTSScreen {
                 self.preview_playing_voice_id = Some(voice_id.clone());
                 self.update_voice_picker_controls(cx);
                 self.view.redraw(cx);
-                self.add_log(cx, &format!("[INFO] [library] Playing preview: {}", voice_id));
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [library] Playing preview: {}", voice_id),
+                );
             }
             Err(e) => {
-                self.add_log(cx, &format!("[ERROR] [library] Failed to load preview audio: {}", e));
+                self.add_log(
+                    cx,
+                    &format!("[ERROR] [library] Failed to load preview audio: {}", e),
+                );
             }
         }
     }
@@ -19076,12 +24366,15 @@ impl TTSScreen {
     fn load_clone_tasks(&mut self, cx: &mut Cx) {
         self.clone_loading = true;
         self.add_log(cx, "[INFO] [clone] Loading clone tasks...");
-        
+
         // Load tasks from disk
         self.clone_tasks = task_persistence::load_clone_tasks();
-        
+
         self.clone_loading = false;
-        self.add_log(cx, &format!("[INFO] [clone] Loaded {} tasks", self.clone_tasks.len()));
+        self.add_log(
+            cx,
+            &format!("[INFO] [clone] Loaded {} tasks", self.clone_tasks.len()),
+        );
         self.update_clone_display(cx);
     }
 
@@ -19093,7 +24386,7 @@ impl TTSScreen {
     /// Update clone display
     fn update_clone_display(&mut self, cx: &mut Cx) {
         let is_empty = self.clone_tasks.is_empty();
-        
+
         // Update empty state visibility
         self.view
             .view(ids!(
@@ -19105,15 +24398,35 @@ impl TTSScreen {
                     .clone_empty_state
             ))
             .set_visible(cx, is_empty);
-        
+
         // Log task statistics
         if !is_empty {
-            let completed = self.clone_tasks.iter().filter(|t| t.status == CloneTaskStatus::Completed).count();
-            let processing = self.clone_tasks.iter().filter(|t| t.status == CloneTaskStatus::Processing).count();
-            let pending = self.clone_tasks.iter().filter(|t| t.status == CloneTaskStatus::Pending).count();
-            let failed = self.clone_tasks.iter().filter(|t| t.status == CloneTaskStatus::Failed).count();
-            let cancelled = self.clone_tasks.iter().filter(|t| t.status == CloneTaskStatus::Cancelled).count();
-            
+            let completed = self
+                .clone_tasks
+                .iter()
+                .filter(|t| t.status == CloneTaskStatus::Completed)
+                .count();
+            let processing = self
+                .clone_tasks
+                .iter()
+                .filter(|t| t.status == CloneTaskStatus::Processing)
+                .count();
+            let pending = self
+                .clone_tasks
+                .iter()
+                .filter(|t| t.status == CloneTaskStatus::Pending)
+                .count();
+            let failed = self
+                .clone_tasks
+                .iter()
+                .filter(|t| t.status == CloneTaskStatus::Failed)
+                .count();
+            let cancelled = self
+                .clone_tasks
+                .iter()
+                .filter(|t| t.status == CloneTaskStatus::Cancelled)
+                .count();
+
             self.add_log(cx, &format!(
                 "[INFO] [clone] Tasks: {} total ({} completed, {} processing, {} pending, {} failed, {} cancelled)",
                 self.clone_tasks.len(), completed, processing, pending, failed, cancelled
@@ -19121,7 +24434,7 @@ impl TTSScreen {
         } else {
             self.add_log(cx, "[INFO] [clone] No tasks found");
         }
-        
+
         // TODO: Update task cards dynamically using PortalList
     }
 
@@ -19129,30 +24442,38 @@ impl TTSScreen {
     fn show_cancel_task_confirmation(&mut self, cx: &mut Cx, task_id: String, task_name: String) {
         self.pending_cancel_task_id = Some(task_id.clone());
         self.pending_cancel_task_name = Some(task_name.clone());
-        
+
         // Update dialog with task name
         self.view
             .label(ids!(confirm_cancel_modal.dialog.header.task_name))
             .set_text(cx, &format!("\"{}\"", task_name));
-        
+
         // Show dialog
         self.view
             .view(ids!(confirm_cancel_modal))
             .set_visible(cx, true);
-        
-        self.add_log(cx, &format!("[INFO] [clone] Requesting cancel confirmation for: {}", task_name));
+
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [clone] Requesting cancel confirmation for: {}",
+                task_name
+            ),
+        );
     }
 
     /// Cancel a clone task (called after confirmation)
     fn cancel_clone_task(&mut self, cx: &mut Cx, task_id: String) {
         self.add_log(cx, &format!("[INFO] [clone] Cancelling task: {}", task_id));
-        let cancelled_message = self.tr("任务已由用户取消", "Task cancelled by user").to_string();
-        
+        let cancelled_message = self
+            .tr("任务已由用户取消", "Task cancelled by user")
+            .to_string();
+
         // Find and update task status
         if let Some(task) = self.clone_tasks.iter_mut().find(|t| t.id == task_id) {
             task.status = CloneTaskStatus::Cancelled;
             task.message = Some(cancelled_message);
-            
+
             // Save to disk
             if let Err(e) = task_persistence::save_clone_tasks(&self.clone_tasks) {
                 self.add_log(cx, &format!("[ERROR] [clone] Failed to save tasks: {}", e));
@@ -19160,9 +24481,9 @@ impl TTSScreen {
                 self.add_log(cx, "[INFO] [clone] Task status saved to disk");
             }
         }
-        
+
         // TODO: Cancel actual training process
-        
+
         self.update_clone_display(cx);
         self.show_toast(cx, self.tr("任务已取消", "Task cancelled"));
     }
@@ -19182,7 +24503,9 @@ impl TTSScreen {
 
     /// Refresh the task detail page UI from persistence
     fn refresh_task_detail(&mut self, cx: &mut Cx) {
-        let Some(ref task_id) = self.current_task_id.clone() else { return; };
+        let Some(ref task_id) = self.current_task_id.clone() else {
+            return;
+        };
 
         // Try to get fresh data from persistence
         let task = if let Some(t) = task_persistence::get_task(task_id) {
@@ -19198,10 +24521,17 @@ impl TTSScreen {
         };
 
         // Update task name
-        self.view.label(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_header.detail_task_name
-        )).set_text(cx, &task.name);
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .detail_task_name
+            ))
+            .set_text(cx, &task.name);
 
         // Update status badge text
         let (status_text, _status_val) = match task.status {
@@ -19211,48 +24541,106 @@ impl TTSScreen {
             CloneTaskStatus::Failed => ("失败", 3.0),
             CloneTaskStatus::Cancelled => ("已取消", 3.0),
         };
-        self.view.label(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_header.detail_status_badge.detail_status_label
-        )).set_text(cx, status_text);
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .detail_status_badge
+                    .detail_status_label
+            ))
+            .set_text(cx, status_text);
 
         // Show cancel button only for Pending/Processing tasks
-        let can_cancel = matches!(task.status, CloneTaskStatus::Pending | CloneTaskStatus::Processing);
-        self.view.button(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_header.detail_cancel_btn
-        )).set_visible(cx, can_cancel);
+        let can_cancel = matches!(
+            task.status,
+            CloneTaskStatus::Pending | CloneTaskStatus::Processing
+        );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_header
+                    .detail_cancel_btn
+            ))
+            .set_visible(cx, can_cancel);
 
         // Update time info
-        self.view.label(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_info_card.detail_times_row
-            .detail_created_section.detail_created_at
-        )).set_text(cx, &task.created_at);
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_info_card
+                    .detail_times_row
+                    .detail_created_section
+                    .detail_created_at
+            ))
+            .set_text(cx, &task.created_at);
 
-        self.view.label(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_info_card.detail_times_row
-            .detail_started_section.detail_started_at
-        )).set_text(cx, task.started_at.as_deref().unwrap_or("-"));
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_info_card
+                    .detail_times_row
+                    .detail_started_section
+                    .detail_started_at
+            ))
+            .set_text(cx, task.started_at.as_deref().unwrap_or("-"));
 
-        self.view.label(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_info_card.detail_times_row
-            .detail_completed_section.detail_completed_at
-        )).set_text(cx, task.completed_at.as_deref().unwrap_or("-"));
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_info_card
+                    .detail_times_row
+                    .detail_completed_section
+                    .detail_completed_at
+            ))
+            .set_text(cx, task.completed_at.as_deref().unwrap_or("-"));
 
         // Update overall progress bar
         let pct = task.progress;
         let pct_text = format!("{:.0}%", pct * 100.0);
-        self.view.view(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_progress_card.detail_overall_row.detail_progress_bar
-        )).apply_over(cx, live! { draw_bg: { progress: (pct) } });
-        self.view.label(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_progress_card.detail_overall_row.detail_progress_text
-        )).set_text(cx, &pct_text);
+        self.view
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .detail_overall_row
+                    .detail_progress_bar
+            ))
+            .apply_over(cx, live! { draw_bg: { progress: (pct) } });
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .detail_overall_row
+                    .detail_progress_text
+            ))
+            .set_text(cx, &pct_text);
 
         // Update 8 stage dots
         // dot_color: 0.0 = pending (gray), 1.0 = running (purple), 2.0 = done (green)
@@ -19277,20 +24665,26 @@ impl TTSScreen {
         // Stages 5 and 6 (0-indexed) are the long training stages that have sub-progress.
         let long_training_stages = [5usize, 6usize]; // SoVITS训练 / GPT训练 slots
 
-        let stage_names = ["stage_1", "stage_2", "stage_3", "stage_4", "stage_5", "stage_6", "stage_7", "stage_8"];
+        let stage_names = [
+            "stage_1", "stage_2", "stage_3", "stage_4", "stage_5", "stage_6", "stage_7", "stage_8",
+        ];
         for (i, _name) in stage_names.iter().enumerate() {
             let dot_color: f64 = if is_completed {
-                2.0  // all green when training complete
+                2.0 // all green when training complete
             } else if i < running_idx {
-                2.0  // completed stages
+                2.0 // completed stages
             } else if i == running_idx && is_processing {
-                1.0  // currently running stage
+                1.0 // currently running stage
             } else {
-                0.0  // pending
+                0.0 // pending
             };
 
             // Show "X/Y epochs" for long training stages, otherwise show nothing
-            let pct_label = if i == running_idx && is_processing && long_training_stages.contains(&i) && sub_total > 0 {
+            let pct_label = if i == running_idx
+                && is_processing
+                && long_training_stages.contains(&i)
+                && sub_total > 0
+            {
                 format!("{}/{} epochs", sub_step, sub_total)
             } else {
                 String::new()
@@ -19299,51 +24693,211 @@ impl TTSScreen {
             // Apply to each stage row's dot and pct label
             match i {
                 0 => {
-                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_1_row.stage_1_dot))
+                    self.view
+                        .view(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_1_row
+                                .stage_1_dot
+                        ))
                         .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
-                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_1_row.stage_1_pct))
+                    self.view
+                        .label(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_1_row
+                                .stage_1_pct
+                        ))
                         .set_text(cx, &pct_label);
                 }
                 1 => {
-                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_2_row.stage_2_dot))
+                    self.view
+                        .view(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_2_row
+                                .stage_2_dot
+                        ))
                         .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
-                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_2_row.stage_2_pct))
+                    self.view
+                        .label(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_2_row
+                                .stage_2_pct
+                        ))
                         .set_text(cx, &pct_label);
                 }
                 2 => {
-                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_3_row.stage_3_dot))
+                    self.view
+                        .view(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_3_row
+                                .stage_3_dot
+                        ))
                         .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
-                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_3_row.stage_3_pct))
+                    self.view
+                        .label(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_3_row
+                                .stage_3_pct
+                        ))
                         .set_text(cx, &pct_label);
                 }
                 3 => {
-                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_4_row.stage_4_dot))
+                    self.view
+                        .view(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_4_row
+                                .stage_4_dot
+                        ))
                         .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
-                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_4_row.stage_4_pct))
+                    self.view
+                        .label(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_4_row
+                                .stage_4_pct
+                        ))
                         .set_text(cx, &pct_label);
                 }
                 4 => {
-                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_5_row.stage_5_dot))
+                    self.view
+                        .view(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_5_row
+                                .stage_5_dot
+                        ))
                         .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
-                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_5_row.stage_5_pct))
+                    self.view
+                        .label(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_5_row
+                                .stage_5_pct
+                        ))
                         .set_text(cx, &pct_label);
                 }
                 5 => {
-                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_6_row.stage_6_dot))
+                    self.view
+                        .view(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_6_row
+                                .stage_6_dot
+                        ))
                         .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
-                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_6_row.stage_6_pct))
+                    self.view
+                        .label(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_6_row
+                                .stage_6_pct
+                        ))
                         .set_text(cx, &pct_label);
                 }
                 6 => {
-                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_7_row.stage_7_dot))
+                    self.view
+                        .view(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_7_row
+                                .stage_7_dot
+                        ))
                         .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
-                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_7_row.stage_7_pct))
+                    self.view
+                        .label(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_7_row
+                                .stage_7_pct
+                        ))
                         .set_text(cx, &pct_label);
                 }
                 7 => {
-                    self.view.view(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_8_row.stage_8_dot))
+                    self.view
+                        .view(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_8_row
+                                .stage_8_dot
+                        ))
                         .apply_over(cx, live! { draw_bg: { dot_color: (dot_color) } });
-                    self.view.label(ids!(content_wrapper.main_content.left_column.content_area.task_detail_page.detail_progress_card.stage_8_row.stage_8_pct))
+                    self.view
+                        .label(ids!(
+                            content_wrapper
+                                .main_content
+                                .left_column
+                                .content_area
+                                .task_detail_page
+                                .detail_progress_card
+                                .stage_8_row
+                                .stage_8_pct
+                        ))
                         .set_text(cx, &pct_label);
                 }
                 _ => {}
@@ -19351,19 +24905,24 @@ impl TTSScreen {
         }
 
         // Update message label
-        self.view.label(ids!(
-            content_wrapper.main_content.left_column.content_area
-            .task_detail_page.detail_progress_card.detail_message_label
-        )).set_text(cx, task.message.as_deref().unwrap_or(""));
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .task_detail_page
+                    .detail_progress_card
+                    .detail_message_label
+            ))
+            .set_text(cx, task.message.as_deref().unwrap_or(""));
 
         self.view.redraw(cx);
     }
 }
 
 impl TTSScreenRef {
-    pub fn translation_shared_dora_state(
-        &self,
-    ) -> Option<Arc<moxin_dora_bridge::SharedDoraState>> {
+    pub fn translation_shared_dora_state(&self) -> Option<Arc<moxin_dora_bridge::SharedDoraState>> {
         self.borrow()
             .and_then(|inner| inner.translation_shared_state())
     }
@@ -19460,7 +25019,10 @@ impl TTSScreenRef {
                     }
                 },
                 Err(err) => {
-                    ::log::warn!("Failed to acquire Dora startup lock during shutdown: {}", err);
+                    ::log::warn!(
+                        "Failed to acquire Dora startup lock during shutdown: {}",
+                        err
+                    );
                 }
             }
         }
