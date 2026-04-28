@@ -745,6 +745,30 @@ live_design! {
         }
     }
 
+    UpdateBadge = <RoundedView> {
+        width: Fit, height: Fit
+        visible: false
+        padding: {left: 5, right: 5, top: 1.0, bottom: 1.0}
+        draw_bg: {
+            border_radius: 7.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                sdf.fill(vec4(0.86, 0.93, 1.0, 1.0));
+                sdf.stroke(vec4(0.65, 0.79, 0.98, 1.0), 1.0);
+                return sdf.result;
+            }
+        }
+        badge_label = <Label> {
+            width: Fit, height: Fit
+            draw_text: {
+                text_style: <FONT_SEMIBOLD>{ font_size: 8.0 }
+                fn get_color(self) -> vec4 { return vec4(0.16, 0.35, 0.82, 1.0); }
+            }
+            text: "新版本"
+        }
+    }
+
     VoiceFilterChip = <Button> {
         width: Fit, height: 24
         padding: {left: 8, right: 8}
@@ -1441,8 +1465,9 @@ live_design! {
 
                     user_details = <View> {
                         width: Fill, height: Fit
-                        flow: Down
-                        spacing: 2
+                        flow: Right
+                        spacing: 4
+                        align: {y: 0.5}
 
                         user_name = <Label> {
                             width: Fit, height: Fit
@@ -1453,14 +1478,9 @@ live_design! {
                             text: "设置"
                         }
 
-                        update_badge = <Label> {
-                            width: Fit, height: Fit
+                        update_badge = <UpdateBadge> {
                             visible: false
-                            draw_text: {
-                                text_style: <FONT_SEMIBOLD>{ font_size: 10.0 }
-                                fn get_color(self) -> vec4 { return vec4(0.56, 0.78, 1.0, 1.0); }
-                            }
-                            text: "新版本"
+                            margin: {left: -1, top: -10}
                         }
                     }
 
@@ -4486,7 +4506,18 @@ live_design! {
 
                             tab_profile_btn = <SettingsTabBtn> { text: "通用" }
                             tab_app_btn = <SettingsTabBtn> { text: "语音" }
-                            tab_runtime_btn = <SettingsTabBtn> { text: "系统" }
+                            tab_runtime_wrap = <View> {
+                                width: Fit, height: Fit
+                                flow: Right
+                                spacing: 4
+                                align: {y: 0.5}
+
+                                tab_runtime_btn = <SettingsTabBtn> { text: "系统" }
+                                tab_runtime_badge = <UpdateBadge> {
+                                    visible: false
+                                    margin: {left: -2, top: -8}
+                                }
+                            }
                         }
 
                         settings_scroll = <ScrollYView> {
@@ -5201,20 +5232,24 @@ live_design! {
 
                             about_version_row = <View> {
                                 width: Fill, height: Fit
-                                flow: Right
+                                flow: Down
                                 spacing: 10
-                                align: {y: 0.5}
 
                                 about_version_label = <SettingsBodyLabel> {
                                     width: Fill, height: Fit
                                     text: "Moxin Voice"
                                 }
 
-                                about_install_update_btn = <SettingsActionBtn> {
-                                    width: Fit, height: 32
+                                about_install_update_wrap = <View> {
+                                    width: Fill, height: Fit
                                     visible: false
-                                    padding: {left: 10, right: 10}
-                                    text: "安装新版本"
+                                    flow: Right
+
+                                    about_install_update_btn = <SettingsActionBtn> {
+                                        width: Fit, height: 32
+                                        padding: {left: 10, right: 10}
+                                        text: "安装新版本"
+                                    }
                                 }
                             }
 
@@ -7931,6 +7966,8 @@ pub struct TTSScreen {
     #[rust]
     toast_message: String,
     #[rust]
+    pending_app_update_toast: Option<String>,
+    #[rust]
     app_update_state: AppUpdateState,
     #[rust]
     app_update_rx: Option<Receiver<AppUpdateEvent>>,
@@ -8833,6 +8870,9 @@ impl Widget for TTSScreen {
                         self.view.view(ids!(loading_overlay)).set_visible(cx, false);
                         self.view.redraw(cx);
                         self.add_log(cx, "[INFO] [tts] Dataflow connected, UI ready");
+                        if let Some(message) = self.pending_app_update_toast.take() {
+                            self.show_toast(cx, &message);
+                        }
                     } else {
                         let startup_detail =
                             self.tr("正在启动 TTS 数据流引擎", "Starting TTS dataflow engine");
@@ -9302,6 +9342,7 @@ impl Widget for TTSScreen {
                     .content_area
                     .user_settings_page
                     .settings_tab_bar
+                    .tab_runtime_wrap
                     .tab_runtime_btn
             ))
             .clicked(&actions)
@@ -9916,6 +9957,7 @@ impl Widget for TTSScreen {
                     .runtime_panel
                     .about_card
                     .about_version_row
+                    .about_install_update_wrap
                     .about_install_update_btn
             ))
             .clicked(&actions)
@@ -12586,11 +12628,6 @@ impl TTSScreen {
         let has_ready_update = self.ready_update().is_some();
         let settings_label = self.tr("设置", "Settings");
         let update_badge = self.tr("新版本", "New Version");
-        let runtime_tab_label = if has_ready_update {
-            self.tr("系统 · 新版本", "System · New Version")
-        } else {
-            self.tr("系统", "System")
-        };
         let version_label = format!("Moxin Voice v{}", self.current_display_version());
 
         self.view
@@ -12600,7 +12637,7 @@ impl TTSScreen {
             .set_text(cx, settings_label);
         self.view
             .label(ids!(
-                app_layout.sidebar.sidebar_footer.user_details.update_badge
+                app_layout.sidebar.sidebar_footer.user_details.update_badge.badge_label
             ))
             .set_text(cx, update_badge);
         self.view
@@ -12627,9 +12664,35 @@ impl TTSScreen {
                     .content_area
                     .user_settings_page
                     .settings_tab_bar
+                    .tab_runtime_wrap
                     .tab_runtime_btn
             ))
-            .set_text(cx, runtime_tab_label);
+            .set_text(cx, self.tr("系统", "System"));
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_runtime_wrap
+                    .tab_runtime_badge
+                    .badge_label
+            ))
+            .set_text(cx, update_badge);
+        self.view
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .user_settings_page
+                    .settings_tab_bar
+                    .tab_runtime_wrap
+                    .tab_runtime_badge
+            ))
+            .set_visible(cx, has_ready_update);
         self.view
             .label(ids!(
                 content_wrapper
@@ -12657,6 +12720,7 @@ impl TTSScreen {
                     .runtime_panel
                     .about_card
                     .about_version_row
+                    .about_install_update_wrap
                     .about_install_update_btn
             ))
             .set_text(cx, self.tr("安装新版本", "Install New Version"));
@@ -12672,7 +12736,7 @@ impl TTSScreen {
                     .runtime_panel
                     .about_card
                     .about_version_row
-                    .about_install_update_btn
+                    .about_install_update_wrap
             ))
             .set_visible(cx, has_ready_update);
         self.view
@@ -14366,6 +14430,7 @@ impl TTSScreen {
                     .content_area
                     .user_settings_page
                     .settings_tab_bar
+                    .tab_runtime_wrap
                     .tab_runtime_btn
             ))
             .set_text(cx, self.tr("系统", "System"));
@@ -17061,6 +17126,14 @@ impl TTSScreen {
         self.view.redraw(cx);
     }
 
+    fn show_or_queue_update_toast(&mut self, cx: &mut Cx, message: String) {
+        if self.loading_dismissed {
+            self.show_toast(cx, &message);
+        } else {
+            self.pending_app_update_toast = Some(message);
+        }
+    }
+
     fn hide_toast(&mut self, cx: &mut Cx) {
         self.toast_visible = false;
         self.view
@@ -17151,7 +17224,7 @@ impl TTSScreen {
                     } else {
                         format!("新版本 {} 已下载完成，请前往设置安装。", version)
                     };
-                    self.show_toast(cx, &message);
+                    self.show_or_queue_update_toast(cx, message);
                 }
             }
             AppUpdateEvent::NoUpdate => {
@@ -20924,7 +20997,7 @@ impl TTSScreen {
                 live! { draw_bg: { active: (voice_active), dark_mode: (dark_mode) } draw_text: { active: (voice_active), dark_mode: (dark_mode) } },
             );
         self.view
-            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_btn))
+            .button(ids!(content_wrapper.main_content.left_column.content_area.user_settings_page.settings_tab_bar.tab_runtime_wrap.tab_runtime_btn))
             .apply_over(
                 cx,
                 live! { draw_bg: { active: (system_active), dark_mode: (dark_mode) } draw_text: { active: (system_active), dark_mode: (dark_mode) } },
@@ -22886,6 +22959,7 @@ impl TTSScreen {
                     .runtime_panel
                     .about_card
                     .about_version_row
+                    .about_install_update_wrap
                     .about_install_update_btn
             ))
             .apply_over(

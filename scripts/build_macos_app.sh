@@ -249,7 +249,7 @@ mkdir -p "$DORA_RUNTIME_DIR"
 cd "$DORA_RUNTIME_DIR"
 
 export MOXIN_APP_RESOURCES="$RES_DIR"
-export MOXIN_APP_VERSION="$VERSION"
+export MOXIN_APP_VERSION="__MOXIN_APP_VERSION__"
 export MOXIN_FEWSHOT_TRAINER_BIN="$MACOS_DIR/moxin-fewshot-trainer"
 export MOXIN_DORA_RUNTIME_DIR="$DORA_RUNTIME_DIR"
 export QWEN3_TTS_MODEL_ROOT="${QWEN3_TTS_MODEL_ROOT:-$HOME/.OminiX/models/qwen3-tts-mlx}"
@@ -316,6 +316,8 @@ export PATH="$MACOS_DIR:$HOME/.cargo/bin:$PATH"
 
 exec "$MACOS_DIR/moxin-voice-shell-bin"
 EOF
+
+sed -i '' "s/__MOXIN_APP_VERSION__/$VERSION/g" "$MACOS_DIR/$BIN_NAME"
 chmod +x "$MACOS_DIR/$BIN_NAME"
 
 ICON_FILE_NAME=""
