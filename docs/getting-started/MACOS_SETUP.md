@@ -383,9 +383,9 @@ export BACKEND=auto
 
 ## 下一步
 
-- 查看 [README.md](README.md) 了解项目架构
-- 查看 [doc/MOXIN_UI_IMPLEMENTATION.md](doc/MOXIN_UI_IMPLEMENTATION.md) 了解 UI 设计
-- 查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解如何贡献
+- 查看 [README.md](../../README.md) 了解项目概览
+- 查看 [MACOS_CHECKLIST.md](./MACOS_CHECKLIST.md) 继续逐项确认 macOS 环境
+- 查看 [CONTRIBUTING.md](../../CONTRIBUTING.md) 了解如何贡献
 
 ## 获取帮助
 

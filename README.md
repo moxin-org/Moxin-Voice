@@ -109,6 +109,8 @@ This downloads all three model snapshots into `~/.OminiX/models/`:
 
 `huggingface_hub` is installed automatically if not present.
 
+This step is optional for development. If models are missing, the app can bootstrap them on first launch.
+
 ### 2. Build
 
 ```bash
@@ -117,12 +119,13 @@ cargo build --release
 
 This builds all binaries including `dora-qwen3-asr` (the ASR Dora node) and `qwen-tts-node`.
 
-### 3. Run
+### 3. Run (Development)
 
 ```bash
-dora up
 cargo run -p moxin-voice-shell
 ```
+
+The app handles preflight checks, first-run bootstrap, and Dora runtime startup automatically.
 
 ### First-Time Distribution (macOS .app)
 
@@ -158,23 +161,19 @@ ASR auto-transcription is optional; if ASR is unavailable, users can enter refer
 ### Development
 
 ```bash
-cargo build -p moxin-voice-shell
+cargo build --release
 ```
 
 ### macOS App Bundle
 
 ```bash
-bash scripts/build_macos_app.sh --version 0.1.0
+bash scripts/build_macos_app.sh \
+  --icon moxin-widgets/resources/moxin_icon_fixed.png \
+  --version 0.0.4
 bash scripts/build_macos_dmg.sh
 ```
 
-### Distribution Bootstrap (user machine)
-
-```bash
-bash scripts/macos_bootstrap.sh
-```
-
-Downloads Qwen3-TTS and Qwen3-ASR models, sets up the app-private conda env (needed for TTS download script only).
+The packaged `.app` bundles the launcher, runtime nodes, bootstrap scripts, and update helper. End users do not need to run bootstrap scripts manually.
 
 ---
 

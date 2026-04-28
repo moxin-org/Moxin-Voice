@@ -13,7 +13,7 @@
 
 ## 🔧 系统依赖
 
-运行 `./install_macos_deps.sh` 或手动安装：
+手动安装以下依赖，或在需要兼容旧流程时运行 `scripts/install_macos_deps.deprecated.sh`：
 
 - [ ] portaudio (`brew install portaudio`)
 - [ ] ffmpeg (`brew install ffmpeg`)
@@ -140,10 +140,9 @@ cd models/setup-local-models
 
 ## 📚 文档阅读
 
-- [ ] [QUICKSTART_MACOS.md](QUICKSTART_MACOS.md) - 快速开始
-- [ ] [MACOS_SETUP.md](MACOS_SETUP.md) - 完整设置指南
-- [ ] [TROUBLESHOOTING_MACOS.md](TROUBLESHOOTING_MACOS.md) - 故障排除
-- [ ] [README.md](README.md) - 项目文档
+- [ ] [QUICKSTART_MACOS.md](./QUICKSTART_MACOS.md) - 快速开始
+- [ ] [MACOS_SETUP.md](./MACOS_SETUP.md) - 完整设置指南
+- [ ] [README.md](../../README.md) - 项目文档
 
 ## 🎯 快捷方式
 
@@ -153,7 +152,7 @@ cd models/setup-local-models
 
 ```bash
 # 安装系统依赖
-./install_macos_deps.sh
+./scripts/install_macos_deps.deprecated.sh
 
 # 一键完成所有设置
 cd models/setup-local-models

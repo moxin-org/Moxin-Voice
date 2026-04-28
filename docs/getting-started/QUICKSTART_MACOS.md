@@ -25,6 +25,8 @@ bash scripts/init_qwen3_models.sh
 
 所有模型存储于 `~/.OminiX/models/`。
 
+这一步对开发者是可选的。如果本地缺少模型，应用会在首次启动时自动进入 bootstrap 流程。
+
 ## 2. 构建
 
 ```bash
@@ -33,23 +35,26 @@ cargo build --release
 
 构建所有二进制，包括 `dora-qwen3-asr`（ASR Dora 节点）和 `qwen-tts-node`。
 
-## 3. 运行
+## 3. 运行（开发态）
 
 ```bash
-dora up
 cargo run -p moxin-voice-shell
 ```
+
+应用会自动执行 preflight、首次模型 bootstrap，以及 Dora runtime 启动。
 
 ## 构建 macOS App Bundle
 
 ```bash
-bash scripts/build_macos_app.sh --version 0.1.0
+bash scripts/build_macos_app.sh \
+  --icon moxin-widgets/resources/moxin_icon_fixed.png \
+  --version 0.0.4
 bash scripts/build_macos_dmg.sh
 ```
 
 ## 分发（用户机器首次启动）
 
-应用内置 bootstrap 向导，自动完成模型下载，用户无需手动操作。
+应用内置 bootstrap 向导，自动完成模型下载与初始化，用户无需手动执行 `macos_bootstrap.sh`。
 
 ---
 

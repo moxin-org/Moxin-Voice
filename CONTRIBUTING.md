@@ -1,4 +1,4 @@
-# Contributing to Moxin Studio
+# Contributing to Moxin Voice
 
 Thank you for your interest in contributing to Moxin Studio! This document provides guidelines and instructions for contributing to the project.
 
@@ -60,28 +60,28 @@ RUST_LOG=debug cargo run
 
 ## Project Structure
 
-Moxin Studio is organized as a Cargo workspace:
+Moxin Voice is organized as a Cargo workspace:
 
 ```
-moxin-studio/
-├── moxin-studio-shell/    # Main application (binary)
-├── moxin-widgets/         # Shared UI components (library)
-└── apps/
-    ├── moxin-fm/          # Voice chat app (library)
-    └── moxin-settings/    # Settings app (library)
+moxin-tts/
+├── apps/moxin-voice/      # Main desktop application UI
+├── moxin-voice-shell/     # Launcher / shell integration
+├── moxin-widgets/         # Shared UI components
+├── moxin-dora-bridge/     # Dora bridge layer
+└── node-hub/              # Runtime node binaries
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation.
+See [README.md](README.md) and [docs/getting-started/QUICKSTART_MACOS.md](docs/getting-started/QUICKSTART_MACOS.md) for the current project overview and setup flow.
 
-## Creating a New App
+## Working In The App
 
-Moxin Studio uses a plugin-based architecture. To create a new app:
+Most contributions happen inside the existing Moxin Voice app and runtime pipeline:
 
-1. **Read the guide**: See [APP_DEVELOPMENT_GUIDE.md](APP_DEVELOPMENT_GUIDE.md)
-2. **Follow the pattern**: Look at `apps/moxin-fm` or `apps/moxin-settings` as examples
-3. **Implement MoxinApp trait**: Required for app registration
-4. **Use the theme system**: Import colors and fonts from `moxin-widgets::theme`
-5. **Support dark mode**: Use `instance dark_mode` pattern in shaders
+1. **Read the README**: Start with [README.md](README.md)
+2. **Follow the existing app structure**: Use `apps/moxin-voice` as the main reference
+3. **Reuse shared widgets**: Prefer `moxin-widgets` before adding one-off UI primitives
+4. **Support dark mode**: Use the existing `instance dark_mode` shader pattern where applicable
+5. **Keep distribution in sync**: If you add or rename runtime nodes, update packaging/bootstrap scripts too
 
 ### Quick Example
 
@@ -249,8 +249,9 @@ impl App {
 
 ## Questions?
 
-- **Architecture questions**: See [ARCHITECTURE.md](ARCHITECTURE.md)
-- **App development**: See [APP_DEVELOPMENT_GUIDE.md](APP_DEVELOPMENT_GUIDE.md)
+- **Project overview**: See [README.md](README.md)
+- **macOS setup**: See [docs/getting-started/MACOS_SETUP.md](docs/getting-started/MACOS_SETUP.md)
+- **Migration background**: See [docs/development/MLX_CORE_MIGRATION.md](docs/development/MLX_CORE_MIGRATION.md)
 - **Bug reports**: Open an issue on GitHub
 - **Feature requests**: Open an issue with the `enhancement` label
 
