@@ -37,6 +37,7 @@ pub enum AppPage {
     TaskDetail,
     UserSettings,
     Translation,
+    About,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1410,7 +1411,15 @@ live_design! {
                     }
 
                     nav_translation = <NavItem> {
-                        text: "实时翻译"
+                        text: "Live Translation"
+                    }
+
+                    // Spacer pushes About to the bottom
+                    <View> { width: Fill, height: Fill }
+
+                    // About nav item — shows About page in the right panel
+                    nav_about = <NavItem> {
+                        text: "About"
                     }
                 }
 
@@ -4960,11 +4969,11 @@ live_design! {
                                 flow: Right
                                 align: {y: 0.5}
                                 spacing: 8
-                                devices_title = <SettingsSectionTitle> { width: Fill, height: Fit text: "音频设备" }
+                                devices_title = <SettingsSectionTitle> { width: Fill, height: Fit text: "Audio Devices" }
                                 refresh_devices_btn = <SettingsActionBtn> {
                                     width: Fit, height: 34
                                     padding: {left: 12, right: 12}
-                                    text: "刷新设备"
+                                    text: "Refresh Devices"
                                 }
                             }
 
@@ -4975,7 +4984,7 @@ live_design! {
                                 align: {y: 0.5}
                                 input_pick_label = <SettingsBodyLabel> {
                                     width: 76, height: Fit
-                                    text: "输入"
+                                    text: "Input"
                                 }
                                 input_device_dropdown = <SettingsDeviceDropDown> {
                                     width: Fill, height: 38
@@ -4989,7 +4998,7 @@ live_design! {
                                 align: {y: 0.5}
                                 output_pick_label = <SettingsBodyLabel> {
                                     width: 76, height: Fit
-                                    text: "输出"
+                                    text: "Output"
                                 }
                                 output_device_dropdown = <SettingsDeviceDropDown> {
                                     width: Fill, height: 38
@@ -5248,7 +5257,7 @@ live_design! {
                                     about_install_update_btn = <SettingsActionBtn> {
                                         width: Fit, height: 32
                                         padding: {left: 10, right: 10}
-                                        text: "安装新版本"
+                                        text: "Install Update"
                                     }
                                 }
                             }
@@ -5330,7 +5339,7 @@ live_design! {
                                         return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                     }
                                 }
-                                text: "实时翻译"
+                                text: "Live Translation"
                             }
 
                             <View> { width: Fill, height: 1 }
@@ -5378,7 +5387,7 @@ live_design! {
                                             return mix(vec4(0.098, 0.725, 0.506, 1.0), vec4(0.42, 0.90, 0.68, 1.0), self.dark_mode);
                                         }
                                     }
-                                    text: "运行中"
+                                    text: "Running"
                                 }
                             }
                         }
@@ -5433,12 +5442,12 @@ live_design! {
                                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "输入源"
+                                            text: "Input Source"
                                         }
 
                                         translation_source_dropdown = <SettingsDeviceDropDown> {
                                             width: Fill, height: 32
-                                            labels: ["系统默认麦克风"]
+                                            labels: ["System Default Microphone"]
                                             values: ["default"]
                                         }
                                     }
@@ -5460,12 +5469,12 @@ live_design! {
                                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "输入语言"
+                                            text: "Source Language"
                                         }
 
                                         src_lang_dropdown = <SettingsDeviceDropDown> {
                                             width: Fill, height: 32
-                                            labels: ["中文", "英语", "日语", "法语"]
+                                            labels: ["Chinese", "English", "Japanese", "French"]
                                             values: ["zh", "en", "ja", "fr"]
                                         }
                                     }
@@ -5487,12 +5496,12 @@ live_design! {
                                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "目标语言"
+                                            text: "Target Language"
                                         }
 
                                         tgt_lang_dropdown = <SettingsDeviceDropDown> {
                                             width: Fill, height: 32
-                                            labels: ["英语", "中文", "日语", "法语", "不翻译"]
+                                            labels: ["English", "Chinese", "Japanese", "French", "No translation"]
                                             values: ["en", "zh", "ja", "fr", "none"]
                                         }
                                     }
@@ -5514,13 +5523,13 @@ live_design! {
                                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "浮窗样式"
+                                            text: "Overlay Style"
                                         }
 
                                         overlay_style_compact = <Button> {
                                             width: Fit, height: 28
                                             padding: {left: 12, right: 12}
-                                            text: "紧凑"
+                                            text: "Compact"
                                             draw_bg: {
                                                 instance active: 1.0
                                                 instance dark_mode: 0.0
@@ -5550,7 +5559,7 @@ live_design! {
                                         overlay_style_full = <Button> {
                                             width: Fit, height: 28
                                             padding: {left: 12, right: 12}
-                                            text: "全屏"
+                                            text: "Fullscreen"
                                             draw_bg: {
                                                 instance active: 0.0
                                                 instance dark_mode: 0.0
@@ -5595,13 +5604,13 @@ live_design! {
                                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "文字大小"
+                                            text: "Text Size"
                                         }
 
                                         font_size_dropdown = <SettingsDeviceDropDown> {
                                             width: Fill, height: 32
-                                            labels: ["小", "正常", "大"]
-                                            values: ["small", "normal", "large"]
+                                            labels: ["16pt", "20pt", "24pt", "30pt", "36pt", "44pt", "52pt", "64pt", "80pt", "96pt", "120pt", "160pt"]
+                                            values: ["16", "20", "24", "30", "36", "44", "52", "64", "80", "96", "120", "160"]
                                         }
                                     }
 
@@ -5622,13 +5631,13 @@ live_design! {
                                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "滚动位置"
+                                            text: "Text Position"
                                         }
 
                                         anchor_position_dropdown = <SettingsDeviceDropDown> {
                                             width: Fill, height: 32
-                                            labels: ["50%", "60%", "70%", "80%", "90%", "100%"]
-                                            values: ["50", "60", "70", "80", "90", "100"]
+                                            labels: ["Center-top", "Center", "Center-bottom", "Bottom"]
+                                            values: ["50", "70", "85", "100"]
                                         }
                                     }
 
@@ -5649,7 +5658,7 @@ live_design! {
                                                     return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                                                 }
                                             }
-                                            text: "浮窗不透明度"
+                                            text: "Overlay Opacity"
                                         }
 
                                         opacity_dropdown = <SettingsDeviceDropDown> {
@@ -5677,14 +5686,14 @@ live_design! {
                                             }
                                             wrap: Word
                                         }
-                                        text: "屏幕录制权限未授权。请前往系统设置 → 隐私与安全性 → 屏幕录制，启用 Moxin Voice，然后重启应用。"
+                                        text: "Screen recording permission not granted. Go to System Settings → Privacy & Security → Screen Recording, enable Moxin Voice, then restart the app."
                                     }
                                 }
 
                                 // 启动按钮
                                 translation_start_btn = <Button> {
                                     width: Fill, height: 48
-                                    text: "启动实时翻译"
+                                    text: "Start Live Translation"
                                     draw_bg: {
                                         instance border_radius: 10.0
                                         fn pixel(self) -> vec4 {
@@ -5740,7 +5749,7 @@ live_design! {
                                                 text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
                                                 fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
                                             }
-                                            text: "运行日志"
+                                            text: "Runtime Logs"
                                         }
                                     }
 
@@ -5775,7 +5784,7 @@ live_design! {
                                 // 停止按钮
                                 translation_stop_btn = <Button> {
                                     width: Fill, height: 44
-                                    text: "停止翻译"
+                                    text: "Stop Translation"
                                     draw_bg: {
                                         instance border_radius: 10.0
                                         fn pixel(self) -> vec4 {
@@ -5793,6 +5802,130 @@ live_design! {
                             } // End translation_running_panel
                         } // End translation_body
                     } // End translation_page
+
+                    // ============ About Page ============
+                    about_page = <View> {
+                        width: Fill, height: Fill
+                        flow: Down
+                        spacing: 0
+                        visible: false
+                        padding: {top: 0, bottom: 24}
+
+                        page_header = <View> {
+                            width: Fill, height: Fit
+                            padding: {bottom: 16}
+                            about_page_title = <Label> {
+                                width: Fit, height: Fit
+                                draw_text: {
+                                    instance dark_mode: 0.0
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 18.0 }
+                                    fn get_color(self) -> vec4 {
+                                        return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                    }
+                                }
+                                text: "About"
+                            }
+                        }
+
+                        about_page_content = <View> {
+                            width: Fill, height: Fit
+                            flow: Down
+                            spacing: 16
+
+                            about_page_card = <RoundedView> {
+                                width: Fill, height: Fit
+                                flow: Down
+                                spacing: 12
+                                padding: {left: 20, right: 20, top: 18, bottom: 18}
+                                show_bg: true
+                                draw_bg: {
+                                    instance dark_mode: 0.0
+                                    instance border_radius: 12.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                                        let border = mix((SLATE_200), (SLATE_700), self.dark_mode);
+                                        sdf.fill(bg);
+                                        sdf.stroke(border, 1.0);
+                                        return sdf.result;
+                                    }
+                                }
+
+                                about_page_name = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: <FONT_BOLD>{ font_size: 16.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "Moxin Voice"
+                                }
+
+                                about_page_version = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 13.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "v0.0.4"
+                                }
+
+                                about_page_engine = <Label> {
+                                    width: Fit, height: Fit
+                                    draw_text: {
+                                        instance dark_mode: 0.0
+                                        text_style: { font_size: 12.0 }
+                                        fn get_color(self) -> vec4 {
+                                            return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
+                                        }
+                                    }
+                                    text: "Powered by OminiX MLX · Qwen3-TTS-MLX"
+                                }
+
+                                about_page_moxin_link = <View> {
+                                    width: Fit, height: Fit
+                                    cursor: Hand
+                                    about_page_moxin_label = <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            instance dark_mode: 0.0
+                                            text_style: { font_size: 12.0 }
+                                            fn get_color(self) -> vec4 {
+                                                let light = vec4(0.15, 0.39, 0.92, 1.0);
+                                                let dark = vec4(0.53, 0.65, 1.0, 1.0);
+                                                return mix(light, dark, self.dark_mode);
+                                            }
+                                        }
+                                        text: "github.com/moxin-org/Moxin-Voice"
+                                    }
+                                }
+
+                                about_page_ominix_link = <View> {
+                                    width: Fit, height: Fit
+                                    cursor: Hand
+                                    about_page_ominix_label = <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            instance dark_mode: 0.0
+                                            text_style: { font_size: 12.0 }
+                                            fn get_color(self) -> vec4 {
+                                                let light = vec4(0.15, 0.39, 0.92, 1.0);
+                                                let dark = vec4(0.53, 0.65, 1.0, 1.0);
+                                                return mix(light, dark, self.dark_mode);
+                                            }
+                                        }
+                                        text: "github.com/OminiX-ai/OminiX-MLX"
+                                    }
+                                }
+                            }
+                        }
+                    } // End about_page
 
                 } // End content_area
             } // End left_column
@@ -8443,8 +8576,8 @@ impl Widget for TTSScreen {
             self.translation_device_idx = 0; // 0 = System Audio, 1 = System Default Mic
             self.translation_overlay_fullscreen = true;
             self.translation_overlay_opacity = 1.0;
-            self.translation_overlay_font_size_preset = "normal".to_string();
-            self.translation_overlay_anchor_position_preset = "70".to_string();
+            self.translation_overlay_font_size_preset = "24".to_string();
+            self.translation_overlay_anchor_position_preset = "70".to_string(); // "Center"
             self.translation_permission_probed = false;
             self.translation_permission_timer = Timer::default();
             // Add initial log entries
@@ -8989,6 +9122,28 @@ impl Widget for TTSScreen {
             self.update_translation_overlay_style_buttons(cx);
             self.update_translation_anchor_position_dropdown(cx);
             self.update_translation_opacity_dropdown(cx);
+            // Open the transcription overlay window when entering the translation page.
+            if let Some(shared) = self.translation_shared_state() {
+                shared.translation_locale_en.set(self.is_english());
+                shared.translation_lang_pair.set((
+                    self.translation_src_lang.clone(),
+                    self.translation_tgt_lang.clone(),
+                ));
+                shared
+                    .translation_font_size_preset
+                    .set(self.translation_overlay_font_size_preset.clone());
+                shared
+                    .translation_anchor_position_preset
+                    .set(self.translation_overlay_anchor_position_preset.clone());
+                shared.translation_window_visible.set(false);
+                shared.translation_window_visible.set(true);
+                shared
+                    .translation_overlay_fullscreen
+                    .set(self.translation_overlay_fullscreen);
+                shared
+                    .translation_overlay_opacity
+                    .set(self.translation_overlay_opacity);
+            }
             // Probe screen-recording permission early so the OS dialog appears
             // before the user clicks Start (macOS requires a restart after granting).
             #[cfg(target_os = "macos")]
@@ -9169,20 +9324,6 @@ impl Widget for TTSScreen {
             {
                 if let Some(code) = lang_codes.get(idx) {
                     self.translation_src_lang = code.to_string();
-                    // Prevent same language for both source and target.
-                    // "none" (passthrough) is always compatible with any source.
-                    if self.translation_tgt_lang != "none"
-                        && self.translation_src_lang == self.translation_tgt_lang
-                    {
-                        // Pick the first different language
-                        for &c in &lang_codes {
-                            if c != *code {
-                                self.translation_tgt_lang = c.to_string();
-                                break;
-                            }
-                        }
-                        self.update_translation_lang_dropdowns(cx);
-                    }
                     self.sync_translation_overlay_lang_pair();
                 }
             }
@@ -9209,20 +9350,6 @@ impl Widget for TTSScreen {
             {
                 if let Some(code) = lang_codes.get(idx) {
                     self.translation_tgt_lang = code.to_string();
-                    // Prevent same language for both source and target.
-                    // "none" (passthrough) is always compatible and needs no swap.
-                    if self.translation_tgt_lang != "none"
-                        && self.translation_tgt_lang == self.translation_src_lang
-                    {
-                        let src_codes = ["zh", "en", "ja", "fr"];
-                        for &c in &src_codes {
-                            if c != *code {
-                                self.translation_src_lang = c.to_string();
-                                break;
-                            }
-                        }
-                        self.update_translation_lang_dropdowns(cx);
-                    }
                     self.sync_translation_overlay_lang_pair();
                 }
             }
@@ -9230,7 +9357,7 @@ impl Widget for TTSScreen {
 
         // Overlay font size preset dropdown
         {
-            let presets = ["small", "normal", "large"];
+            let presets = ["16", "20", "24", "30", "36", "44", "52", "64", "80", "96", "120", "160"];
             if let Some(idx) = self
                 .view
                 .drop_down(ids!(
@@ -9257,7 +9384,7 @@ impl Widget for TTSScreen {
 
         // Overlay scroll anchor position dropdown
         {
-            let presets = ["50", "60", "70", "80", "90", "100"];
+            let presets = ["50", "70", "85", "100"];
             if let Some(idx) = self
                 .view
                 .drop_down(ids!(
@@ -9279,6 +9406,30 @@ impl Widget for TTSScreen {
                     self.update_translation_anchor_position_dropdown(cx);
                     self.sync_translation_overlay_anchor_position();
                 }
+            }
+        }
+
+        // ── About page navigation ──────────────────────────────────────────
+        if self
+            .view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_about))
+            .clicked(&actions)
+        {
+            self.switch_page(cx, AppPage::About);
+            self.update_about_page(cx);
+        }
+
+        // About page link clicks
+        {
+            let about_page = self.view.view(ids!(
+                content_wrapper.main_content.left_column.content_area.about_page
+            ));
+            let card = about_page.view(ids!(about_page_content.about_page_card));
+            if card.view(ids!(about_page_moxin_link)).finger_up(&actions).is_some() {
+                Self::open_url("https://github.com/moxin-org/Moxin-Voice");
+            }
+            if card.view(ids!(about_page_ominix_link)).finger_up(&actions).is_some() {
+                Self::open_url("https://github.com/OminiX-ai/OminiX-MLX");
             }
         }
 
@@ -13070,7 +13221,8 @@ impl TTSScreen {
             default_input_device_name().unwrap_or_else(|| "Unknown".to_string());
         self.default_output_device_name =
             default_output_device_name().unwrap_or_else(|| "Unknown".to_string());
-        let mut input_labels = vec!["系统默认".to_string()];
+        let system_default_label = self.tr("系统默认", "System Default").to_string();
+        let mut input_labels = vec![system_default_label.clone()];
         input_labels.extend(self.available_input_devices.clone());
         self.view
             .drop_down(ids!(
@@ -13111,7 +13263,7 @@ impl TTSScreen {
             ))
             .set_selected_item(cx, input_selected_idx);
 
-        let mut output_labels = vec!["系统默认".to_string()];
+        let mut output_labels = vec![system_default_label.clone()];
         output_labels.extend(self.available_output_devices.clone());
         self.view
             .drop_down(ids!(
@@ -13151,6 +13303,36 @@ impl TTSScreen {
                     .output_device_dropdown
             ))
             .set_selected_item(cx, output_selected_idx);
+    }
+
+    fn update_about_page(&mut self, cx: &mut Cx) {
+        let dark_mode = self.dark_mode;
+        let about_page = self.view.view(ids!(
+            content_wrapper.main_content.left_column.content_area.about_page
+        ));
+        about_page
+            .label(ids!(page_header.about_page_title))
+            .set_text(cx, self.tr("关于", "About"));
+        about_page
+            .label(ids!(page_header.about_page_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        let card = about_page.view(ids!(about_page_content.about_page_card));
+        card.apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        card.label(ids!(about_page_version))
+            .set_text(cx, &format!("v{}", self.current_display_version()));
+        card.label(ids!(about_page_engine))
+            .set_text(cx, self.tr("基于 OminiX MLX · Qwen3-TTS-MLX", "Powered by OminiX MLX · Qwen3-TTS-MLX"));
+        for id in [
+            ids!(about_page_name),
+            ids!(about_page_version),
+            ids!(about_page_engine),
+        ] {
+            card.label(id).apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        }
+        card.label(ids!(about_page_moxin_link.about_page_moxin_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        card.label(ids!(about_page_ominix_link.about_page_ominix_label))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
     }
 
     fn update_user_settings_page(&mut self, cx: &mut Cx) {
@@ -13471,6 +13653,9 @@ impl TTSScreen {
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_translation))
             .set_text(cx, self.tr("实时翻译", "Live Translation"));
         self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_about))
+            .set_text(cx, self.tr("关于", "About"));
+        self.view
             .button(ids!(app_layout.sidebar.sidebar_footer.global_settings_btn))
             .set_text(cx, self.tr("⚙", "⚙"));
 
@@ -13580,7 +13765,7 @@ impl TTSScreen {
                     .setting_row_anchor_position
                     .translation_anchor_position_label
             ))
-            .set_text(cx, self.tr("滚动位置", "Scroll Position"));
+            .set_text(cx, self.tr("文字位置", "Text Position"));
         self.view
             .button(ids!(
                 content_wrapper
@@ -15733,6 +15918,11 @@ impl TTSScreen {
         } else {
             0.0
         };
+        let about_active = if self.current_page == AppPage::About {
+            1.0
+        } else {
+            0.0
+        };
 
         self.view
             .button(ids!(app_layout.sidebar.sidebar_nav.nav_tts))
@@ -15780,6 +15970,15 @@ impl TTSScreen {
                 },
             );
         self.view
+            .button(ids!(app_layout.sidebar.sidebar_nav.nav_about))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (about_active) }
+                    draw_text: { active: (about_active) }
+                },
+            );
+        self.view
             .view(ids!(app_layout.sidebar.sidebar_footer))
             .apply_over(cx, live! { draw_bg: { active: (user_settings_active) } });
     }
@@ -15802,6 +16001,7 @@ impl TTSScreen {
         let show_detail = page == AppPage::TaskDetail;
         let show_user_settings = page == AppPage::UserSettings;
         let show_translation = page == AppPage::Translation;
+        let show_about = page == AppPage::About;
 
         self.view
             .view(ids!(
@@ -15860,6 +16060,15 @@ impl TTSScreen {
                     .translation_page
             ))
             .set_visible(cx, show_translation);
+        self.view
+            .view(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .about_page
+            ))
+            .set_visible(cx, show_about);
 
         // Show audio player bar only on TTS page (not History tab) after first successful generation
         let history_mode = show_tts && self.controls_panel_tab == 2;
@@ -15874,6 +16083,9 @@ impl TTSScreen {
             self.update_user_settings_page(cx);
             self.update_user_settings_tabs(cx);
         }
+
+        // The translation overlay window stays open until the user explicitly
+        // closes it — no auto-hide on page navigation.
 
         self.apply_tts_history_mode_layout(cx);
         self.view.redraw(cx);
@@ -18213,9 +18425,6 @@ impl TTSScreen {
                     self.translation_running = false;
                     self.show_translation_running_panel(cx, false);
                     cx.stop_timer(self.translation_metrics_timer);
-                    if let Some(shared) = self.translation_shared_state() {
-                        shared.translation_window_visible.set(false);
-                    }
                 }
                 crate::dora_integration::DoraEvent::AsrTranscription { .. } => {}
             }
@@ -18726,9 +18935,9 @@ impl TTSScreen {
             })
             .unwrap_or_default();
 
-        // Hide the overlay window
+        // Keep the overlay window open — only clear the translation data.
+        // The window stays visible until the user closes it manually.
         if let Some(shared) = self.translation_shared_state() {
-            shared.translation_window_visible.set(false);
             shared.translation.set(None);
         }
 
@@ -19313,20 +19522,12 @@ impl TTSScreen {
     }
 
     fn update_translation_font_size_dropdown(&mut self, cx: &mut Cx) {
-        let labels = if self.is_english() {
-            vec![
-                "Small".to_string(),
-                "Normal".to_string(),
-                "Large".to_string(),
-            ]
-        } else {
-            vec!["小".to_string(), "正常".to_string(), "大".to_string()]
-        };
-        let idx = match self.translation_overlay_font_size_preset.as_str() {
-            "small" => 0,
-            "large" => 2,
-            _ => 1,
-        };
+        let presets = ["16", "20", "24", "30", "36", "44", "52", "64", "80", "96", "120", "160"];
+        let labels: Vec<String> = presets.iter().map(|p| format!("{}pt", p)).collect();
+        let idx = presets
+            .iter()
+            .position(|p| *p == self.translation_overlay_font_size_preset)
+            .unwrap_or(2);
         self.view
             .drop_down(ids!(
                 content_wrapper
@@ -19358,22 +19559,27 @@ impl TTSScreen {
     }
 
     fn update_translation_anchor_position_dropdown(&mut self, cx: &mut Cx) {
-        let labels = vec![
-            "50%".to_string(),
-            "60%".to_string(),
-            "70%".to_string(),
-            "80%".to_string(),
-            "90%".to_string(),
-            "100%".to_string(),
-        ];
+        let labels = if self.is_english() {
+            vec![
+                "Center-top".to_string(),
+                "Center".to_string(),
+                "Center-bottom".to_string(),
+                "Bottom".to_string(),
+            ]
+        } else {
+            vec![
+                "居中偏上".to_string(),
+                "居中".to_string(),
+                "居中偏下".to_string(),
+                "底部".to_string(),
+            ]
+        };
         let idx = match self.translation_overlay_anchor_position_preset.as_str() {
             "50" => 0,
-            "60" => 1,
-            "70" => 2,
-            "80" => 3,
-            "90" => 4,
-            "100" => 5,
-            _ => 0,
+            "70" => 1,
+            "85" => 2,
+            "100" => 3,
+            _ => 1,
         };
         self.view
             .drop_down(ids!(

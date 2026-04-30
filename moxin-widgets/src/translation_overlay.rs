@@ -80,6 +80,15 @@ live_design! {
                 align: { y: 0.5 }
                 spacing: 3
 
+                status_label = <Label> {
+                    width: Fit
+                    draw_text: {
+                        color: (ACCENT_GREEN)
+                        text_style: <FONT_REGULAR> { font_size: 11.0 }
+                    }
+                    text: "● LISTENING"
+                }
+
                 font_size_dropdown = <DropDown> {
                     width: Fit, height: 26
                     margin: { top: 1, bottom: -1 }
@@ -89,8 +98,8 @@ live_design! {
                         top: 2,
                         bottom: 2
                     }
-                    labels: ["小", "正常", "大"]
-                    values: ["small", "normal", "large"]
+                    labels: ["16pt", "20pt", "24pt", "30pt", "36pt", "44pt", "52pt", "64pt", "80pt", "96pt", "120pt", "160pt"]
+                    values: ["16", "20", "24", "30", "36", "44", "52", "64", "80", "96", "120", "160"]
                     popup_menu_position: BelowInput
                     draw_bg: {
                         fn pixel(self) -> vec4 {
@@ -111,15 +120,6 @@ live_design! {
                     }
                     text: "ZH → EN"
                 }
-
-                status_label = <Label> {
-                    width: Fit
-                    draw_text: {
-                        color: (ACCENT_GREEN)
-                        text_style: <FONT_REGULAR> { font_size: 11.0 }
-                    }
-                    text: "● LISTENING"
-                }
             }
         }
 
@@ -139,7 +139,7 @@ live_design! {
                 padding: 0.0
                 draw_text: {
                     color: (WHITE)
-                    text_style: <FONT_REGULAR> { font_size: 14.0 }
+                    text_style: <FONT_REGULAR> { font_size: 24.0 }
                     wrap: Word
                 }
                 text: ""
@@ -153,7 +153,7 @@ live_design! {
                 padding: 0.0
                 draw_text: {
                     color: (MOXIN_TEXT_MUTED_DARK)
-                    text_style: <FONT_REGULAR> { font_size: 13.0 }
+                    text_style: <FONT_REGULAR> { font_size: 23.0 }
                     wrap: Word
                 }
                 text: ""
@@ -375,55 +375,41 @@ impl TranslationOverlay {
         )
     }
 
+    const FONT_SIZE_PRESETS: &'static [&'static str] = &[
+        "16", "20", "24", "30", "36", "44", "52", "64", "80", "96", "120", "160",
+    ];
+
     fn font_size_preset_for_index(idx: usize) -> &'static str {
-        match idx {
-            0 => "small",
-            2 => "large",
-            _ => "normal",
-        }
+        Self::FONT_SIZE_PRESETS.get(idx).copied().unwrap_or("24")
     }
 
     fn font_size_preset_index(preset: &str) -> usize {
-        match preset {
-            "small" => 0,
-            "large" => 2,
-            _ => 1,
-        }
+        Self::FONT_SIZE_PRESETS
+            .iter()
+            .position(|p| *p == preset)
+            .unwrap_or(2)
     }
 
     fn font_size_preset_values(preset: &str) -> (f64, f64) {
-        match preset {
-            "small" => (12.0, 11.0),
-            "large" => (16.0, 15.0),
-            _ => (14.0, 13.0),
-        }
+        let size: f64 = preset.parse().unwrap_or(24.0);
+        (size, (size - 1.0).max(8.0))
     }
 
     fn anchor_position_ratio(preset: &str) -> f64 {
         match preset {
-            "60" => 0.6,
+            "50" => 0.5,
             "70" => 0.7,
-            "80" => 0.8,
-            "90" => 0.9,
+            "85" => 0.85,
             "100" => 1.0,
-            _ => 0.5,
+            _ => 0.7,
         }
     }
 
-    fn font_size_dropdown_labels(locale_en: bool) -> Vec<String> {
-        if locale_en {
-            vec![
-                "SMALL".to_string(),
-                "NORMAL".to_string(),
-                "LARGE".to_string(),
-            ]
-        } else {
-            vec![
-                "小".to_string(),
-                "正常".to_string(),
-                "大".to_string(),
-            ]
-        }
+    fn font_size_dropdown_labels(_locale_en: bool) -> Vec<String> {
+        Self::FONT_SIZE_PRESETS
+            .iter()
+            .map(|p| format!("{}pt", p))
+            .collect()
     }
 
     fn update_font_size_dropdown_labels(&self, cx: &mut Cx) {
@@ -572,9 +558,10 @@ impl TranslationOverlay {
     }
 
     pub fn set_font_size_preset(&mut self, cx: &mut Cx, preset: &str) {
-        let normalized = match preset {
-            "small" | "large" | "normal" => preset,
-            _ => "normal",
+        let normalized = if Self::FONT_SIZE_PRESETS.contains(&preset) {
+            preset
+        } else {
+            "24"
         };
         if self.font_size_preset == normalized {
             self.view
@@ -592,8 +579,8 @@ impl TranslationOverlay {
 
     pub fn set_anchor_position_preset(&mut self, cx: &mut Cx, preset: &str) {
         let normalized = match preset {
-            "50" | "60" | "70" | "80" | "90" | "100" => preset,
-            _ => "50",
+            "50" | "70" | "85" | "100" => preset,
+            _ => "70",
         };
         if self.anchor_position_preset == normalized {
             return;
@@ -806,19 +793,20 @@ mod tests {
     #[test]
     fn font_size_preset_values_match_expected_scale() {
         assert_eq!(
-            TranslationOverlay::font_size_preset_values("normal"),
-            (14.0, 13.0)
+            TranslationOverlay::font_size_preset_values("24"),
+            (24.0, 23.0)
         );
         assert_eq!(
-            TranslationOverlay::font_size_preset_values("large"),
-            (16.0, 15.0)
+            TranslationOverlay::font_size_preset_values("36"),
+            (36.0, 35.0)
         );
     }
 
     #[test]
     fn anchor_position_preset_values_match_expected_ratios() {
         assert_eq!(TranslationOverlay::anchor_position_ratio("50"), 0.5);
-        assert_eq!(TranslationOverlay::anchor_position_ratio("60"), 0.6);
+        assert_eq!(TranslationOverlay::anchor_position_ratio("70"), 0.7);
+        assert_eq!(TranslationOverlay::anchor_position_ratio("85"), 0.85);
         assert_eq!(TranslationOverlay::anchor_position_ratio("100"), 1.0);
     }
 

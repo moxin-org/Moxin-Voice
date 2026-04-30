@@ -29,7 +29,7 @@ pub struct AppPreferences {
 impl Default for AppPreferences {
     fn default() -> Self {
         Self {
-            app_language: "zh".to_string(),
+            app_language: "en".to_string(),
             display_name: "User".to_string(),
             avatar_letter: "U".to_string(),
             default_voice_id: Some("vivian".to_string()),

@@ -10,7 +10,7 @@ use once_cell::sync::Lazy;
 pub const SUPPORTED_LOCALES: &[&str] = &["en", "zh"];
 
 /// Default locale
-pub const DEFAULT_LOCALE: &str = "zh";
+pub const DEFAULT_LOCALE: &str = "en";
 
 /// Current locale
 static CURRENT_LOCALE: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(DEFAULT_LOCALE.to_string()));

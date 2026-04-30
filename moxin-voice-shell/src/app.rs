@@ -322,7 +322,7 @@ impl MatchEvent for App {
         let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
         if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
             overlay.set_viewport_height(cx, 222.0);
-            overlay.set_font_size_preset(cx, "normal");
+            overlay.set_font_size_preset(cx, "24");
             overlay.set_anchor_position_preset(cx, "50");
         }
 
