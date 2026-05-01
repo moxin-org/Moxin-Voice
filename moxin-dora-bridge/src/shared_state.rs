@@ -685,11 +685,18 @@ pub struct SharedDoraState {
     /// Current translation overlay font size preset.
     pub translation_font_size_preset: DirtyValue<String>,
 
+    /// Current translation overlay footer (branding) font size preset.
+    pub translation_footer_font_size_preset: DirtyValue<String>,
+
     /// Current translation overlay anchor position preset percentage.
     pub translation_anchor_position_preset: DirtyValue<String>,
 
     /// Selected audio source for translation input (mic or system audio).
     pub translation_audio_source: DirtyValue<AudioSource>,
+
+    /// Computed warming/listening status for the translation page badge.
+    /// Values: "warming" (bridges not yet ready) or "listening" (bridges ready).
+    pub translation_overlay_status: DirtyValue<String>,
 }
 
 /// Global singleton — all crates share the same SharedDoraState instance.
@@ -717,8 +724,10 @@ impl SharedDoraState {
                     translation_locale_en: DirtyValue::new(false),
                     translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
                     translation_font_size_preset: DirtyValue::new("normal".to_string()),
+                    translation_footer_font_size_preset: DirtyValue::new("10".to_string()),
                     translation_anchor_position_preset: DirtyValue::new("50".to_string()),
                     translation_audio_source: DirtyValue::new(AudioSource::SystemAudio),
+                    translation_overlay_status: DirtyValue::new("warming".to_string()),
                 })
             })
             .clone()
@@ -741,8 +750,10 @@ impl SharedDoraState {
             translation_locale_en: DirtyValue::new(false),
             translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
             translation_font_size_preset: DirtyValue::new("normal".to_string()),
+            translation_footer_font_size_preset: DirtyValue::new("10".to_string()),
             translation_anchor_position_preset: DirtyValue::new("50".to_string()),
             translation_audio_source: DirtyValue::new(AudioSource::SystemAudio),
+            translation_overlay_status: DirtyValue::new("warming".to_string()),
         })
     }
 
@@ -800,8 +811,10 @@ impl Default for SharedDoraState {
             translation_locale_en: DirtyValue::new(false),
             translation_lang_pair: DirtyValue::new(("zh".to_string(), "en".to_string())),
             translation_font_size_preset: DirtyValue::new("normal".to_string()),
+            translation_footer_font_size_preset: DirtyValue::new("10".to_string()),
             translation_anchor_position_preset: DirtyValue::new("50".to_string()),
             translation_audio_source: DirtyValue::new(AudioSource::SystemAudio),
+            translation_overlay_status: DirtyValue::new("warming".to_string()),
         }
     }
 }

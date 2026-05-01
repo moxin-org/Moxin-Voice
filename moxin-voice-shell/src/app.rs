@@ -8,7 +8,6 @@ use makepad_widgets::event::WindowGeom;
 use moxin_voice::MoxinTTSApp;
 use moxin_voice::TTSScreenWidgetRefExt;
 use moxin_widgets::MoxinApp;
-use moxin_widgets::TranslationOverlayAction;
 use moxin_widgets::translation_overlay::TranslationOverlay;
 use std::sync::OnceLock;
 
@@ -278,24 +277,8 @@ impl AppMain for App {
 }
 
 impl MatchEvent for App {
-    fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
-        for action in actions {
-            match action.as_widget_action().cast() {
-                TranslationOverlayAction::FontSizePresetChanged(preset) => {
-                    if let Some(shared) = self
-                        .ui
-                        .ttsscreen(ids!(body.tts_screen))
-                        .translation_shared_dora_state()
-                    {
-                        shared.translation_font_size_preset.set(preset.clone());
-                    }
-                    self.ui
-                        .ttsscreen(ids!(body.tts_screen))
-                        .set_translation_overlay_font_size_preset(cx, &preset);
-                }
-                TranslationOverlayAction::None => {}
-            }
-        }
+    fn handle_actions(&mut self, _cx: &mut Cx, _actions: &Actions) {
+        // Translation overlay no longer emits actions; nothing to handle here.
     }
 
     fn handle_startup(&mut self, cx: &mut Cx) {
@@ -359,14 +342,12 @@ impl MatchEvent for App {
                 }
             }
 
-            // Initialize overlay state immediately on show/hide.
-            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
-            if window_visible {
+            // Reset overlay content on hide so a future re-open starts clean.
+            if !window_visible {
+                let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
                 if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-                    overlay.set_warming_up(cx);
-                }
-            } else if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-                overlay.clear(cx);
+                    overlay.clear(cx);
+                };
             }
         }
 
@@ -378,8 +359,10 @@ impl MatchEvent for App {
                 dvec2(600.0, 260.0)
             };
             self.translation_ui.as_window().resize(cx, size);
-            // Update scroll anchor after resize (toolbar is 44px).
-            let viewport_h = size.y - 38.0;
+            // No toolbar anymore — viewport height is the full inner size minus
+            // the (auto-sized) footer; the widget falls back to measured height
+            // when this hint is too coarse, so passing the full size is fine.
+            let viewport_h = size.y;
             let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
             if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
                 overlay.set_viewport_height(cx, viewport_h);
@@ -426,18 +409,23 @@ impl MatchEvent for App {
             self.translation_ui.redraw(cx);
         }
 
-        // ── Translation overlay locale ───────────────────────────────────────
-        if let Some(locale_en) = dora_state.translation_locale_en.read_if_dirty() {
-            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
-            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-                overlay.set_locale_en(cx, locale_en);
-            };
-        }
+        // Locale and language-pair fields are still pushed by screen.rs but no
+        // longer drive any overlay UI (toolbar removed). Drain their dirty bits
+        // so they don't keep firing redundant work.
+        let _ = dora_state.translation_locale_en.read_if_dirty();
+        let _ = dora_state.translation_lang_pair.read_if_dirty();
 
         if let Some(preset) = dora_state.translation_font_size_preset.read_if_dirty() {
             let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
             if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
                 overlay.set_font_size_preset(cx, &preset);
+            };
+        }
+
+        if let Some(preset) = dora_state.translation_footer_font_size_preset.read_if_dirty() {
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.set_footer_font_size_preset(cx, &preset);
             };
         }
 
@@ -448,15 +436,10 @@ impl MatchEvent for App {
             };
         }
 
-        // ── Translation overlay language pair ────────────────────────────────
-        if let Some((src, tgt)) = dora_state.translation_lang_pair.read_if_dirty() {
-            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
-            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-                overlay.set_lang_pair(cx, &src, &tgt);
-            };
-        }
-
         // ── Translation overlay status heartbeat (warming/listening) ──────────
+        // The overlay no longer renders this status itself, but the settings
+        // page in screen.rs reads `translation_overlay_status` and shows it on
+        // the runtime-logs card. Keep the bridge-readiness check here.
         if self.translation_overlay_visible {
             let status_snapshot = dora_state.status.read();
             let bridges_ready = status_snapshot
@@ -468,18 +451,12 @@ impl MatchEvent for App {
                     .iter()
                     .any(|b| b == "moxin-translation-listener");
 
-            // If no active translation update, keep status informative.
-            let translation_snapshot = dora_state.translation.read();
-            if translation_snapshot.is_none() {
-                let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
-                if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
-                    if bridges_ready {
-                        overlay.set_listening(cx);
-                    } else {
-                        overlay.set_warming_up(cx);
-                    }
-                };
-            }
+            let new_status = if bridges_ready { "listening" } else { "warming" };
+            // Set unconditionally; DirtyValue collapses redundant writes for the
+            // consumer side (read_if_dirty), and screen.rs guards on actual change.
+            dora_state
+                .translation_overlay_status
+                .set(new_status.to_string());
         }
 
         // ── Translation overlay opacity ──────────────────────────────────────

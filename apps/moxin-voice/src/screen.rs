@@ -970,23 +970,30 @@ live_design! {
         popup_menu: <SettingsDevicePopupMenu> {}
         draw_bg: {
             instance dark_mode: 0.0
+            // 0.0 = enabled, 1.0 = disabled (mute background + border)
+            instance disabled: 0.0
             border_radius: 8.0
             border_size: 1.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                 sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                let bg = mix(vec4(0.96, 0.97, 0.99, 1.0), vec4(0.22, 0.27, 0.36, 1.0), self.dark_mode);
-                let border = mix(vec4(0.64, 0.71, 0.82, 1.0), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
-                sdf.fill(bg);
-                sdf.stroke(border, self.border_size);
+                let bg_normal = mix(vec4(0.96, 0.97, 0.99, 1.0), vec4(0.22, 0.27, 0.36, 1.0), self.dark_mode);
+                let bg_disabled = mix(vec4(0.90, 0.92, 0.94, 1.0), vec4(0.18, 0.22, 0.30, 1.0), self.dark_mode);
+                let border_normal = mix(vec4(0.64, 0.71, 0.82, 1.0), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
+                let border_disabled = mix(vec4(0.80, 0.84, 0.90, 1.0), vec4(0.30, 0.36, 0.46, 1.0), self.dark_mode);
+                sdf.fill(mix(bg_normal, bg_disabled, self.disabled));
+                sdf.stroke(mix(border_normal, border_disabled, self.disabled), self.border_size);
                 return sdf.result;
             }
         }
         draw_text: {
             instance dark_mode: 0.0
+            instance disabled: 0.0
             text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
             fn get_color(self) -> vec4 {
-                return mix(vec4(0.14, 0.18, 0.24, 1.0), vec4(0.90, 0.93, 0.97, 1.0), self.dark_mode);
+                let normal = mix(vec4(0.14, 0.18, 0.24, 1.0), vec4(0.90, 0.93, 0.97, 1.0), self.dark_mode);
+                let muted = mix(vec4(0.55, 0.60, 0.68, 1.0), vec4(0.55, 0.60, 0.68, 1.0), self.dark_mode);
+                return mix(normal, muted, self.disabled);
             }
         }
     }
@@ -5392,14 +5399,16 @@ live_design! {
                             }
                         }
 
-                        // Body: Settings panel and Running panel stacked via Overlay
+                        // Body: Settings panel always visible; log card appears below it
+                        // once translation is running.
                         translation_body = <View> {
                             width: Fill, height: Fill
-                            flow: Overlay
+                            flow: Down
+                            spacing: 12
 
-                            // ── 设置面板（启动前）─────────────────────────────
+                            // ── 设置面板（启停期间始终可见）──────────────────
                             translation_settings_panel = <View> {
-                                width: Fill, height: Fill
+                                width: Fill, height: Fit
                                 flow: Down
                                 spacing: 12
                                 visible: true
@@ -5614,6 +5623,33 @@ live_design! {
                                         }
                                     }
 
+                                    // 标语字体大小（位于浮窗底部 Moxin Voice 横幅）
+                                    setting_row_footer_font_size = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 12
+
+                                        translation_footer_font_size_label = <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "Tagline Size"
+                                        }
+
+                                        footer_font_size_dropdown = <SettingsDeviceDropDown> {
+                                            width: Fill, height: 32
+                                            labels: ["8pt", "10pt", "12pt", "14pt", "16pt", "18pt", "20pt"]
+                                            values: ["8", "10", "12", "14", "16", "18", "20"]
+                                        }
+                                    }
+
                                     // 滚动位置
                                     setting_row_anchor_position = <View> {
                                         width: Fill, height: 52
@@ -5669,14 +5705,11 @@ live_design! {
                                     }
                                 } // End settings_card
 
-                                // Spacer
-                                <View> { width: Fill, height: Fill }
-
                                 // 屏幕录制权限提示（macOS，仅在权限被拒绝时显示）
                                 translation_permission_hint = <View> {
                                     width: Fill, height: Fit
                                     visible: false
-                                    padding: {top: 0, bottom: 8}
+                                    padding: {top: 4, bottom: 4}
                                     translation_permission_hint_label = <Label> {
                                         width: Fill, height: Fit
                                         draw_text: {
@@ -5689,117 +5722,111 @@ live_design! {
                                         text: "Screen recording permission not granted. Go to System Settings → Privacy & Security → Screen Recording, enable Moxin Voice, then restart the app."
                                     }
                                 }
-
-                                // 启动按钮
-                                translation_start_btn = <Button> {
-                                    width: Fill, height: 48
-                                    text: "Start Live Translation"
-                                    draw_bg: {
-                                        instance border_radius: 10.0
-                                        fn pixel(self) -> vec4 {
-                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            sdf.fill(vec4(0.231, 0.435, 0.831, 1.0));
-                                            return sdf.result;
-                                        }
-                                    }
-                                    draw_text: {
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
-                                        fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
-                                    }
-                                }
                             } // End translation_settings_panel
 
-                            // ── 运行面板（启动后）─────────────────────────────
-                            translation_running_panel = <View> {
+                            // 始终占位的 Fill 容器：保证 action button 钉在底部，
+                            // 即使日志卡片在未启动时被隐藏也不影响布局。
+                            translation_log_area = <View> {
                                 width: Fill, height: Fill
                                 flow: Down
-                                spacing: 12
-                                visible: false
 
-                                // 日志区域
-                                translation_log_card = <RoundedView> {
-                                    width: Fill, height: Fill
-                                    flow: Down
-                                    spacing: 0
+                            // ── 运行日志卡片（启动后才显示，位于设置下方）─────
+                            translation_log_card = <RoundedView> {
+                                width: Fill, height: Fill
+                                flow: Down
+                                spacing: 0
+                                visible: false
+                                show_bg: true
+                                draw_bg: {
+                                    instance dark_mode: 0.0
+                                    instance border_radius: 10.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
+                                        sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
+                                        return sdf.result;
+                                    }
+                                }
+
+                                // 日志头：左侧标题，右侧 warming/listening 状态
+                                <View> {
+                                    width: Fill, height: 36
+                                    flow: Right
+                                    align: {y: 0.5}
+                                    padding: {left: 14, right: 14}
+                                    spacing: 8
+
+                                    translation_log_title = <Label> {
+                                        width: Fill, height: Fit
+                                        draw_text: {
+                                            instance dark_mode: 0.0
+                                            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+                                            fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
+                                        }
+                                        text: "Runtime Logs"
+                                    }
+
+                                    translation_overlay_status_badge = <Label> {
+                                        width: Fit, height: Fit
+                                        draw_text: {
+                                            text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+                                            color: #E59A34
+                                        }
+                                        text: "● WARMING UP"
+                                    }
+                                }
+
+                                <View> {
+                                    width: Fill, height: 1
                                     show_bg: true
                                     draw_bg: {
                                         instance dark_mode: 0.0
-                                        instance border_radius: 10.0
-                                        fn pixel(self) -> vec4 {
-                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            sdf.fill(mix((WHITE), (SLATE_800), self.dark_mode));
-                                            sdf.stroke(mix((SLATE_200), (SLATE_700), self.dark_mode), 1.0);
-                                            return sdf.result;
-                                        }
-                                    }
-
-                                    // 日志头
-                                    <View> {
-                                        width: Fill, height: 36
-                                        flow: Right
-                                        align: {y: 0.5}
-                                        padding: {left: 14, right: 14}
-
-                                        translation_log_title = <Label> {
-                                            width: Fill, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 { return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode); }
-                                            }
-                                            text: "Runtime Logs"
-                                        }
-                                    }
-
-                                    <View> {
-                                        width: Fill, height: 1
-                                        show_bg: true
-                                        draw_bg: {
-                                            instance dark_mode: 0.0
-                                            fn pixel(self) -> vec4 { return mix((SLATE_100), (SLATE_700), self.dark_mode); }
-                                        }
-                                    }
-
-                                    translation_log_scroll = <ScrollYView> {
-                                        width: Fill, height: Fill
-                                        flow: Down
-                                        padding: {left: 14, right: 14, top: 10, bottom: 10}
-                                        spacing: 2
-
-                                        translation_log_label = <Label> {
-                                            width: Fill, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_REGULAR>{ font_size: 11.5 }
-                                                wrap: Word
-                                                fn get_color(self) -> vec4 { return mix(vec4(0.3,0.35,0.42,1.0), vec4(0.65,0.7,0.78,1.0), self.dark_mode); }
-                                            }
-                                            text: ""
-                                        }
-                                    }
-                                } // End translation_log_card
-
-                                // 停止按钮
-                                translation_stop_btn = <Button> {
-                                    width: Fill, height: 44
-                                    text: "Stop Translation"
-                                    draw_bg: {
-                                        instance border_radius: 10.0
-                                        fn pixel(self) -> vec4 {
-                                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                            sdf.fill(vec4(0.85, 0.25, 0.25, 1.0));
-                                            return sdf.result;
-                                        }
-                                    }
-                                    draw_text: {
-                                        text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
-                                        fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                                        fn pixel(self) -> vec4 { return mix((SLATE_100), (SLATE_700), self.dark_mode); }
                                     }
                                 }
-                            } // End translation_running_panel
+
+                                translation_log_scroll = <ScrollYView> {
+                                    width: Fill, height: Fill
+                                    flow: Down
+                                    padding: {left: 14, right: 14, top: 10, bottom: 10}
+                                    spacing: 2
+
+                                    translation_log_label = <Label> {
+                                        width: Fill, height: Fit
+                                        draw_text: {
+                                            instance dark_mode: 0.0
+                                            text_style: <FONT_REGULAR>{ font_size: 11.5 }
+                                            wrap: Word
+                                            fn get_color(self) -> vec4 { return mix(vec4(0.3,0.35,0.42,1.0), vec4(0.65,0.7,0.78,1.0), self.dark_mode); }
+                                        }
+                                        text: ""
+                                    }
+                                }
+                            } // End translation_log_card
+                            } // End translation_log_area
+
+                            // ── 单按钮：根据状态在 Start ↔ Stop 切换 ─────────
+                            translation_action_btn = <Button> {
+                                width: Fill, height: 48
+                                text: "Start Live Translation"
+                                draw_bg: {
+                                    instance border_radius: 10.0
+                                    instance running: 0.0
+                                    fn pixel(self) -> vec4 {
+                                        let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                        sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                        let start_color = vec4(0.231, 0.435, 0.831, 1.0);
+                                        let stop_color = vec4(0.85, 0.25, 0.25, 1.0);
+                                        sdf.fill(mix(start_color, stop_color, self.running));
+                                        return sdf.result;
+                                    }
+                                }
+                                draw_text: {
+                                    text_style: <FONT_SEMIBOLD>{ font_size: 14.0 }
+                                    fn get_color(self) -> vec4 { return vec4(1.0, 1.0, 1.0, 1.0); }
+                                }
+                            }
                         } // End translation_body
                     } // End translation_page
 
@@ -8293,12 +8320,19 @@ pub struct TTSScreen {
     /// Overlay window background opacity (0.0..1.0)
     #[rust]
     translation_overlay_opacity: f64,
-    /// Overlay text size preset: "small" | "normal" | "large"
+    /// Overlay text size preset: "16" | "20" | ... | "160"
     #[rust]
     translation_overlay_font_size_preset: String,
+    /// Overlay footer (branding) font size preset: "8" | "10" | ... | "20"
+    #[rust]
+    translation_overlay_footer_font_size_preset: String,
     /// Overlay anchor position preset percentage: "50" | "60" | ... | "100"
     #[rust]
     translation_overlay_anchor_position_preset: String,
+    /// Cached overlay status string ("warming" / "listening") to avoid redundant
+    /// label rewrites on each timer tick.
+    #[rust]
+    translation_overlay_status_cached: String,
     /// Audio source for translation: false = microphone, true = system audio
     #[rust]
     /// Whether we have already triggered the background screen-recording permission probe
@@ -8577,7 +8611,9 @@ impl Widget for TTSScreen {
             self.translation_overlay_fullscreen = true;
             self.translation_overlay_opacity = 1.0;
             self.translation_overlay_font_size_preset = "24".to_string();
+            self.translation_overlay_footer_font_size_preset = "10".to_string();
             self.translation_overlay_anchor_position_preset = "70".to_string(); // "Center"
+            self.translation_overlay_status_cached = String::new();
             self.translation_permission_probed = false;
             self.translation_permission_timer = Timer::default();
             // Add initial log entries
@@ -8678,6 +8714,7 @@ impl Widget for TTSScreen {
             self.poll_dora_startup(cx);
             self.poll_dora_events(cx);
             self.poll_translation_dora_events(cx);
+            self.poll_translation_status_badge(cx);
             self.maybe_retry_dataflow_start(cx);
 
             // Two-phase wait after backend switch: first bridges drop, then come back to 4
@@ -9133,9 +9170,11 @@ impl Widget for TTSScreen {
                     .translation_font_size_preset
                     .set(self.translation_overlay_font_size_preset.clone());
                 shared
+                    .translation_footer_font_size_preset
+                    .set(self.translation_overlay_footer_font_size_preset.clone());
+                shared
                     .translation_anchor_position_preset
                     .set(self.translation_overlay_anchor_position_preset.clone());
-                shared.translation_window_visible.set(false);
                 shared.translation_window_visible.set(true);
                 shared
                     .translation_overlay_fullscreen
@@ -9144,6 +9183,8 @@ impl Widget for TTSScreen {
                     .translation_overlay_opacity
                     .set(self.translation_overlay_opacity);
             }
+            self.update_translation_footer_font_size_dropdown(cx);
+            self.update_translation_action_button(cx);
             // Probe screen-recording permission early so the OS dialog appears
             // before the user clicks Start (macOS requires a restart after granting).
             #[cfg(target_os = "macos")]
@@ -9155,7 +9196,7 @@ impl Widget for TTSScreen {
             }
         }
 
-        // ── Translation page: start / stop / settings buttons ────────────────
+        // ── Translation page: single Start/Stop action button ────────────────
         if self
             .view
             .button(ids!(
@@ -9165,28 +9206,15 @@ impl Widget for TTSScreen {
                     .content_area
                     .translation_page
                     .translation_body
-                    .translation_settings_panel
-                    .translation_start_btn
+                    .translation_action_btn
             ))
             .clicked(&actions)
         {
-            self.start_translation_dataflow(cx);
-        }
-        if self
-            .view
-            .button(ids!(
-                content_wrapper
-                    .main_content
-                    .left_column
-                    .content_area
-                    .translation_page
-                    .translation_body
-                    .translation_running_panel
-                    .translation_stop_btn
-            ))
-            .clicked(&actions)
-        {
-            self.stop_translation_dataflow(cx);
+            if self.translation_running {
+                self.stop_translation_dataflow(cx);
+            } else {
+                self.start_translation_dataflow(cx);
+            }
         }
 
         // 更改 input source — dropdown selection
@@ -9207,25 +9235,30 @@ impl Widget for TTSScreen {
             ))
             .changed(&actions)
         {
-            self.translation_device_idx = idx;
-            if idx == 0 {
-                // System Audio via ScreenCaptureKit
-                self.send_audio_source_to_bridge(true);
-                if let Some(shared) = self.translation_shared_state() {
-                    shared.translation_input_device.set(None);
-                }
+            if self.translation_running {
+                // Locked while running — revert dropdown back to the captured selection.
+                self.populate_translation_input_dropdown(cx);
             } else {
-                // Microphone — idx 1 = default, idx 2..N = CPAL device
-                self.send_audio_source_to_bridge(false);
-                let device_for_bridge = if idx == 1 {
-                    None
-                } else if idx - 1 <= self.translation_audio_devices.len() {
-                    self.translation_audio_devices.get(idx - 2).cloned()
+                self.translation_device_idx = idx;
+                if idx == 0 {
+                    // System Audio via ScreenCaptureKit
+                    self.send_audio_source_to_bridge(true);
+                    if let Some(shared) = self.translation_shared_state() {
+                        shared.translation_input_device.set(None);
+                    }
                 } else {
-                    None
-                };
-                if let Some(shared) = self.translation_shared_state() {
-                    shared.translation_input_device.set(device_for_bridge);
+                    // Microphone — idx 1 = default, idx 2..N = CPAL device
+                    self.send_audio_source_to_bridge(false);
+                    let device_for_bridge = if idx == 1 {
+                        None
+                    } else if idx - 1 <= self.translation_audio_devices.len() {
+                        self.translation_audio_devices.get(idx - 2).cloned()
+                    } else {
+                        None
+                    };
+                    if let Some(shared) = self.translation_shared_state() {
+                        shared.translation_input_device.set(device_for_bridge);
+                    }
                 }
             }
         }
@@ -9322,7 +9355,10 @@ impl Widget for TTSScreen {
                 ))
                 .changed(&actions)
             {
-                if let Some(code) = lang_codes.get(idx) {
+                if self.translation_running {
+                    // Locked while running — value is baked into the dataflow YAML.
+                    self.update_translation_lang_dropdowns(cx);
+                } else if let Some(code) = lang_codes.get(idx) {
                     self.translation_src_lang = code.to_string();
                     self.sync_translation_overlay_lang_pair();
                 }
@@ -9348,7 +9384,10 @@ impl Widget for TTSScreen {
                 ))
                 .changed(&actions)
             {
-                if let Some(code) = lang_codes.get(idx) {
+                if self.translation_running {
+                    // Locked while running — value is baked into the dataflow YAML.
+                    self.update_translation_lang_dropdowns(cx);
+                } else if let Some(code) = lang_codes.get(idx) {
                     self.translation_tgt_lang = code.to_string();
                     self.sync_translation_overlay_lang_pair();
                 }
@@ -9378,6 +9417,33 @@ impl Widget for TTSScreen {
                     self.translation_overlay_font_size_preset = (*preset).to_string();
                     self.update_translation_font_size_dropdown(cx);
                     self.sync_translation_overlay_font_size();
+                }
+            }
+        }
+
+        // Overlay footer (branding) font size preset dropdown — live-changeable.
+        {
+            let presets = ["8", "10", "12", "14", "16", "18", "20"];
+            if let Some(idx) = self
+                .view
+                .drop_down(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
+                        .setting_row_footer_font_size
+                        .footer_font_size_dropdown
+                ))
+                .changed(&actions)
+            {
+                if let Some(preset) = presets.get(idx) {
+                    self.translation_overlay_footer_font_size_preset = (*preset).to_string();
+                    self.update_translation_footer_font_size_dropdown(cx);
+                    self.sync_translation_overlay_footer_font_size();
                 }
             }
         }
@@ -13808,18 +13874,7 @@ impl TTSScreen {
                     .translation_opacity_label
             ))
             .set_text(cx, self.tr("浮窗不透明度", "Overlay Opacity"));
-        self.view
-            .button(ids!(
-                content_wrapper
-                    .main_content
-                    .left_column
-                    .content_area
-                    .translation_page
-                    .translation_body
-                    .translation_settings_panel
-                    .translation_start_btn
-            ))
-            .set_text(cx, self.tr("启动实时翻译", "Start Live Translation"));
+        self.update_translation_action_button(cx);
         #[cfg(target_os = "macos")]
         self.view
             .label(ids!(
@@ -13837,27 +13892,16 @@ impl TTSScreen {
                     .content_area
                     .translation_page
                     .translation_body
-                    .translation_running_panel
+                    .translation_log_area
                     .translation_log_card
                     .translation_log_title
             ))
             .set_text(cx, self.tr("运行日志", "Runtime Logs"));
-        self.view
-            .button(ids!(
-                content_wrapper
-                    .main_content
-                    .left_column
-                    .content_area
-                    .translation_page
-                    .translation_body
-                    .translation_running_panel
-                    .translation_stop_btn
-            ))
-            .set_text(cx, self.tr("停止翻译", "Stop Translation"));
         self.update_translation_settings_layout_for_locale(cx);
         self.update_translation_lang_dropdowns(cx);
         self.update_translation_overlay_style_buttons(cx);
         self.update_translation_font_size_dropdown(cx);
+        self.update_translation_footer_font_size_dropdown(cx);
         self.update_translation_anchor_position_dropdown(cx);
         self.populate_translation_input_dropdown(cx);
         self.update_translation_opacity_dropdown(cx);
@@ -18664,7 +18708,7 @@ impl TTSScreen {
                     .content_area
                     .translation_page
                     .translation_body
-                    .translation_running_panel
+                    .translation_log_area
                     .translation_log_card
                     .translation_log_scroll
                     .translation_log_label
@@ -18678,7 +18722,7 @@ impl TTSScreen {
                     .content_area
                     .translation_page
                     .translation_body
-                    .translation_running_panel
+                    .translation_log_area
                     .translation_log_card
                     .translation_log_scroll
             ))
@@ -18888,11 +18932,17 @@ impl TTSScreen {
                 .translation_font_size_preset
                 .set(self.translation_overlay_font_size_preset.clone());
             shared
+                .translation_footer_font_size_preset
+                .set(self.translation_overlay_footer_font_size_preset.clone());
+            shared
                 .translation_anchor_position_preset
                 .set(self.translation_overlay_anchor_position_preset.clone());
-            // Force a visibility dirty edge even if state was previously true
-            // (e.g. user manually closed the OS window while state remained true).
-            shared.translation_window_visible.set(false);
+            // Clear any previous translation text before showing the overlay so a
+            // restart starts with an empty board even if the window was kept open.
+            shared.translation.set(None);
+            // Mark window visible. Single set() is enough — DirtyValue still flags
+            // dirty even when value matches, and the previous false→true flicker
+            // could cause the overlay window to minimize-then-restore.
             shared.translation_window_visible.set(true);
             shared
                 .translation_overlay_fullscreen
@@ -18900,7 +18950,10 @@ impl TTSScreen {
             shared
                 .translation_overlay_opacity
                 .set(self.translation_overlay_opacity);
+            // Reset status to warming until the bridges report ready.
+            shared.translation_overlay_status.set("warming".to_string());
         }
+        self.translation_overlay_status_cached.clear();
         // Sync audio source from current dropdown selection
         self.send_audio_source_to_bridge(self.translation_device_idx == 0);
 
@@ -19021,7 +19074,8 @@ impl TTSScreen {
             ))
             .set_visible(cx, running);
 
-        // Settings panel ↔ running panel
+        // Settings panel stays visible the whole time. Only the log card flips
+        // visibility — when running it appears beneath the settings card.
         self.view
             .view(ids!(
                 content_wrapper
@@ -19030,20 +19084,13 @@ impl TTSScreen {
                     .content_area
                     .translation_page
                     .translation_body
-                    .translation_settings_panel
-            ))
-            .set_visible(cx, !running);
-        self.view
-            .view(ids!(
-                content_wrapper
-                    .main_content
-                    .left_column
-                    .content_area
-                    .translation_page
-                    .translation_body
-                    .translation_running_panel
+                    .translation_log_area
+                    .translation_log_card
             ))
             .set_visible(cx, running);
+
+        self.update_translation_action_button(cx);
+        self.update_translation_locked_controls(cx, running);
 
         self.view
             .view(ids!(
@@ -19054,6 +19101,109 @@ impl TTSScreen {
                     .translation_page
             ))
             .redraw(cx);
+    }
+
+    /// Disable the dropdowns whose value is locked while a translation dataflow
+    /// is running (input source, source language, target language).
+    ///
+    /// Two layers of locking:
+    ///   1. Shader `disabled` instance fades the bg/text so the control reads
+    ///      visually as disabled.
+    ///   2. The DropDown's built-in `disabled` animator state is toggled, which
+    ///      the widget's `Hit::FingerDown` handler checks before opening the
+    ///      popup — so clicks on a disabled dropdown are silently swallowed.
+    fn update_translation_locked_controls(&mut self, cx: &mut Cx, running: bool) {
+        let disabled: f32 = if running { 1.0 } else { 0.0 };
+        let animator_state: &[LiveId; 2] = if running {
+            ids!(disabled.on)
+        } else {
+            ids!(disabled.off)
+        };
+        let paths = [
+            ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_source.translation_source_dropdown),
+            ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_src_lang.src_lang_dropdown),
+            ids!(content_wrapper.main_content.left_column.content_area.translation_page.translation_body.translation_settings_panel.settings_card.setting_row_tgt_lang.tgt_lang_dropdown),
+        ];
+        for path in paths {
+            let dd = self.view.drop_down(path);
+            dd.apply_over(cx, live! {
+                draw_bg: { disabled: (disabled) }
+                draw_text: { disabled: (disabled) }
+            });
+            if let Some(mut inner) = dd.borrow_mut() {
+                inner.animator_play(cx, animator_state);
+            };
+        }
+    }
+
+    /// Update the single Start/Stop action button (text + color) based on the
+    /// current running state and active locale.
+    fn update_translation_action_button(&mut self, cx: &mut Cx) {
+        let label = if self.translation_running {
+            self.tr("停止翻译", "Stop Translation")
+        } else {
+            self.tr("启动实时翻译", "Start Live Translation")
+        };
+        let btn = self.view.button(ids!(
+            content_wrapper
+                .main_content
+                .left_column
+                .content_area
+                .translation_page
+                .translation_body
+                .translation_action_btn
+        ));
+        btn.set_text(cx, label);
+        let running_flag: f32 = if self.translation_running { 1.0 } else { 0.0 };
+        btn.apply_over(cx, live! { draw_bg: { running: (running_flag) } });
+    }
+
+    /// Drain the latest warming/listening status from shared state and refresh
+    /// the runtime-logs badge. The heartbeat itself runs in app.rs (overlay
+    /// shell) which writes the bridge-readiness result into shared state.
+    fn poll_translation_status_badge(&mut self, cx: &mut Cx) {
+        if !self.translation_running {
+            return;
+        }
+        let Some(shared) = self.translation_shared_state() else {
+            return;
+        };
+        let Some(status) = shared.translation_overlay_status.read_if_dirty() else {
+            return;
+        };
+        if self.translation_overlay_status_cached == status {
+            return;
+        }
+        self.translation_overlay_status_cached = status.clone();
+        self.update_translation_status_badge(cx, &status);
+    }
+
+    /// Update the warming/listening status badge on the runtime-logs card.
+    fn update_translation_status_badge(&mut self, cx: &mut Cx, status: &str) {
+        let (text, color) = match status {
+            "listening" => {
+                let t = if self.is_english() { "● LISTENING" } else { "● 监听中" };
+                (t, vec4(0.098, 0.725, 0.506, 1.0))
+            }
+            // "warming" or unknown.
+            _ => {
+                let t = if self.is_english() { "● WARMING UP" } else { "● 预热中" };
+                (t, vec4(0.906, 0.620, 0.204, 1.0))
+            }
+        };
+        let label = self.view.label(ids!(
+            content_wrapper
+                .main_content
+                .left_column
+                .content_area
+                .translation_page
+                .translation_body
+                .translation_log_area
+                .translation_log_card
+                .translation_overlay_status_badge
+        ));
+        label.set_text(cx, text);
+        label.apply_over(cx, live! { draw_text: { color: (color) } });
     }
 
     /// Append a line to the translation page log and refresh the label.
@@ -19084,7 +19234,7 @@ impl TTSScreen {
                     .content_area
                     .translation_page
                     .translation_body
-                    .translation_running_panel
+                    .translation_log_area
                     .translation_log_card
                     .translation_log_scroll
                     .translation_log_label
@@ -19339,6 +19489,20 @@ impl TTSScreen {
                         .translation_body
                         .translation_settings_panel
                         .settings_card
+                        .setting_row_footer_font_size
+                        .translation_footer_font_size_label
+                ))
+                .apply_over(cx, live! { width: 160.0 });
+            self.view
+                .label(ids!(
+                    content_wrapper
+                        .main_content
+                        .left_column
+                        .content_area
+                        .translation_page
+                        .translation_body
+                        .translation_settings_panel
+                        .settings_card
                         .setting_row_anchor_position
                         .translation_anchor_position_label
                 ))
@@ -19428,6 +19592,20 @@ impl TTSScreen {
                     .settings_card
                     .setting_row_font_size
                     .translation_font_size_label
+            ))
+            .apply_over(cx, live! { width: 90.0 });
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .translation_page
+                    .translation_body
+                    .translation_settings_panel
+                    .settings_card
+                    .setting_row_footer_font_size
+                    .translation_footer_font_size_label
             ))
             .apply_over(cx, live! { width: 90.0 });
         self.view
@@ -19556,6 +19734,29 @@ impl TTSScreen {
                     .font_size_dropdown
             ))
             .set_selected_item(cx, idx);
+    }
+
+    fn update_translation_footer_font_size_dropdown(&mut self, cx: &mut Cx) {
+        let presets = ["8", "10", "12", "14", "16", "18", "20"];
+        let labels: Vec<String> = presets.iter().map(|p| format!("{}pt", p)).collect();
+        let idx = presets
+            .iter()
+            .position(|p| *p == self.translation_overlay_footer_font_size_preset)
+            .unwrap_or(1); // default 10pt
+        let dd = self.view.drop_down(ids!(
+            content_wrapper
+                .main_content
+                .left_column
+                .content_area
+                .translation_page
+                .translation_body
+                .translation_settings_panel
+                .settings_card
+                .setting_row_footer_font_size
+                .footer_font_size_dropdown
+        ));
+        dd.set_labels(cx, labels);
+        dd.set_selected_item(cx, idx);
     }
 
     fn update_translation_anchor_position_dropdown(&mut self, cx: &mut Cx) {
@@ -19712,6 +19913,14 @@ impl TTSScreen {
             shared
                 .translation_font_size_preset
                 .set(self.translation_overlay_font_size_preset.clone());
+        }
+    }
+
+    fn sync_translation_overlay_footer_font_size(&self) {
+        if let Some(shared) = self.translation_shared_state() {
+            shared
+                .translation_footer_font_size_preset
+                .set(self.translation_overlay_footer_font_size_preset.clone());
         }
     }
 
@@ -22019,7 +22228,7 @@ impl TTSScreen {
                     .content_area
                     .translation_page
                     .translation_body
-                    .translation_running_panel
+                    .translation_log_area
                     .translation_log_card
             ))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
@@ -22031,7 +22240,7 @@ impl TTSScreen {
                     .content_area
                     .translation_page
                     .translation_body
-                    .translation_running_panel
+                    .translation_log_area
                     .translation_log_card
                     .translation_log_title
             ))
@@ -25254,17 +25463,6 @@ impl TTSScreenRef {
                 .update_dark_mode(cx, dark_mode);
 
             inner.view.redraw(cx);
-        }
-    }
-
-    pub fn set_translation_overlay_font_size_preset(&self, cx: &mut Cx, preset: &str) {
-        if let Some(mut inner) = self.borrow_mut() {
-            inner.translation_overlay_font_size_preset = match preset {
-                "small" | "large" | "normal" => preset.to_string(),
-                _ => "normal".to_string(),
-            };
-            inner.update_translation_font_size_dropdown(cx);
-            inner.sync_translation_overlay_font_size();
         }
     }
 
