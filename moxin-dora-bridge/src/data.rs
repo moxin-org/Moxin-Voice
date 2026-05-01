@@ -412,11 +412,11 @@ pub struct SentenceUnit {
 
 /// Translation update from the translator node.
 ///
-/// Carries the full sentence history (up to 50 completed sentences) plus
-/// any in-progress ASR text that hasn't been translated yet.
+/// Carries the full sentence history plus any in-progress ASR text
+/// that hasn't been translated yet.
 #[derive(Debug, Clone, Default)]
 pub struct TranslationUpdate {
-    /// Completed sentences in chronological order (capped at 50).
+    /// Completed sentences in chronological order.
     pub history: Vec<SentenceUnit>,
     /// ASR text currently being spoken (not yet translated). Empty when idle.
     pub pending_source_text: String,

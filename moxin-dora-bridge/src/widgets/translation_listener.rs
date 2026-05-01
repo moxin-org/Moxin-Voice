@@ -189,7 +189,7 @@ impl TranslationListenerBridge {
             shared.add_bridge(node_id.clone());
         }
 
-        const MAX_HISTORY: usize = 50;
+        const MAX_HISTORY: usize = 10_000;
         let mut display = TranslationDisplayState::default();
 
         loop {

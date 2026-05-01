@@ -1398,10 +1398,14 @@ live_design! {
                     padding: {left: 12, right: 12, top: 8, bottom: 16}
                     spacing: 2
 
-                    nav_tts = <NavItem> {
-                        text: "Text to Speech"
+                    nav_translation = <NavItem> {
+                        text: "Live Translation"
                         draw_bg: { active: 1.0 }
                         draw_text: { active: 1.0 }
+                    }
+
+                    nav_tts = <NavItem> {
+                        text: "Text to Speech"
                     }
 
                     nav_library = <NavItem> {
@@ -1415,10 +1419,6 @@ live_design! {
 
                     nav_history = <NavItem> {
                         text: "History"
-                    }
-
-                    nav_translation = <NavItem> {
-                        text: "Live Translation"
                     }
 
                     // Spacer pushes About to the bottom
@@ -1566,7 +1566,7 @@ live_design! {
                         width: Fill, height: Fill
                         flow: Down
                         spacing: 12
-                        visible: true  // Default visible
+                        visible: false
 
                     // Page title - Moxin.tts style
                     page_header = <View> {
@@ -5328,7 +5328,7 @@ live_design! {
                         width: Fill, height: Fill
                         flow: Down
                         spacing: 0
-                        visible: false
+                        visible: true
 
                         // Page header
                         page_header = <View> {
@@ -8430,8 +8430,8 @@ impl Widget for TTSScreen {
             self.pending_generation_pitch = 0.0;
             self.pending_generation_volume = 100.0;
             self.has_generated_audio = false;
-            // Initialize current page
-            self.current_page = AppPage::TextToSpeech;
+            // Initialize current page — Live Translation is the primary feature
+            self.current_page = AppPage::Translation;
 
             // Initialize voice library state
             self.library_voices = Vec::new();

@@ -409,11 +409,14 @@ impl MatchEvent for App {
             self.translation_ui.redraw(cx);
         }
 
-        // Locale and language-pair fields are still pushed by screen.rs but no
-        // longer drive any overlay UI (toolbar removed). Drain their dirty bits
-        // so they don't keep firing redundant work.
         let _ = dora_state.translation_locale_en.read_if_dirty();
-        let _ = dora_state.translation_lang_pair.read_if_dirty();
+        if let Some((_, tgt)) = dora_state.translation_lang_pair.read_if_dirty() {
+            let passthrough = tgt.eq_ignore_ascii_case("none");
+            let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));
+            if let Some(mut overlay) = overlay_ref.borrow_mut::<TranslationOverlay>() {
+                overlay.set_passthrough(cx, passthrough);
+            };
+        }
 
         if let Some(preset) = dora_state.translation_font_size_preset.read_if_dirty() {
             let overlay_ref = self.translation_ui.widget(ids!(body.translation_overlay));

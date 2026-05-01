@@ -175,6 +175,10 @@ pub struct TranslationOverlay {
     /// True when only pending text is present (no completed history yet).
     #[rust]
     pending_only_mode: bool,
+
+    /// Passthrough mode — no translation, source text IS the output.
+    #[rust]
+    passthrough: bool,
 }
 
 impl Widget for TranslationOverlay {
@@ -410,6 +414,11 @@ impl TranslationOverlay {
         self.view.redraw(cx);
     }
 
+    /// Set passthrough mode (no translation — source text is the final output).
+    pub fn set_passthrough(&mut self, _cx: &mut Cx, passthrough: bool) {
+        self.passthrough = passthrough;
+    }
+
     /// Set overlay background opacity (0.0 = fully transparent, 1.0 = opaque).
     pub fn set_opacity(&mut self, cx: &mut Cx, opacity: f64) {
         self.view.apply_over(cx, live! {
@@ -428,8 +437,7 @@ impl TranslationOverlay {
         history: &[(String, String)],
         pending: &str,
     ) {
-        // Build history text: each sentence is "source\ntranslation\n"
-        let history_text = Self::format_history(history);
+        let history_text = Self::format_history(history, self.passthrough);
         self.view
             .label(ids!(content_scroll.history_label))
             .set_text(cx, &history_text);
@@ -466,21 +474,25 @@ impl TranslationOverlay {
         self.view.redraw(cx);
     }
 
-    fn format_history(history: &[(String, String)]) -> String {
+    fn format_history(history: &[(String, String)], passthrough: bool) -> String {
         let mut out = String::new();
         for (i, (source, translation)) in history.iter().enumerate() {
             if i > 0 {
-                // Blank line between entries (same inter-entry spacing as
-                // source/translation pairs in the normal mode).
                 out.push_str("\n\n");
             }
-            out.push_str(source.trim());
-            let translation_trimmed = translation.trim();
-            // Passthrough (no translation) sends empty translation text — skip
-            // the second line entirely instead of inserting a blank gap.
-            if !translation_trimmed.is_empty() {
-                out.push('\n');
-                out.push_str(translation_trimmed);
+            if passthrough {
+                // No translation — source text is the output, shown in white.
+                out.push_str(source.trim());
+            } else {
+                let translation_trimmed = translation.trim();
+                if translation_trimmed.is_empty() {
+                    // Translation not yet available — show source as fallback.
+                    out.push_str(source.trim());
+                } else {
+                    // Show only translation text (white). Source was visible
+                    // as grey pending text during transcription.
+                    out.push_str(translation_trimmed);
+                }
             }
         }
         out
@@ -597,32 +609,38 @@ mod tests {
     }
 
     #[test]
-    fn format_history_skips_empty_translation_line() {
+    fn format_history_passthrough_shows_source() {
         let items = vec![("hello".to_string(), "".to_string())];
-        let out = TranslationOverlay::format_history(&items);
+        let out = TranslationOverlay::format_history(&items, true);
         assert_eq!(out, "hello");
 
         let items = vec![
             ("hi".to_string(), "".to_string()),
             ("world".to_string(), "".to_string()),
         ];
-        let out = TranslationOverlay::format_history(&items);
+        let out = TranslationOverlay::format_history(&items, true);
         assert_eq!(out, "hi\n\nworld");
     }
 
     #[test]
-    fn format_history_keeps_translation_line_when_present() {
+    fn format_history_translation_mode_shows_only_translation() {
         let items = vec![("hello".to_string(), "你好".to_string())];
-        let out = TranslationOverlay::format_history(&items);
-        assert_eq!(out, "hello\n你好");
+        let out = TranslationOverlay::format_history(&items, false);
+        assert_eq!(out, "你好");
 
-        // Inter-entry spacing is the same blank-line separator as before.
         let items = vec![
             ("hi".to_string(), "你好".to_string()),
             ("bye".to_string(), "再见".to_string()),
         ];
-        let out = TranslationOverlay::format_history(&items);
-        assert_eq!(out, "hi\n你好\n\nbye\n再见");
+        let out = TranslationOverlay::format_history(&items, false);
+        assert_eq!(out, "你好\n\n再见");
+    }
+
+    #[test]
+    fn format_history_fallback_to_source_when_translation_empty() {
+        let items = vec![("hello".to_string(), "".to_string())];
+        let out = TranslationOverlay::format_history(&items, false);
+        assert_eq!(out, "hello");
     }
 }
 
@@ -661,6 +679,12 @@ impl TranslationOverlayRef {
     pub fn set_anchor_position_preset(&self, cx: &mut Cx, preset: &str) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.set_anchor_position_preset(cx, preset);
+        }
+    }
+
+    pub fn set_passthrough(&self, cx: &mut Cx, passthrough: bool) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_passthrough(cx, passthrough);
         }
     }
 
