@@ -5645,8 +5645,8 @@ live_design! {
 
                                         footer_font_size_dropdown = <SettingsDeviceDropDown> {
                                             width: Fill, height: 32
-                                            labels: ["8pt", "10pt", "12pt", "14pt", "16pt", "18pt", "20pt"]
-                                            values: ["8", "10", "12", "14", "16", "18", "20"]
+                                            labels: ["8pt", "10pt", "12pt", "14pt", "16pt", "18pt", "20pt", "22pt", "24pt", "26pt", "28pt", "30pt", "32pt"]
+                                            values: ["8", "10", "12", "14", "16", "18", "20", "22", "24", "26", "28", "30", "32"]
                                         }
                                     }
 
@@ -5673,7 +5673,7 @@ live_design! {
                                         anchor_position_dropdown = <SettingsDeviceDropDown> {
                                             width: Fill, height: 32
                                             labels: ["Center-top", "Center", "Center-bottom", "Bottom"]
-                                            values: ["50", "70", "85", "100"]
+                                            values: ["35", "50", "70", "100"]
                                         }
                                     }
 
@@ -5900,7 +5900,7 @@ live_design! {
                                             return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
                                         }
                                     }
-                                    text: "v0.0.4"
+                                    text: "v0.0.5"
                                 }
 
                                 about_page_engine = <Label> {
@@ -8326,7 +8326,7 @@ pub struct TTSScreen {
     /// Overlay footer (branding) font size preset: "8" | "10" | ... | "20"
     #[rust]
     translation_overlay_footer_font_size_preset: String,
-    /// Overlay anchor position preset percentage: "50" | "60" | ... | "100"
+    /// Overlay anchor position preset percentage: "35" | "50" | "70" | "100"
     #[rust]
     translation_overlay_anchor_position_preset: String,
     /// Cached overlay status string ("warming" / "listening") to avoid redundant
@@ -8612,7 +8612,7 @@ impl Widget for TTSScreen {
             self.translation_overlay_opacity = 1.0;
             self.translation_overlay_font_size_preset = "24".to_string();
             self.translation_overlay_footer_font_size_preset = "10".to_string();
-            self.translation_overlay_anchor_position_preset = "70".to_string(); // "Center"
+            self.translation_overlay_anchor_position_preset = "50".to_string(); // "Center"
             self.translation_overlay_status_cached = String::new();
             self.translation_permission_probed = false;
             self.translation_permission_timer = Timer::default();
@@ -9423,7 +9423,9 @@ impl Widget for TTSScreen {
 
         // Overlay footer (branding) font size preset dropdown — live-changeable.
         {
-            let presets = ["8", "10", "12", "14", "16", "18", "20"];
+            let presets = [
+                "8", "10", "12", "14", "16", "18", "20", "22", "24", "26", "28", "30", "32",
+            ];
             if let Some(idx) = self
                 .view
                 .drop_down(ids!(
@@ -9450,7 +9452,7 @@ impl Widget for TTSScreen {
 
         // Overlay scroll anchor position dropdown
         {
-            let presets = ["50", "70", "85", "100"];
+            let presets = ["35", "50", "70", "100"];
             if let Some(idx) = self
                 .view
                 .drop_down(ids!(
@@ -19737,7 +19739,9 @@ impl TTSScreen {
     }
 
     fn update_translation_footer_font_size_dropdown(&mut self, cx: &mut Cx) {
-        let presets = ["8", "10", "12", "14", "16", "18", "20"];
+        let presets = [
+            "8", "10", "12", "14", "16", "18", "20", "22", "24", "26", "28", "30", "32",
+        ];
         let labels: Vec<String> = presets.iter().map(|p| format!("{}pt", p)).collect();
         let idx = presets
             .iter()
@@ -19776,9 +19780,9 @@ impl TTSScreen {
             ]
         };
         let idx = match self.translation_overlay_anchor_position_preset.as_str() {
-            "50" => 0,
-            "70" => 1,
-            "85" => 2,
+            "35" => 0,
+            "50" => 1,
+            "70" => 2,
             "100" => 3,
             _ => 1,
         };

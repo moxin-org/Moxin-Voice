@@ -138,7 +138,7 @@ pub struct TranslationOverlay {
     #[rust]
     footer_font_size_preset: String,
 
-    /// Anchor position preset percentage: "50" | "70" | "85" | "100".
+    /// Anchor position preset percentage: "35" | "50" | "70" | "100".
     #[rust]
     anchor_position_preset: String,
 
@@ -231,8 +231,9 @@ impl TranslationOverlay {
         "16", "20", "24", "30", "36", "44", "52", "64", "80", "96", "120", "160",
     ];
 
-    const FOOTER_FONT_SIZE_PRESETS: &'static [&'static str] =
-        &["8", "10", "12", "14", "16", "18", "20"];
+    const FOOTER_FONT_SIZE_PRESETS: &'static [&'static str] = &[
+        "8", "10", "12", "14", "16", "18", "20", "22", "24", "26", "28", "30", "32",
+    ];
 
     fn font_size_preset_values(preset: &str) -> (f64, f64) {
         let size: f64 = preset.parse().unwrap_or(24.0);
@@ -243,13 +244,17 @@ impl TranslationOverlay {
         preset.parse().unwrap_or(10.0)
     }
 
+    fn footer_logo_size_value(preset: &str) -> f64 {
+        Self::footer_font_size_value(preset).max(22.0)
+    }
+
     fn anchor_position_ratio(preset: &str) -> f64 {
         match preset {
+            "35" => 0.35,
             "50" => 0.5,
             "70" => 0.7,
-            "85" => 0.85,
             "100" => 1.0,
-            _ => 0.7,
+            _ => 0.5,
         }
     }
 
@@ -266,9 +271,13 @@ impl TranslationOverlay {
 
     fn update_footer_font_size_draw_styles(&self, cx: &mut Cx) {
         let size = Self::footer_font_size_value(&self.footer_font_size_preset);
+        let logo_size = Self::footer_logo_size_value(&self.footer_font_size_preset);
         self.view
             .label(ids!(overlay_footer.footer_label))
             .apply_over(cx, live! { draw_text: { text_style: { font_size: (size) } } });
+        self.view
+            .image(ids!(overlay_footer.footer_logo))
+            .apply_over(cx, live! { width: (logo_size), height: (logo_size) });
     }
 
     fn compute_anchor_spacer_height(
@@ -389,8 +398,8 @@ impl TranslationOverlay {
 
     pub fn set_anchor_position_preset(&mut self, cx: &mut Cx, preset: &str) {
         let normalized = match preset {
-            "50" | "70" | "85" | "100" => preset,
-            _ => "70",
+            "35" | "50" | "70" | "100" => preset,
+            _ => "50",
         };
         if self.anchor_position_preset == normalized {
             return;
@@ -549,6 +558,24 @@ mod tests {
     }
 
     #[test]
+    fn footer_logo_size_tracks_large_tagline_sizes() {
+        assert_eq!(TranslationOverlay::footer_logo_size_value("10"), 22.0);
+        assert_eq!(TranslationOverlay::footer_logo_size_value("22"), 22.0);
+        assert_eq!(TranslationOverlay::footer_logo_size_value("30"), 30.0);
+        assert_eq!(TranslationOverlay::footer_logo_size_value("32"), 32.0);
+    }
+
+    #[test]
+    fn footer_font_size_presets_include_large_tagline_sizes() {
+        for preset in ["22", "24", "26", "28", "30", "32"] {
+            assert!(
+                TranslationOverlay::FOOTER_FONT_SIZE_PRESETS.contains(&preset),
+                "missing footer font size preset {preset}"
+            );
+        }
+    }
+
+    #[test]
     fn footer_font_size_value_falls_back_when_invalid() {
         assert_eq!(TranslationOverlay::footer_font_size_value(""), 10.0);
         assert_eq!(TranslationOverlay::footer_font_size_value("abc"), 10.0);
@@ -556,9 +583,9 @@ mod tests {
 
     #[test]
     fn anchor_position_preset_values_match_expected_ratios() {
+        assert_eq!(TranslationOverlay::anchor_position_ratio("35"), 0.35);
         assert_eq!(TranslationOverlay::anchor_position_ratio("50"), 0.5);
         assert_eq!(TranslationOverlay::anchor_position_ratio("70"), 0.7);
-        assert_eq!(TranslationOverlay::anchor_position_ratio("85"), 0.85);
         assert_eq!(TranslationOverlay::anchor_position_ratio("100"), 1.0);
     }
 

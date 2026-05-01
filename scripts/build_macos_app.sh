@@ -14,7 +14,7 @@ BIN_NAME="moxin-voice-shell"
 PROFILE="release"
 ICON_PATH=""
 OUT_DIR="$ROOT_DIR/dist"
-VERSION="1.0"
+VERSION="0.0.5"
 
 usage() {
   cat <<EOF
