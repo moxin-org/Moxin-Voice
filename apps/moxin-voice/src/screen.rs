@@ -18946,9 +18946,9 @@ impl TTSScreen {
             // dirty even when value matches, and the previous false→true flicker
             // could cause the overlay window to minimize-then-restore.
             shared.translation_window_visible.set(true);
-            shared
-                .translation_overlay_fullscreen
-                .set(self.translation_overlay_fullscreen);
+            // Do NOT re-push translation_overlay_fullscreen here — it would
+            // trigger a resize back to the preset dimensions, discarding any
+            // manual resize the user performed between runs.
             shared
                 .translation_overlay_opacity
                 .set(self.translation_overlay_opacity);
