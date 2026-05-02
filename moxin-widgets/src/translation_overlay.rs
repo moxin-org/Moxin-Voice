@@ -489,8 +489,8 @@ impl TranslationOverlay {
                     // Translation not yet available — show source as fallback.
                     out.push_str(source.trim());
                 } else {
-                    // Show only translation text (white). Source was visible
-                    // as grey pending text during transcription.
+                    out.push_str(source.trim());
+                    out.push('\n');
                     out.push_str(translation_trimmed);
                 }
             }
@@ -623,17 +623,17 @@ mod tests {
     }
 
     #[test]
-    fn format_history_translation_mode_shows_only_translation() {
+    fn format_history_translation_mode_shows_source_and_translation() {
         let items = vec![("hello".to_string(), "你好".to_string())];
         let out = TranslationOverlay::format_history(&items, false);
-        assert_eq!(out, "你好");
+        assert_eq!(out, "hello\n你好");
 
         let items = vec![
             ("hi".to_string(), "你好".to_string()),
             ("bye".to_string(), "再见".to_string()),
         ];
         let out = TranslationOverlay::format_history(&items, false);
-        assert_eq!(out, "你好\n\n再见");
+        assert_eq!(out, "hi\n你好\n\nbye\n再见");
     }
 
     #[test]

@@ -94,6 +94,13 @@ fn should_show_runtime_download_ui(
         )
 }
 
+fn should_probe_translation_permission_on_page_entry(
+    current_page: AppPage,
+    translation_permission_probed: bool,
+) -> bool {
+    current_page == AppPage::Translation && !translation_permission_probed
+}
+
 #[derive(Debug)]
 enum RuntimeInitEvent {
     Stage {
@@ -5515,87 +5522,6 @@ live_design! {
                                         }
                                     }
 
-                                    // 浮窗样式
-                                    setting_row_overlay = <View> {
-                                        width: Fill, height: 52
-                                        flow: Right
-                                        align: {y: 0.5}
-                                        padding: {left: 16, right: 16}
-                                        spacing: 8
-
-                                        translation_overlay_style_label = <Label> {
-                                            width: 90, height: Fit
-                                            draw_text: {
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                                                }
-                                            }
-                                            text: "Overlay Style"
-                                        }
-
-                                        overlay_style_compact = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "Compact"
-                                            draw_bg: {
-                                                instance active: 1.0
-                                                instance dark_mode: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = mix(vec4(0.0, 0.0, 0.0, 0.0), vec4(0.16, 0.20, 0.28, 0.0), self.dark_mode);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    let inactive_border = mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
-                                                    sdf.stroke(mix(inactive_border, vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 1.0
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    let normal = mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(0.68, 0.78, 0.98, 1.0), self.dark_mode);
-                                                    return mix(normal, vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-
-                                        overlay_style_full = <Button> {
-                                            width: Fit, height: 28
-                                            padding: {left: 12, right: 12}
-                                            text: "Fullscreen"
-                                            draw_bg: {
-                                                instance active: 0.0
-                                                instance dark_mode: 0.0
-                                                instance border_radius: 6.0
-                                                fn pixel(self) -> vec4 {
-                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
-                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
-                                                    let inact = mix(vec4(0.0, 0.0, 0.0, 0.0), vec4(0.16, 0.20, 0.28, 0.0), self.dark_mode);
-                                                    sdf.fill(mix(inact, act, self.active));
-                                                    let inactive_border = mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
-                                                    sdf.stroke(mix(inactive_border, vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
-                                                    return sdf.result;
-                                                }
-                                            }
-                                            draw_text: {
-                                                instance active: 0.0
-                                                instance dark_mode: 0.0
-                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
-                                                fn get_color(self) -> vec4 {
-                                                    let normal = mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(0.68, 0.78, 0.98, 1.0), self.dark_mode);
-                                                    return mix(normal, vec4(1.0,1.0,1.0,1.0), self.active);
-                                                }
-                                            }
-                                        }
-                                    }
-
                                     // 文字大小
                                     setting_row_font_size = <View> {
                                         width: Fill, height: 52
@@ -5701,6 +5627,87 @@ live_design! {
                                             width: Fill, height: 32
                                             labels: ["100%", "90%", "85%", "75%", "65%", "50%", "35%"]
                                             values: ["1.0", "0.9", "0.85", "0.75", "0.65", "0.5", "0.35"]
+                                        }
+                                    }
+
+                                    // 浮窗样式
+                                    setting_row_overlay = <View> {
+                                        width: Fill, height: 52
+                                        flow: Right
+                                        align: {y: 0.5}
+                                        padding: {left: 16, right: 16}
+                                        spacing: 8
+
+                                        translation_overlay_style_label = <Label> {
+                                            width: 90, height: Fit
+                                            draw_text: {
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 13.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                                                }
+                                            }
+                                            text: "Overlay Style"
+                                        }
+
+                                        overlay_style_compact = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "Compact"
+                                            draw_bg: {
+                                                instance active: 1.0
+                                                instance dark_mode: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = mix(vec4(0.0, 0.0, 0.0, 0.0), vec4(0.16, 0.20, 0.28, 0.0), self.dark_mode);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    let inactive_border = mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
+                                                    sdf.stroke(mix(inactive_border, vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 1.0
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    let normal = mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(0.68, 0.78, 0.98, 1.0), self.dark_mode);
+                                                    return mix(normal, vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
+                                        }
+
+                                        overlay_style_full = <Button> {
+                                            width: Fit, height: 28
+                                            padding: {left: 12, right: 12}
+                                            text: "Fullscreen"
+                                            draw_bg: {
+                                                instance active: 0.0
+                                                instance dark_mode: 0.0
+                                                instance border_radius: 6.0
+                                                fn pixel(self) -> vec4 {
+                                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                                    sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                                                    let act = vec4(0.231, 0.435, 0.831, 1.0);
+                                                    let inact = mix(vec4(0.0, 0.0, 0.0, 0.0), vec4(0.16, 0.20, 0.28, 0.0), self.dark_mode);
+                                                    sdf.fill(mix(inact, act, self.active));
+                                                    let inactive_border = mix(vec4(0.231, 0.435, 0.831, 0.35), vec4(0.42, 0.50, 0.63, 1.0), self.dark_mode);
+                                                    sdf.stroke(mix(inactive_border, vec4(0.0,0.0,0.0,0.0), self.active), 1.0);
+                                                    return sdf.result;
+                                                }
+                                            }
+                                            draw_text: {
+                                                instance active: 0.0
+                                                instance dark_mode: 0.0
+                                                text_style: <FONT_MEDIUM>{ font_size: 12.0 }
+                                                fn get_color(self) -> vec4 {
+                                                    let normal = mix(vec4(0.231, 0.435, 0.831, 1.0), vec4(0.68, 0.78, 0.98, 1.0), self.dark_mode);
+                                                    return mix(normal, vec4(1.0,1.0,1.0,1.0), self.active);
+                                                }
+                                            }
                                         }
                                     }
                                 } // End settings_card
@@ -5900,7 +5907,7 @@ live_design! {
                                             return mix((MOXIN_TEXT_SECONDARY), (MOXIN_TEXT_SECONDARY_DARK), self.dark_mode);
                                         }
                                     }
-                                    text: "v0.0.5"
+                                    text: "v0.0.6"
                                 }
 
                                 about_page_engine = <Label> {
@@ -8616,6 +8623,7 @@ impl Widget for TTSScreen {
             self.translation_overlay_status_cached = String::new();
             self.translation_permission_probed = false;
             self.translation_permission_timer = Timer::default();
+            self.ensure_translation_permission_probe(cx);
             // Add initial log entries
             self.log_entries
                 .push("[INFO] [tts] Moxin TTS initialized".to_string());
@@ -9185,15 +9193,7 @@ impl Widget for TTSScreen {
             }
             self.update_translation_footer_font_size_dropdown(cx);
             self.update_translation_action_button(cx);
-            // Probe screen-recording permission early so the OS dialog appears
-            // before the user clicks Start (macOS requires a restart after granting).
-            #[cfg(target_os = "macos")]
-            if !self.translation_permission_probed {
-                self.translation_permission_probed = true;
-                moxin_dora_bridge::widgets::probe_permission_async();
-                // Check probe result after 2 s and show/hide the restart hint.
-                self.translation_permission_timer = cx.start_timeout(2.0);
-            }
+            self.ensure_translation_permission_probe(cx);
         }
 
         // ── Translation page: single Start/Stop action button ────────────────
@@ -19834,6 +19834,30 @@ impl TTSScreen {
             .set_visible(cx, denied);
     }
 
+    /// Probe screen-recording permission early so the macOS dialog appears before Start.
+    fn ensure_translation_permission_probe(&mut self, cx: &mut Cx) {
+        if !should_probe_translation_permission_on_page_entry(
+            self.current_page,
+            self.translation_permission_probed,
+        ) {
+            return;
+        }
+
+        self.translation_permission_probed = true;
+
+        #[cfg(target_os = "macos")]
+        {
+            moxin_dora_bridge::widgets::probe_permission_async();
+            // Check probe result after 2 s and show/hide the restart hint.
+            self.translation_permission_timer = cx.start_timeout(2.0);
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = cx;
+        }
+    }
+
     /// Populate the translation input device dropdown with available CPAL devices.
     fn populate_translation_input_dropdown(&mut self, cx: &mut Cx) {
         use cpal::traits::{DeviceTrait, HostTrait};
@@ -25513,7 +25537,10 @@ impl TTSScreenRef {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_show_runtime_download_ui, RuntimeInitState};
+    use super::{
+        should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
+        AppPage, RuntimeInitState,
+    };
 
     #[test]
     fn runtime_download_ui_hidden_during_normal_startup() {
@@ -25539,6 +25566,26 @@ mod tests {
         ));
         assert!(!should_show_runtime_download_ui(
             RuntimeInitState::Ready,
+            true
+        ));
+    }
+
+    #[test]
+    fn translation_permission_probe_runs_on_default_translation_page() {
+        assert!(should_probe_translation_permission_on_page_entry(
+            AppPage::Translation,
+            false
+        ));
+    }
+
+    #[test]
+    fn translation_permission_probe_is_translation_only_and_one_shot() {
+        assert!(!should_probe_translation_permission_on_page_entry(
+            AppPage::TextToSpeech,
+            false
+        ));
+        assert!(!should_probe_translation_permission_on_page_entry(
+            AppPage::Translation,
             true
         ));
     }

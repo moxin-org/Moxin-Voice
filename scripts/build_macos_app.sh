@@ -14,7 +14,7 @@ BIN_NAME="moxin-voice-shell"
 PROFILE="release"
 ICON_PATH=""
 OUT_DIR="$ROOT_DIR/dist"
-VERSION="0.0.5"
+VERSION="0.0.6"
 
 usage() {
   cat <<EOF
@@ -91,6 +91,62 @@ run_cargo_build() {
   else
     cargo build "$@"
   fi
+}
+
+create_icns_from_png() {
+  local png_path="$1"
+  local icns_path="$2"
+  local tmp_dir iconset fallback_png
+
+  if ! command -v sips >/dev/null 2>&1; then
+    echo "sips not found; cannot convert PNG icon to .icns"
+    exit 1
+  fi
+
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/moxin-iconset.XXXXXX")"
+  iconset="$tmp_dir/AppIcon.iconset"
+  mkdir -p "$iconset"
+
+  sips -z 16 16 "$png_path" --out "$iconset/icon_16x16.png" >/dev/null
+  sips -z 32 32 "$png_path" --out "$iconset/icon_16x16@2x.png" >/dev/null
+  sips -z 32 32 "$png_path" --out "$iconset/icon_32x32.png" >/dev/null
+  sips -z 64 64 "$png_path" --out "$iconset/icon_32x32@2x.png" >/dev/null
+  sips -z 128 128 "$png_path" --out "$iconset/icon_128x128.png" >/dev/null
+  sips -z 256 256 "$png_path" --out "$iconset/icon_128x128@2x.png" >/dev/null
+  sips -z 256 256 "$png_path" --out "$iconset/icon_256x256.png" >/dev/null
+  sips -z 512 512 "$png_path" --out "$iconset/icon_256x256@2x.png" >/dev/null
+  sips -z 512 512 "$png_path" --out "$iconset/icon_512x512.png" >/dev/null
+  sips -z 1024 1024 "$png_path" --out "$iconset/icon_512x512@2x.png" >/dev/null
+
+  if command -v iconutil >/dev/null 2>&1 && iconutil -c icns "$iconset" -o "$icns_path"; then
+    rm -rf "$tmp_dir"
+    return
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 not found; cannot create fallback .icns from PNG icon"
+    exit 1
+  fi
+
+  fallback_png="$iconset/icon_512x512@2x.png"
+  python3 - "$fallback_png" "$icns_path" <<'PY'
+from pathlib import Path
+import sys
+
+png_path = Path(sys.argv[1])
+icns_path = Path(sys.argv[2])
+png = png_path.read_bytes()
+chunk_len = 8 + len(png)
+total_len = 8 + chunk_len
+icns_path.write_bytes(
+    b"icns"
+    + total_len.to_bytes(4, "big")
+    + b"ic10"
+    + chunk_len.to_bytes(4, "big")
+    + png
+)
+PY
+  rm -rf "$tmp_dir"
 }
 
 MAKEPAD=apple_bundle MAKEPAD_PACKAGE_DIR=makepad run_cargo_build "$ROOT_DIR" "$PROFILE" -p moxin-voice-shell --profile "$PROFILE" --manifest-path "$ROOT_DIR/Cargo.toml"
@@ -335,7 +391,8 @@ if [[ -n "$ICON_PATH" ]]; then
     ICON_FILE_NAME="AppIcon"
   elif [[ "$ext_lower" == "png" ]]; then
     cp "$ICON_PATH" "$RES_DIR/AppIcon.png"
-    ICON_FILE_NAME="AppIcon.png"
+    create_icns_from_png "$ICON_PATH" "$RES_DIR/AppIcon.icns"
+    ICON_FILE_NAME="AppIcon"
   else
     echo "Unsupported icon format: $ICON_PATH (use .icns or .png)"
     exit 1

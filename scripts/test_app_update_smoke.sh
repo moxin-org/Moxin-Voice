@@ -12,8 +12,8 @@ Usage:
   $(basename "$0") --app </path/to/Moxin Voice.app> --dmg </path/to/update.dmg> --version <x.y.z> [--mode fake-install|real-install]
 
 Examples:
-  $(basename "$0") --app "/Applications/Moxin Voice.app" --dmg "./dist/Moxin-Voice-v0.0.5.dmg" --version 0.0.5
-  $(basename "$0") --app "./dist/Moxin Voice.app" --dmg "./dist/Moxin-Voice-v0.0.5.dmg" --version 0.0.5 --mode real-install
+  $(basename "$0") --app "/Applications/Moxin Voice.app" --dmg "./dist/Moxin-Voice-v0.0.6.dmg" --version 0.0.6
+  $(basename "$0") --app "./dist/Moxin Voice.app" --dmg "./dist/Moxin-Voice-v0.0.6.dmg" --version 0.0.6 --mode real-install
 EOF
 }
 

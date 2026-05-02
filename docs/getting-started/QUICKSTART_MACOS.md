@@ -48,7 +48,7 @@ cargo run -p moxin-voice-shell
 ```bash
 bash scripts/build_macos_app.sh \
   --icon moxin-widgets/resources/moxin_icon_fixed.png \
-  --version 0.0.5
+  --version 0.0.6
 bash scripts/build_macos_dmg.sh
 ```
 
