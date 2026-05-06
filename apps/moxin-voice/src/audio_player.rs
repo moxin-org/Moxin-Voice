@@ -76,19 +76,20 @@ impl CircularAudioBuffer {
         written
     }
 
-    fn read(&mut self, output: &mut [f32]) -> usize {
-        let mut read_count = 0;
-        for sample in output.iter_mut() {
-            if self.available_samples > 0 {
-                *sample = self.buffer[self.read_pos];
-                self.read_pos = (self.read_pos + 1) % self.buffer_size;
-                self.available_samples -= 1;
-                read_count += 1;
-            } else {
-                *sample = 0.0;
-            }
+    fn sample_at_offset(&self, offset: usize) -> Option<f32> {
+        if offset >= self.available_samples {
+            return None;
         }
-        read_count
+        Some(self.buffer[(self.read_pos + offset) % self.buffer_size])
+    }
+
+    fn consume(&mut self, count: usize) -> usize {
+        let consumed = count.min(self.available_samples);
+        if consumed > 0 {
+            self.read_pos = (self.read_pos + consumed) % self.buffer_size;
+            self.available_samples -= consumed;
+        }
+        consumed
     }
 
     fn reset(&mut self) {
@@ -101,10 +102,57 @@ impl CircularAudioBuffer {
     fn available(&self) -> usize {
         self.available_samples
     }
+}
 
-    /// Get the total number of samples dropped due to buffer overflow
-    fn dropped(&self) -> usize {
-        self.dropped_samples
+struct PlaybackResampler {
+    playback_rate: f32,
+    source_pos: f32,
+}
+
+impl PlaybackResampler {
+    fn new(playback_rate: f32) -> Self {
+        Self {
+            playback_rate: playback_rate.max(0.000_001),
+            source_pos: 0.0,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.source_pos = 0.0;
+    }
+
+    fn render_mono(&mut self, buffer: &mut CircularAudioBuffer, output: &mut [f32]) -> usize {
+        if output.is_empty() {
+            return 0;
+        }
+        if buffer.available() == 0 {
+            self.reset();
+            output.fill(0.0);
+            return 0;
+        }
+
+        let mut produced = 0usize;
+        for sample in output.iter_mut() {
+            let idx = self.source_pos.floor().max(0.0) as usize;
+            let frac = self.source_pos - idx as f32;
+            if let Some(s0) = buffer.sample_at_offset(idx) {
+                let s1 = buffer.sample_at_offset(idx + 1).unwrap_or(s0);
+                *sample = s0 + frac * (s1 - s0);
+                produced += 1;
+            } else {
+                *sample = 0.0;
+            }
+            self.source_pos += self.playback_rate;
+        }
+
+        let complete_source_samples = self.source_pos.floor().max(0.0) as usize;
+        let consumed = buffer.consume(complete_source_samples);
+        self.source_pos -= consumed as f32;
+        if buffer.available() == 0 {
+            self.reset();
+        }
+
+        produced
     }
 }
 
@@ -291,14 +339,11 @@ fn run_audio_thread(
     let is_playing_clone = Arc::clone(&is_playing);
     let _state_for_callback = Arc::clone(&state); // Unused, just for symmetry or if needed later
     let output_channels = channels as usize;
+    let resampler_reset = Arc::new(AtomicBool::new(false));
 
     let playback_rate = sample_rate as f32 / stream_sample_rate as f32;
-    // CoreAudio typically delivers 512-4096 frames per callback; use 8192 as safe upper bound.
-    let max_frames: usize = 8192;
 
     // Helper to build stream with correct sample format.
-    // Pre-allocates a resampling scratch buffer sized for `max_frames` output frames
-    // so the real-time audio callback never hits the allocator.
     fn build_stream_for_format<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
@@ -308,29 +353,32 @@ fn run_audio_thread(
         playback_finished: Arc<AtomicBool>,
         output_channels: usize,
         playback_rate: f32,
-        max_frames: usize,
+        resampler_reset: Arc<AtomicBool>,
     ) -> Result<cpal::Stream, cpal::BuildStreamError>
     where
         T: cpal::Sample + cpal::FromSample<f32> + cpal::SizedSample,
     {
-        let scratch_len = (max_frames as f32 * playback_rate).ceil() as usize + 4;
-        let mut source_chunk = vec![0.0f32; scratch_len];
+        let mut resampler = PlaybackResampler::new(playback_rate);
+        let mut mono = Vec::<f32>::new();
 
         device.build_output_stream(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+                if resampler_reset.swap(false, Ordering::AcqRel) {
+                    resampler.reset();
+                }
+
                 if is_playing.load(Ordering::Relaxed) {
                     let frames = data.len() / output_channels;
-                    let needed = (frames as f32 * playback_rate).ceil() as usize + 2;
-
-                    // Grow scratch only if callback delivers more frames than expected (rare)
-                    if needed > source_chunk.len() {
-                        source_chunk.resize(needed, 0.0);
+                    if mono.len() < frames {
+                        mono.resize(frames, 0.0);
                     }
+                    let produced = {
+                        let mut buf = buffer.lock();
+                        resampler.render_mono(&mut buf, &mut mono[..frames])
+                    };
 
-                    let read_count = buffer.lock().read(&mut source_chunk[..needed]);
-
-                    if read_count == 0 {
+                    if produced == 0 {
                         is_playing.store(false, Ordering::Relaxed);
                         playback_finished.store(true, Ordering::Release);
                         for sample in data.iter_mut() {
@@ -339,22 +387,11 @@ fn run_audio_thread(
                         return;
                     }
 
-                    let mut source_idx_f: f32 = 0.0;
-
                     for i in 0..frames {
-                        let idx = source_idx_f as usize;
-                        let frac = source_idx_f - idx as f32;
-                        let s0 = if idx < read_count { source_chunk[idx] } else { 0.0 };
-                        let s1 = if idx + 1 < read_count { source_chunk[idx + 1] } else { s0 };
-                        let val = s0 + frac * (s1 - s0);
-
-                        let output_val = T::from_sample(val);
-
+                        let output_val = T::from_sample(mono[i]);
                         for ch in 0..output_channels {
                             data[i * output_channels + ch] = output_val;
                         }
-
-                        source_idx_f += playback_rate;
                     }
                 } else {
                     for sample in data.iter_mut() {
@@ -382,7 +419,7 @@ fn run_audio_thread(
             Arc::clone(&playback_finished),
             output_channels,
             playback_rate,
-            max_frames,
+            Arc::clone(&resampler_reset),
         ),
         cpal::SampleFormat::I16 => build_stream_for_format::<i16>(
             &device,
@@ -393,7 +430,7 @@ fn run_audio_thread(
             Arc::clone(&playback_finished),
             output_channels,
             playback_rate,
-            max_frames,
+            Arc::clone(&resampler_reset),
         ),
         cpal::SampleFormat::U16 => build_stream_for_format::<u16>(
             &device,
@@ -404,7 +441,7 @@ fn run_audio_thread(
             Arc::clone(&playback_finished),
             output_channels,
             playback_rate,
-            max_frames,
+            Arc::clone(&resampler_reset),
         ),
         _ => build_stream_for_format::<f32>(
             &device,
@@ -415,7 +452,7 @@ fn run_audio_thread(
             Arc::clone(&playback_finished),
             output_channels,
             playback_rate,
-            max_frames,
+            Arc::clone(&resampler_reset),
         ),
     };
 
@@ -437,6 +474,7 @@ fn run_audio_thread(
             }
             Ok(AudioCommand::Reset) => {
                 is_playing.store(false, Ordering::Relaxed);
+                resampler_reset.store(true, Ordering::Release);
                 buffer.lock().reset();
                 playback_finished.store(false, Ordering::Release);
             }
@@ -452,4 +490,46 @@ fn run_audio_thread(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CircularAudioBuffer, PlaybackResampler};
+
+    #[test]
+    fn resampler_consumes_only_completed_source_samples() {
+        let mut buffer = CircularAudioBuffer::new(1.0, 24_000);
+        let source: Vec<f32> = (0..600).map(|n| n as f32).collect();
+        buffer.write(&source);
+
+        let mut resampler = PlaybackResampler::new(24_000.0 / 48_000.0);
+        let mut output = vec![0.0; 512];
+        resampler.render_mono(&mut buffer, &mut output);
+
+        assert_eq!(buffer.read_pos, 256);
+        assert_eq!(buffer.available_samples, source.len() - 256);
+        assert_eq!(resampler.source_pos, 0.0);
+    }
+
+    #[test]
+    fn resampler_carries_fractional_phase_between_callbacks() {
+        let mut buffer = CircularAudioBuffer::new(1.0, 24_000);
+        let source: Vec<f32> = (0..600).map(|n| n as f32).collect();
+        buffer.write(&source);
+
+        let mut resampler = PlaybackResampler::new(24_000.0 / 44_100.0);
+        let mut output = vec![0.0; 512];
+        resampler.render_mono(&mut buffer, &mut output);
+
+        assert_eq!(buffer.read_pos, 278);
+        assert!(resampler.source_pos > 0.62 && resampler.source_pos < 0.66);
+
+        let first_after_boundary = {
+            let mut next = vec![0.0; 1];
+            resampler.render_mono(&mut buffer, &mut next);
+            next[0]
+        };
+
+        assert!(first_after_boundary > 278.62 && first_after_boundary < 278.66);
+    }
 }
