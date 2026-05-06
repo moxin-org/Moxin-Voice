@@ -46,6 +46,18 @@ live_design! {
     use crate::theme::MOXIN_BG_PRIMARY_DARK;
     use crate::theme::MOXIN_TEXT_MUTED_DARK;
 
+    TranslationHistory = {{TranslationHistory}} {
+        width: Fill, height: Fit
+        flow: Right { wrap: true }
+        padding: 0.0
+        font_size: 24.0
+        font_color: (WHITE)
+        draw_normal: {
+            color: (WHITE)
+            text_style: <FONT_REGULAR> { font_size: 24.0 }
+        }
+    }
+
     pub TranslationOverlay = {{TranslationOverlay}} {
         width: Fill, height: Fill
         flow: Down
@@ -67,17 +79,9 @@ live_design! {
             align: { x: 0.0, y: 0.0 }
             padding: { left: 16, right: 16, top: 12, bottom: 0 }
 
-            // history_label: all completed sentences rendered as a single text block
-            history_label = <Label> {
+            // history_flow: completed sentences with gray source and white translation.
+            history_flow = <TranslationHistory> {
                 width: Fill, height: Fit
-                align: { x: 0.0, y: 0.0 }
-                padding: 0.0
-                draw_text: {
-                    color: (WHITE)
-                    text_style: <FONT_REGULAR> { font_size: 24.0 }
-                    wrap: Word
-                }
-                text: ""
             }
 
             // pending_label: current ASR text (not yet translated)
@@ -121,6 +125,137 @@ live_design! {
                 }
                 text: "Moxin Voice - Fully Offline Live Translation, Powered by OminiX MLX"
             }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum HistoryTone {
+    Source,
+    Translation,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct HistorySegment {
+    text: String,
+    tone: HistoryTone,
+}
+
+impl HistorySegment {
+    fn source(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            tone: HistoryTone::Source,
+        }
+    }
+
+    fn translation(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            tone: HistoryTone::Translation,
+        }
+    }
+}
+
+#[derive(Live, LiveHook, Widget)]
+pub struct TranslationHistory {
+    #[deref]
+    text_flow: TextFlow,
+    #[rust]
+    segments: Vec<HistorySegment>,
+    #[rust(24.0)]
+    translation_font_size: f32,
+    #[rust(23.0)]
+    source_font_size: f32,
+}
+
+impl Widget for TranslationHistory {
+    fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        self.text_flow.handle_event(cx, event, scope);
+    }
+
+    fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
+        self.text_flow.begin(cx, walk);
+        self.draw_segments(cx);
+        self.text_flow.end(cx);
+        DrawStep::done()
+    }
+}
+
+impl TranslationHistory {
+    const SOURCE_COLOR: Vec4f = Vec4f {
+        x: 0.451,
+        y: 0.463,
+        z: 0.478,
+        w: 1.0,
+    };
+    const TRANSLATION_COLOR: Vec4f = Vec4f {
+        x: 1.0,
+        y: 1.0,
+        z: 1.0,
+        w: 1.0,
+    };
+
+    fn draw_segments(&mut self, cx: &mut Cx2d) {
+        let len = self.segments.len();
+        for (idx, segment) in self.segments.iter().enumerate() {
+            match segment.tone {
+                HistoryTone::Source => {
+                    self.text_flow.font_colors.push(Self::SOURCE_COLOR);
+                    self.text_flow.font_sizes.push(self.source_font_size);
+                    self.text_flow.draw_text(cx, &segment.text);
+                    self.text_flow.font_sizes.pop();
+                    self.text_flow.font_colors.pop();
+                    self.text_flow.new_line_collapsed(cx);
+                }
+                HistoryTone::Translation => {
+                    self.text_flow.font_colors.push(Self::TRANSLATION_COLOR);
+                    self.text_flow.font_sizes.push(self.translation_font_size);
+                    self.text_flow.draw_text(cx, &segment.text);
+                    self.text_flow.font_sizes.pop();
+                    self.text_flow.font_colors.pop();
+                    if idx + 1 < len {
+                        self.text_flow.new_line_collapsed_with_spacing(
+                            cx,
+                            self.translation_font_size as f64 * 0.6,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn set_segments(&mut self, cx: &mut Cx, segments: Vec<HistorySegment>) {
+        if self.segments != segments {
+            self.segments = segments;
+            self.text_flow.redraw(cx);
+        }
+    }
+
+    fn set_font_sizes(&mut self, cx: &mut Cx, translation_size: f64, source_size: f64) {
+        let translation_size = translation_size as f32;
+        let source_size = source_size as f32;
+        if (self.translation_font_size - translation_size).abs() < f32::EPSILON
+            && (self.source_font_size - source_size).abs() < f32::EPSILON
+        {
+            return;
+        }
+        self.translation_font_size = translation_size;
+        self.source_font_size = source_size;
+        self.text_flow.redraw(cx);
+    }
+}
+
+impl TranslationHistoryRef {
+    fn set_segments(&self, cx: &mut Cx, segments: Vec<HistorySegment>) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_segments(cx, segments);
+        }
+    }
+
+    fn set_font_sizes(&self, cx: &mut Cx, translation_size: f64, source_size: f64) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_font_sizes(cx, translation_size, source_size);
         }
     }
 }
@@ -266,8 +401,8 @@ impl TranslationOverlay {
         let (history_size, pending_size) =
             Self::font_size_preset_values(&self.font_size_preset);
         self.view
-            .label(ids!(content_scroll.history_label))
-            .apply_over(cx, live! { draw_text: { text_style: { font_size: (history_size) } } });
+            .translation_history(ids!(content_scroll.history_flow))
+            .set_font_sizes(cx, history_size, pending_size);
         self.view
             .label(ids!(content_scroll.pending_label))
             .apply_over(cx, live! { draw_text: { text_style: { font_size: (pending_size) } } });
@@ -316,7 +451,7 @@ impl TranslationOverlay {
 
         let history_height = self
             .view
-            .label(ids!(content_scroll.history_label))
+            .translation_history(ids!(content_scroll.history_flow))
             .area()
             .rect(cx)
             .size
@@ -437,10 +572,10 @@ impl TranslationOverlay {
         history: &[(String, String)],
         pending: &str,
     ) {
-        let history_text = Self::format_history(history, self.passthrough);
+        let history_segments = Self::format_history_segments(history, self.passthrough);
         self.view
-            .label(ids!(content_scroll.history_label))
-            .set_text(cx, &history_text);
+            .translation_history(ids!(content_scroll.history_flow))
+            .set_segments(cx, history_segments);
 
         // Pending ASR text
         let pending = pending.trim();
@@ -474,28 +609,27 @@ impl TranslationOverlay {
         self.view.redraw(cx);
     }
 
-    fn format_history(history: &[(String, String)], passthrough: bool) -> String {
-        let mut out = String::new();
-        for (i, (source, translation)) in history.iter().enumerate() {
-            if i > 0 {
-                out.push_str("\n\n");
-            }
+    fn format_history_segments(
+        history: &[(String, String)],
+        passthrough: bool,
+    ) -> Vec<HistorySegment> {
+        let mut segments = Vec::new();
+        for (source, translation) in history {
             if passthrough {
                 // No translation — source text is the output, shown in white.
-                out.push_str(source.trim());
+                segments.push(HistorySegment::translation(source.trim()));
             } else {
                 let translation_trimmed = translation.trim();
                 if translation_trimmed.is_empty() {
                     // Translation not yet available — show source as fallback.
-                    out.push_str(source.trim());
+                    segments.push(HistorySegment::source(source.trim()));
                 } else {
-                    out.push_str(source.trim());
-                    out.push('\n');
-                    out.push_str(translation_trimmed);
+                    segments.push(HistorySegment::source(source.trim()));
+                    segments.push(HistorySegment::translation(translation_trimmed));
                 }
             }
         }
-        out
+        segments
     }
 
     /// Clear all text and reset state.
@@ -508,8 +642,8 @@ impl TranslationOverlay {
         self.pending_scroll = false;
         self.last_spacer_height = 0.0;
         self.view
-            .label(ids!(content_scroll.history_label))
-            .set_text(cx, "");
+            .translation_history(ids!(content_scroll.history_flow))
+            .set_segments(cx, Vec::new());
         let pending_label = self.view.label(ids!(content_scroll.pending_label));
         pending_label.set_text(cx, "");
         pending_label.apply_over(cx, live! { margin: { top: 0.0, bottom: 0.0 } });
@@ -519,7 +653,7 @@ impl TranslationOverlay {
 
 #[cfg(test)]
 mod tests {
-    use super::TranslationOverlay;
+    use super::{HistorySegment, TranslationOverlay};
 
     #[test]
     fn anchor_spacer_shrinks_when_pending_height_grows() {
@@ -611,36 +745,56 @@ mod tests {
     #[test]
     fn format_history_passthrough_shows_source() {
         let items = vec![("hello".to_string(), "".to_string())];
-        let out = TranslationOverlay::format_history(&items, true);
-        assert_eq!(out, "hello");
+        let segments = TranslationOverlay::format_history_segments(&items, true);
+        assert_eq!(segments, vec![HistorySegment::translation("hello")]);
 
         let items = vec![
             ("hi".to_string(), "".to_string()),
             ("world".to_string(), "".to_string()),
         ];
-        let out = TranslationOverlay::format_history(&items, true);
-        assert_eq!(out, "hi\n\nworld");
+        let segments = TranslationOverlay::format_history_segments(&items, true);
+        assert_eq!(
+            segments,
+            vec![
+                HistorySegment::translation("hi"),
+                HistorySegment::translation("world"),
+            ]
+        );
     }
 
     #[test]
     fn format_history_translation_mode_shows_source_and_translation() {
         let items = vec![("hello".to_string(), "你好".to_string())];
-        let out = TranslationOverlay::format_history(&items, false);
-        assert_eq!(out, "hello\n你好");
+        let segments = TranslationOverlay::format_history_segments(&items, false);
+        assert_eq!(
+            segments,
+            vec![
+                HistorySegment::source("hello"),
+                HistorySegment::translation("你好")
+            ]
+        );
 
         let items = vec![
             ("hi".to_string(), "你好".to_string()),
             ("bye".to_string(), "再见".to_string()),
         ];
-        let out = TranslationOverlay::format_history(&items, false);
-        assert_eq!(out, "hi\n你好\n\nbye\n再见");
+        let segments = TranslationOverlay::format_history_segments(&items, false);
+        assert_eq!(
+            segments,
+            vec![
+                HistorySegment::source("hi"),
+                HistorySegment::translation("你好"),
+                HistorySegment::source("bye"),
+                HistorySegment::translation("再见"),
+            ]
+        );
     }
 
     #[test]
     fn format_history_fallback_to_source_when_translation_empty() {
         let items = vec![("hello".to_string(), "".to_string())];
-        let out = TranslationOverlay::format_history(&items, false);
-        assert_eq!(out, "hello");
+        let segments = TranslationOverlay::format_history_segments(&items, false);
+        assert_eq!(segments, vec![HistorySegment::source("hello")]);
     }
 }
 
