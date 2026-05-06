@@ -225,13 +225,13 @@ struct TranslationResponse {
 
 fn build_system_prompt(tgt_lang: &str) -> String {
     format!(
-        "/no_think 你是翻译引擎。将原文直接翻译成{tgt}，只输出译文本身，不要输出原文/译文标签，不要解释，不要重复原文。",
+        "/no_think You are a translation engine. Translate the source text into {tgt}. Output only the translated text. Do not include source/translation labels, do not explain, do not repeat the source.",
         tgt = lang_display(tgt_lang)
     )
 }
 
 fn build_translation_user_prompt(source_text: &str) -> String {
-    format!("原文：\n{source_text}")
+    format!("Source:\n{source_text}")
 }
 
 fn format_commit_prompt_debug(system_prompt: &str, user_prompt: &str) -> String {
@@ -1138,7 +1138,7 @@ mod tests {
     #[test]
     fn build_system_prompt_is_plain_translation_only() {
         let prompt = build_system_prompt("en");
-        assert!(prompt.contains("只输出译文"));
+        assert!(prompt.contains("Output only the translated text"));
         assert!(prompt.contains("English"));
     }
 
