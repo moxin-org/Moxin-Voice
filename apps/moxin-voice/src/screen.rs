@@ -20,6 +20,7 @@ use hound::WavReader;
 use makepad_widgets::*;
 use std::fs;
 use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -86,6 +87,12 @@ enum RuntimeInitState {
     Failed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DoraRuntimeProcess {
+    Coordinator,
+    Daemon,
+}
+
 fn should_show_runtime_download_ui(
     runtime_init_state: RuntimeInitState,
     runtime_init_download_ui_active: bool,
@@ -135,6 +142,21 @@ fn bootstrap_lock_is_active(path: &Path) -> bool {
     };
     parse_bootstrap_lock_pid(&contents)
         .map(process_id_is_running)
+        .unwrap_or(false)
+}
+
+fn dora_startup_lock_is_stale(path: &Path, stale_after: Duration) -> bool {
+    if let Ok(contents) = fs::read_to_string(path) {
+        if let Some(pid) = parse_bootstrap_lock_pid(&contents) {
+            return !process_id_is_running(pid);
+        }
+    }
+
+    path.metadata()
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .map(|age| age >= stale_after)
         .unwrap_or(false)
 }
 
@@ -211,8 +233,22 @@ impl DoraStartupLockGuard {
         let started_at = std::time::Instant::now();
         loop {
             match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(_) => return Ok(Self { path }),
+                Ok(mut file) => {
+                    if let Err(err) = writeln!(file, "pid={}", std::process::id()) {
+                        let _ = fs::remove_file(&path);
+                        return Err(format!(
+                            "failed to write Dora startup lock {}: {}",
+                            path.display(),
+                            err
+                        ));
+                    }
+                    return Ok(Self { path });
+                }
                 Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if dora_startup_lock_is_stale(&path, timeout) {
+                        let _ = fs::remove_file(&path);
+                        continue;
+                    }
                     if started_at.elapsed() >= timeout {
                         return Err(format!(
                             "timed out waiting for Dora startup lock: {}",
@@ -13325,6 +13361,83 @@ impl TTSScreen {
         Self::dora_runtime_dir().join("moxin-dora-startup.lock")
     }
 
+    fn start_dora_runtime_explicit<D, S, P, W>(
+        mut destroy: D,
+        mut spawn: S,
+        mut probe_ready: P,
+        mut wait: W,
+        readiness_attempts: usize,
+    ) -> Result<(), String>
+    where
+        D: FnMut() -> Result<(), String>,
+        S: FnMut(DoraRuntimeProcess) -> Result<(), String>,
+        P: FnMut() -> bool,
+        W: FnMut(Duration),
+    {
+        destroy()?;
+        wait(Duration::from_millis(500));
+
+        spawn(DoraRuntimeProcess::Coordinator)?;
+        wait(Duration::from_millis(500));
+
+        spawn(DoraRuntimeProcess::Daemon)?;
+
+        for _ in 0..readiness_attempts {
+            if probe_ready() {
+                return Ok(());
+            }
+            wait(Duration::from_millis(250));
+        }
+
+        Err("Dora runtime not ready after explicit startup".to_string())
+    }
+
+    fn dora_runtime_ready() -> bool {
+        Command::new("dora")
+            .args(["system", "status"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    fn spawn_dora_runtime_process(process: DoraRuntimeProcess) -> Result<(), String> {
+        let log_dir = Self::app_logs_dir();
+        fs::create_dir_all(&log_dir)
+            .map_err(|e| format!("create Dora log dir failed: {}", e))?;
+
+        let log_name = match process {
+            DoraRuntimeProcess::Coordinator => "dora-coordinator.log",
+            DoraRuntimeProcess::Daemon => "dora-daemon.log",
+        };
+        let log_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join(log_name))
+            .map_err(|e| format!("open {} failed: {}", log_name, e))?;
+        let log_file_err = log_file
+            .try_clone()
+            .map_err(|e| format!("clone {} fd failed: {}", log_name, e))?;
+
+        let mut command = Command::new("dora");
+        match process {
+            DoraRuntimeProcess::Coordinator => {
+                command.arg("coordinator");
+            }
+            DoraRuntimeProcess::Daemon => {
+                command.arg("daemon");
+            }
+        }
+
+        command
+            .stdout(Stdio::from(log_file))
+            .stderr(Stdio::from(log_file_err))
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("spawn dora {:?} failed: {}", process, e))
+    }
+
     fn workspace_dir() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -18717,62 +18830,29 @@ impl TTSScreen {
                 "Resetting Dora runtime".to_string(),
             ));
 
-            match Command::new("dora").arg("destroy").status() {
-                Ok(_) => {}
-                Err(err) => {
-                    let _ = tx.send(DoraStartupEvent::Failed(format!(
-                        "Failed to run `dora destroy`: {}",
-                        err
-                    )));
-                    return;
-                }
-            }
-
-            thread::sleep(Duration::from_millis(500));
-
             let _ = tx.send(DoraStartupEvent::Stage("Starting Dora runtime".to_string()));
 
-            match Command::new("dora").args(["up"]).status() {
-                Ok(status) if status.success() => {}
-                Ok(status) => {
-                    let _ = tx.send(DoraStartupEvent::Failed(format!(
-                        "`dora up` exited with status {}",
-                        status
-                    )));
-                    return;
+            match Self::start_dora_runtime_explicit(
+                || {
+                    Command::new("dora")
+                        .arg("destroy")
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status()
+                        .map(|_| ())
+                        .map_err(|err| format!("Failed to run `dora destroy`: {}", err))
+                },
+                Self::spawn_dora_runtime_process,
+                Self::dora_runtime_ready,
+                thread::sleep,
+                20,
+            ) {
+                Ok(()) => {
+                    let _ = tx.send(DoraStartupEvent::Ready);
                 }
                 Err(err) => {
-                    let _ = tx.send(DoraStartupEvent::Failed(format!(
-                        "Failed to run `dora up`: {}",
-                        err
-                    )));
-                    return;
+                    let _ = tx.send(DoraStartupEvent::Failed(err));
                 }
-            }
-
-            let _ = tx.send(DoraStartupEvent::Stage(
-                "Waiting for Dora runtime readiness".to_string(),
-            ));
-
-            let mut dora_ready = false;
-            for _ in 0..20 {
-                dora_ready = Command::new("dora")
-                    .args(["system", "status"])
-                    .status()
-                    .map(|status| status.success())
-                    .unwrap_or(false);
-                if dora_ready {
-                    break;
-                }
-                thread::sleep(Duration::from_millis(250));
-            }
-
-            if dora_ready {
-                let _ = tx.send(DoraStartupEvent::Ready);
-            } else {
-                let _ = tx.send(DoraStartupEvent::Failed(
-                    "Dora runtime not ready after startup".to_string(),
-                ));
             }
         });
     }
@@ -26012,10 +26092,14 @@ fn runtime_init_next_display_progress(current: f64, incoming: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::fs;
+    use std::time::Duration;
+
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
         should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
-        AppPage, DownloadFormat, RuntimeInitState, TTSScreen,
+        AppPage, DoraStartupLockGuard, DownloadFormat, RuntimeInitState, TTSScreen,
     };
 
     #[test]
@@ -26092,5 +26176,74 @@ mod tests {
             TTSScreen::download_format_from_preference("flac"),
             DownloadFormat::Mp3
         );
+    }
+
+    #[test]
+    fn explicit_dora_runtime_start_spawns_coordinator_then_daemon_until_ready() {
+        let actions = RefCell::new(Vec::<String>::new());
+        let probe_count = RefCell::new(0usize);
+
+        let result = TTSScreen::start_dora_runtime_explicit(
+            || {
+                actions.borrow_mut().push("destroy".to_string());
+                Ok(())
+            },
+            |process| {
+                actions.borrow_mut().push(format!("spawn:{process:?}"));
+                Ok(())
+            },
+            || {
+                actions.borrow_mut().push("probe".to_string());
+                let mut count = probe_count.borrow_mut();
+                *count += 1;
+                *count == 3
+            },
+            |duration: Duration| {
+                actions
+                    .borrow_mut()
+                    .push(format!("sleep:{}ms", duration.as_millis()));
+            },
+            5,
+        );
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            actions.into_inner(),
+            vec![
+                "destroy",
+                "sleep:500ms",
+                "spawn:Coordinator",
+                "sleep:500ms",
+                "spawn:Daemon",
+                "probe",
+                "sleep:250ms",
+                "probe",
+                "sleep:250ms",
+                "probe",
+            ]
+        );
+        assert_eq!(*probe_count.borrow(), 3);
+    }
+
+    #[test]
+    fn dora_startup_lock_reclaims_stale_pid_lock() {
+        let lock_path = std::env::temp_dir().join(format!(
+            "moxin-dora-startup-test-{}-{}.lock",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&lock_path, "pid=999999999\n").unwrap();
+
+        let guard =
+            DoraStartupLockGuard::acquire(lock_path.clone(), Duration::from_millis(10)).unwrap();
+
+        let contents = fs::read_to_string(&lock_path).unwrap();
+        assert!(contents.contains(&format!("pid={}", std::process::id())));
+
+        drop(guard);
+        assert!(!lock_path.exists());
     }
 }
