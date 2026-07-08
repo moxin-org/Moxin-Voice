@@ -70,6 +70,11 @@ const TTS_INPUT_DRAG_AUTOSCROLL_MAX_DELTA: f64 = 28.0;
 const TTS_INPUT_SCROLL_TOP_PADDING: f64 = 24.0;
 const PLAYER_SKIP_SECONDS: f64 = 10.0;
 const PLAYER_PLAYBACK_RATES: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
+const PLAYER_SPEED_MENU_WIDTH: f64 = 96.0;
+const PLAYER_SPEED_MENU_HEIGHT: f64 = 170.0;
+const PLAYER_ACTION_MENU_WIDTH: f64 = 132.0;
+const PLAYER_ACTION_MENU_HEIGHT: f64 = 74.0;
+const PLAYER_MENU_ANCHOR_GAP: f64 = 8.0;
 
 fn tts_input_click_disposition(
     clicked_main_text_input: bool,
@@ -139,6 +144,13 @@ fn player_playback_rate_index(current_rate: f64) -> usize {
         .iter()
         .position(|rate| (*rate - current_rate).abs() < 0.01)
         .unwrap_or(1)
+}
+
+fn player_menu_abs_pos(anchor: Rect, menu_width: f64, menu_height: f64) -> DVec2 {
+    dvec2(
+        (anchor.pos.x + anchor.size.x - menu_width).max(0.0),
+        (anchor.pos.y - menu_height - PLAYER_MENU_ANCHOR_GAP).max(0.0),
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -1686,7 +1698,7 @@ live_design! {
     }
 
     PlayerSkipBtn = <Button> {
-        width: 30, height: 30
+        width: 34, height: 30
         padding: {left: 0, right: 0}
         draw_bg: {
             instance dark_mode: 0.0
@@ -1702,19 +1714,19 @@ live_design! {
 
                 let icon = mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
                 if self.forward > 0.5 {
-                    sdf.rect(20.0, 9.0, 1.7, 12.0);
+                    sdf.arc_round_caps(17.0, 15.0, 9.0, -1.15, 2.65, 1.6);
                     sdf.fill(icon);
-                    sdf.move_to(10.0, 9.0);
-                    sdf.line_to(18.0, 15.0);
-                    sdf.line_to(10.0, 21.0);
+                    sdf.move_to(22.0, 6.8);
+                    sdf.line_to(27.0, 8.7);
+                    sdf.line_to(23.4, 12.5);
                     sdf.close_path();
                     sdf.fill(icon);
                 } else {
-                    sdf.rect(8.3, 9.0, 1.7, 12.0);
+                    sdf.arc_round_caps(17.0, 15.0, 9.0, 0.5, 4.3, 1.6);
                     sdf.fill(icon);
-                    sdf.move_to(20.0, 9.0);
-                    sdf.line_to(12.0, 15.0);
-                    sdf.line_to(20.0, 21.0);
+                    sdf.move_to(12.0, 6.8);
+                    sdf.line_to(7.0, 8.7);
+                    sdf.line_to(10.6, 12.5);
                     sdf.close_path();
                     sdf.fill(icon);
                 }
@@ -1722,11 +1734,13 @@ live_design! {
             }
         }
         draw_text: {
-            text_style: { font_size: 0.0 }
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 8.0 }
             fn get_color(self) -> vec4 {
-                return vec4(0.0, 0.0, 0.0, 0.0);
+                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
             }
         }
+        text: "10"
     }
 
     PlayerVolumeBtn = <Button> {
@@ -1787,7 +1801,7 @@ live_design! {
             instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 10.0);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.rect_size.y * 0.5);
                 let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
                 let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
                 let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
@@ -1818,7 +1832,7 @@ live_design! {
             instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 10.0);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.rect_size.y * 0.5);
                 let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
                 let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
                 let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
@@ -7780,8 +7794,6 @@ live_design! {
 
         player_speed_menu = <PlayerFloatingMenu> {
             width: 96, height: Fit
-            align: {x: 1.0, y: 1.0}
-            margin: {right: 74, bottom: 86}
             visible: false
 
             speed_075_btn = <PlayerMenuItemBtn> { text: "0.75x" }
@@ -7793,8 +7805,6 @@ live_design! {
 
         player_action_menu = <PlayerFloatingMenu> {
             width: 132, height: Fit
-            align: {x: 1.0, y: 1.0}
-            margin: {right: 20, bottom: 86}
             visible: false
 
             download_menu_btn = <PlayerMenuItemBtn> { text: "Download" }
@@ -19129,6 +19139,48 @@ impl TTSScreen {
     }
 
     fn update_player_menu_visibility(&mut self, cx: &mut Cx) {
+        if self.player_speed_menu_open {
+            let speed_anchor = self
+                .view
+                .button(ids!(
+                    content_wrapper
+                        .audio_player_bar
+                        .download_section
+                        .player_settings_row
+                        .speed_menu_btn
+                ))
+                .area()
+                .rect(cx);
+            let speed_menu_pos = player_menu_abs_pos(
+                speed_anchor,
+                PLAYER_SPEED_MENU_WIDTH,
+                PLAYER_SPEED_MENU_HEIGHT,
+            );
+            self.view
+                .view(ids!(player_speed_menu))
+                .apply_over(cx, live! { abs_pos: (speed_menu_pos) });
+        }
+        if self.player_action_menu_open {
+            let action_anchor = self
+                .view
+                .button(ids!(
+                    content_wrapper
+                        .audio_player_bar
+                        .download_section
+                        .action_buttons_row
+                        .action_menu_btn
+                ))
+                .area()
+                .rect(cx);
+            let action_menu_pos = player_menu_abs_pos(
+                action_anchor,
+                PLAYER_ACTION_MENU_WIDTH,
+                PLAYER_ACTION_MENU_HEIGHT,
+            );
+            self.view
+                .view(ids!(player_action_menu))
+                .apply_over(cx, live! { abs_pos: (action_menu_pos) });
+        }
         self.view
             .view(ids!(player_speed_menu))
             .set_visible(cx, self.player_speed_menu_open);
@@ -25172,10 +25224,10 @@ impl TTSScreen {
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
             .button(ids!(content_wrapper.audio_player_bar.playback_controls.controls_row.rewind_btn))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
         self.view
             .button(ids!(content_wrapper.audio_player_bar.playback_controls.controls_row.forward_btn))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
         self.view
             .button(ids!(content_wrapper.audio_player_bar.download_section.player_settings_row.mute_btn))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
@@ -28685,14 +28737,15 @@ fn runtime_init_next_display_progress(current: f64, incoming: f64) -> f64 {
 mod tests {
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
-        player_effective_volume, player_playback_rate_index, player_skip_target,
-        should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
-        split_tts_text_segments, tts_input_click_disposition, tts_input_drag_scroll_delta,
-        AppPage, DownloadFormat, Event, RuntimeInitState, TtsInputClickDisposition,
-        TtsSegmentDispatch, TTSScreen, TTS_INPUT_MAX_CHARS,
+        player_effective_volume, player_menu_abs_pos, player_playback_rate_index,
+        player_skip_target, should_probe_translation_permission_on_page_entry,
+        should_show_runtime_download_ui, split_tts_text_segments, tts_input_click_disposition,
+        tts_input_drag_scroll_delta, AppPage, DownloadFormat, Event, RuntimeInitState,
+        TtsInputClickDisposition, TtsSegmentDispatch, TTSScreen, TTS_INPUT_MAX_CHARS,
     };
     use makepad_widgets::{
-        Area, DVec2, KeyModifiers, MouseButton, MouseDownEvent, MouseUpEvent, WindowId,
+        dvec2, Area, DVec2, KeyModifiers, MouseButton, MouseDownEvent, MouseUpEvent, Rect,
+        WindowId,
     };
     use std::cell::Cell;
 
@@ -28794,6 +28847,18 @@ mod tests {
         assert_eq!(player_skip_target(12.0, 30.0, 10.0), 22.0);
         assert_eq!(player_skip_target(28.0, 30.0, 10.0), 29.95);
         assert_eq!(player_skip_target(12.0, 0.0, 10.0), 0.0);
+    }
+
+    #[test]
+    fn player_menu_position_anchors_above_button() {
+        let anchor = Rect {
+            pos: dvec2(880.0, 712.0),
+            size: dvec2(46.0, 34.0),
+        };
+        let pos = player_menu_abs_pos(anchor, 96.0, 170.0);
+
+        assert_eq!(pos.x, 830.0);
+        assert_eq!(pos.y, 534.0);
     }
 
     #[test]
@@ -28905,6 +28970,10 @@ mod tests {
             !controls_before_progress.contains("text: \"+10s\""),
             "forward should use an icon instead of text"
         );
+        assert!(
+            live_design.contains("arc_round_caps"),
+            "skip controls should use circular skip icons"
+        );
         let right_section = bar
             .split("download_section = <View>")
             .nth(1)
@@ -28939,8 +29008,16 @@ mod tests {
             "download/share should be collected behind the right menu"
         );
         assert!(
+            live_design.contains("self.rect_size.y * 0.5"),
+            "speed and more buttons should render as fully rounded pills/circles"
+        );
+        assert!(
             !bar.contains("<DropDown>"),
             "bottom player should not use dropdown popups that clip at the bottom edge"
+        );
+        assert!(
+            !bar.contains("margin: {right: 74, bottom: 86}"),
+            "speed menu should not rely on fixed root-overlay margins"
         );
         assert!(
             bar.contains("mute_btn = <PlayerVolumeBtn>"),
