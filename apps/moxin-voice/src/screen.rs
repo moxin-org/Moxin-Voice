@@ -1668,18 +1668,18 @@ live_design! {
     }
 
     PlayerControlBtn = <Button> {
-        width: Fit, height: 28
-        padding: {left: 10, right: 10}
+        width: Fit, height: 30
+        padding: {left: 8, right: 8}
         draw_bg: {
             instance dark_mode: 0.0
             instance hover: 0.0
             instance pressed: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
-                let base = mix(vec4(0.39, 0.40, 0.95, 0.08), vec4(0.39, 0.40, 0.95, 0.16), self.dark_mode);
-                let hover = mix(vec4(0.39, 0.40, 0.95, 0.15), vec4(0.39, 0.40, 0.95, 0.24), self.dark_mode);
-                let pressed = mix(vec4(0.39, 0.40, 0.95, 0.24), vec4(0.39, 0.40, 0.95, 0.32), self.dark_mode);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 7.0);
+                let base = vec4(0.39, 0.40, 0.95, 0.0);
+                let hover = mix(vec4(0.39, 0.40, 0.95, 0.10), vec4(0.39, 0.40, 0.95, 0.18), self.dark_mode);
+                let pressed = mix(vec4(0.39, 0.40, 0.95, 0.18), vec4(0.39, 0.40, 0.95, 0.26), self.dark_mode);
                 let color = mix(mix(base, hover, self.hover), pressed, self.pressed);
                 sdf.fill(color);
                 return sdf.result;
@@ -1689,7 +1689,59 @@ live_design! {
             instance dark_mode: 0.0
             text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
             fn get_color(self) -> vec4 {
-                return mix((MOXIN_PRIMARY), (PRIMARY_300), self.dark_mode);
+                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+            }
+        }
+    }
+
+    PlayerRateBtn = <Button> {
+        width: 42, height: 34
+        padding: {left: 0, right: 0}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 6.0);
+                let bg = mix(vec4(0.95, 0.96, 1.0, 0.72), vec4(0.15, 0.17, 0.24, 0.72), self.dark_mode);
+                let hover = mix(vec4(0.90, 0.92, 1.0, 0.95), vec4(0.22, 0.24, 0.32, 0.95), self.dark_mode);
+                let pressed = mix(vec4(0.84, 0.87, 1.0, 1.0), vec4(0.28, 0.30, 0.40, 1.0), self.dark_mode);
+                let color = mix(mix(bg, hover, self.hover), pressed, self.pressed);
+                sdf.fill(color);
+                sdf.stroke(mix(vec4(0.74, 0.77, 0.92, 1.0), vec4(0.38, 0.42, 0.58, 1.0), self.dark_mode), 1.0);
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+            fn get_color(self) -> vec4 {
+                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+            }
+        }
+    }
+
+    PlayerActionBtn = <Button> {
+        width: Fit, height: 32
+        padding: {left: 10, right: 10}
+        draw_bg: {
+            instance hover: 0.0
+            instance pressed: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 7.0);
+                let base = vec4(0.39, 0.40, 0.95, 0.0);
+                let hover = vec4(0.39, 0.40, 0.95, 0.10);
+                let pressed = vec4(0.39, 0.40, 0.95, 0.18);
+                sdf.fill(mix(mix(base, hover, self.hover), pressed, self.pressed));
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                return (MOXIN_PRIMARY);
             }
         }
     }
@@ -7308,11 +7360,11 @@ live_design! {
 
             // Bottom audio player bar - Moxin.tts style
             audio_player_bar = <View> {
-                width: Fill, height: 90
+                width: Fill, height: 82
                 flow: Right
                 align: {x: 0.5, y: 0.5}
-                padding: {left: 24, right: 24, top: 8, bottom: 8}
-                spacing: 0
+                padding: {left: 20, right: 20, top: 8, bottom: 8}
+                spacing: 12
                 visible: false
 
                 show_bg: true
@@ -7324,9 +7376,9 @@ live_design! {
                     sdf.rect(0.0, 0.0, self.rect_size.x, 1.0);
                     let border = mix((MOXIN_BORDER_LIGHT), (SLATE_700), self.dark_mode);
                     sdf.fill(border);
-                    // Background - Moxin.tts style white
+                    // Background - light player strip inspired by common audio apps
                     sdf.rect(0.0, 1.0, self.rect_size.x, self.rect_size.y - 1.0);
-                    let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                    let bg = mix(vec4(0.95, 0.95, 1.0, 1.0), (SLATE_800), self.dark_mode);
                     sdf.fill(bg);
                     return sdf.result;
                 }
@@ -7337,11 +7389,11 @@ live_design! {
                 width: 220, height: Fill
                 flow: Right
                 align: {x: 0.0, y: 0.5}
-                spacing: 12
+                spacing: 10
 
                 // Voice avatar - Moxin.tts style
                 voice_avatar = <RoundedView> {
-                    width: 48, height: 48
+                    width: 42, height: 42
                     align: {x: 0.5, y: 0.5}
                     draw_bg: {
                         instance border_radius: 10.0
@@ -7358,7 +7410,7 @@ live_design! {
                         padding: {left: 0.0, right: 0.0, top: 4.0, bottom: 0.0}
                         align: {x: 0.5, y: 0.5}
                         draw_text: {
-                            text_style: <FONT_BOLD>{ font_size: 18.0 }
+                            text_style: <FONT_BOLD>{ font_size: 16.0 }
                             fn get_color(self) -> vec4 {
                                 return (WHITE);
                             }
@@ -7416,7 +7468,7 @@ live_design! {
                     width: Fill, height: Fit
                     flow: Right
                     align: {x: 0.5, y: 0.5}
-                    spacing: 8
+                    spacing: 12
 
                     rewind_btn = <PlayerControlBtn> {
                         text: "-10s"
@@ -7454,51 +7506,11 @@ live_design! {
                     forward_btn = <PlayerControlBtn> {
                         text: "+10s"
                     }
-
-                    player_settings_row = <View> {
-                        width: Fit, height: Fit
-                        flow: Right
-                        align: {x: 0.5, y: 0.5}
-                        spacing: 6
-
-                        mute_btn = <PlayerControlBtn> {
-                            text: "Mute"
-                        }
-
-                        volume_down_btn = <PlayerControlBtn> {
-                            width: 26, height: 28
-                            padding: {left: 0, right: 0}
-                            text: "-"
-                        }
-
-                        player_volume_label = <Label> {
-                            width: 42, height: Fit
-                            align: {x: 0.5}
-                            draw_text: {
-                                instance dark_mode: 0.0
-                                text_style: { font_size: 11.0 }
-                                fn get_color(self) -> vec4 {
-                                    return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
-                                }
-                            }
-                            text: "100%"
-                        }
-
-                        volume_up_btn = <PlayerControlBtn> {
-                            width: 26, height: 28
-                            padding: {left: 0, right: 0}
-                            text: "+"
-                        }
-
-                        speed_btn = <PlayerControlBtn> {
-                            text: "1x"
-                        }
-                    }
                 }
 
                 // Progress bar row - centered with max width constraint
                 progress_row = <View> {
-                    width: 350, height: Fit
+                    width: 300, height: Fit
                     flow: Right
                     align: {y: 0.5}
                     spacing: 8
@@ -7561,85 +7573,63 @@ live_design! {
 
             // Right: Download/share buttons (fixed width for balance) - Moxin.tts style
             download_section = <View> {
-                width: 220, height: Fill
+                width: 388, height: Fill
                 flow: Right
+                spacing: 12
                 align: {x: 1.0, y: 0.5}
 
-                action_buttons_row = <View> {
-                    width: Fill, height: Fit
+                player_settings_row = <View> {
+                    width: Fit, height: Fit
                     flow: Right
-                    spacing: 10
-                    align: {x: 1.0, y: 0.5}
+                    align: {x: 0.5, y: 0.5}
+                    spacing: 6
 
-                    download_btn = <Button> {
-                        width: Fit, height: 38
-                        padding: {left: 20, right: 20}
-                        text: "Download"
-
-                        draw_bg: {
-                            instance hover: 0.0
-                            instance pressed: 0.0
-
-                            fn pixel(self) -> vec4 {
-                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
-
-                                // Moxin.tts style: primary color outline button
-                                let base = vec4(0.39, 0.40, 0.95, 0.08);
-                                let hover_color = vec4(0.39, 0.40, 0.95, 0.15);
-                                let pressed_color = vec4(0.39, 0.40, 0.95, 0.25);
-                                let border = (MOXIN_PRIMARY);
-
-                                let color = mix(base, hover_color, self.hover);
-                                let color = mix(color, pressed_color, self.pressed);
-
-                                sdf.fill(color);
-                                sdf.stroke(border, 1.5);
-                                return sdf.result;
-                            }
-                        }
-
-                        draw_text: {
-                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
-                            fn get_color(self) -> vec4 {
-                                return (MOXIN_PRIMARY);
-                            }
-                        }
+                    mute_btn = <PlayerControlBtn> {
+                        text: "Mute"
                     }
 
-                    share_btn = <Button> {
-                        width: Fit, height: 38
-                        padding: {left: 20, right: 20}
-                        text: "Share"
+                    volume_down_btn = <PlayerControlBtn> {
+                        width: 26, height: 30
+                        padding: {left: 0, right: 0}
+                        text: "-"
+                    }
 
-                        draw_bg: {
-                            instance hover: 0.0
-                            instance pressed: 0.0
-
-                            fn pixel(self) -> vec4 {
-                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
-
-                                let base = vec4(0.39, 0.40, 0.95, 0.08);
-                                let hover_color = vec4(0.39, 0.40, 0.95, 0.15);
-                                let pressed_color = vec4(0.39, 0.40, 0.95, 0.25);
-                                let border = (MOXIN_PRIMARY);
-
-                                let color = mix(base, hover_color, self.hover);
-                                let color = mix(color, pressed_color, self.pressed);
-
-                                sdf.fill(color);
-                                sdf.stroke(border, 1.5);
-                                return sdf.result;
-                            }
-                        }
-
+                    player_volume_label = <Label> {
+                        width: 42, height: Fit
+                        align: {x: 0.5}
                         draw_text: {
-                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                            instance dark_mode: 0.0
+                            text_style: { font_size: 11.0 }
                             fn get_color(self) -> vec4 {
-                                return (MOXIN_PRIMARY);
+                                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
                             }
                         }
+                        text: "100%"
+                    }
+
+                    volume_up_btn = <PlayerControlBtn> {
+                        width: 26, height: 30
+                        padding: {left: 0, right: 0}
+                        text: "+"
+                    }
+
+                    speed_btn = <PlayerRateBtn> {
+                        text: "1x"
+                    }
+                }
+
+                action_buttons_row = <View> {
+                    width: Fit, height: Fit
+                    flow: Right
+                    spacing: 6
+                    align: {x: 1.0, y: 0.5}
+
+                    download_btn = <PlayerActionBtn> {
+                        text: "Download"
+                    }
+
+                    share_btn = <PlayerActionBtn> {
+                        text: "Share"
                     }
                 }
             }
@@ -13453,8 +13443,7 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .mute_btn
             ))
@@ -13467,8 +13456,7 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .volume_down_btn
             ))
@@ -13481,8 +13469,7 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .volume_up_btn
             ))
@@ -13495,8 +13482,7 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .speed_btn
             ))
@@ -18750,8 +18736,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .mute_btn
             ))
@@ -18760,8 +18745,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .volume_down_btn
             ))
@@ -18770,8 +18754,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .volume_up_btn
             ))
@@ -18780,8 +18763,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .speed_btn
             ))
@@ -18887,8 +18869,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .mute_btn
             ))
@@ -18897,8 +18878,7 @@ impl TTSScreen {
             .label(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .player_volume_label
             ))
@@ -18907,8 +18887,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
+                    .download_section
                     .player_settings_row
                     .speed_btn
             ))
@@ -22083,7 +22062,7 @@ impl TTSScreen {
         if self.is_english() {
             self.view
                 .view(ids!(content_wrapper.audio_player_bar.download_section))
-                .apply_over(cx, live! { width: 220.0 });
+                .apply_over(cx, live! { width: 388.0 });
             self.view
                 .button(ids!(
                     content_wrapper
@@ -22092,17 +22071,17 @@ impl TTSScreen {
                         .action_buttons_row
                         .download_btn
                 ))
-                .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
+                .apply_over(cx, live! { padding: { left: 10.0, right: 10.0 } });
             self.view
                 .button(ids!(
                     content_wrapper.audio_player_bar.download_section.action_buttons_row.share_btn
                 ))
-                .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
+                .apply_over(cx, live! { padding: { left: 10.0, right: 10.0 } });
             return;
         }
         self.view
             .view(ids!(content_wrapper.audio_player_bar.download_section))
-            .apply_over(cx, live! { width: 220.0 });
+            .apply_over(cx, live! { width: 388.0 });
         self.view
             .button(ids!(
                 content_wrapper
@@ -22111,12 +22090,12 @@ impl TTSScreen {
                     .action_buttons_row
                     .download_btn
             ))
-            .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
+            .apply_over(cx, live! { padding: { left: 10.0, right: 10.0 } });
         self.view
             .button(ids!(
                 content_wrapper.audio_player_bar.download_section.action_buttons_row.share_btn
             ))
-            .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
+            .apply_over(cx, live! { padding: { left: 10.0, right: 10.0 } });
     }
 
     /// Sync the opacity dropdown selection with the current opacity value.
@@ -28595,7 +28574,9 @@ mod tests {
             "volume_down_btn = <PlayerControlBtn>",
             "volume_up_btn = <PlayerControlBtn>",
             "player_volume_label = <Label>",
-            "speed_btn = <PlayerControlBtn>",
+            "speed_btn = <PlayerRateBtn>",
+            "download_btn = <PlayerActionBtn>",
+            "share_btn = <PlayerActionBtn>",
         ] {
             assert!(
                 live_design.contains(marker),
@@ -28624,7 +28605,7 @@ mod tests {
     }
 
     #[test]
-    fn player_bar_keeps_secondary_controls_on_one_visible_playback_row() {
+    fn player_bar_uses_reference_style_horizontal_tool_area() {
         let live_design = include_str!("screen.rs")
             .split("#[derive(Live, LiveHook, Widget)]")
             .next()
@@ -28637,23 +28618,37 @@ mod tests {
             .split("playback_controls = <View>")
             .nth(1)
             .expect("playback controls should exist");
+        let controls_before_progress =
+            &playback_controls[..playback_controls.find("progress_row = <View>").unwrap()];
 
         assert!(
-            playback_controls[..playback_controls.find("progress_row = <View>").unwrap()]
-                .contains("player_settings_row = <View>"),
-            "secondary player controls should be on the same visible row as the primary controls"
+            !controls_before_progress.contains("player_settings_row = <View>"),
+            "center playback row should only contain transport controls"
         );
         let right_section = bar
             .split("download_section = <View>")
             .nth(1)
             .expect("download section should exist");
         assert!(
-            !right_section.contains("player_settings_row = <View>"),
-            "right action area should only contain download/share actions"
+            right_section.contains("width: 388, height: Fill"),
+            "right tool area should be wide enough for one horizontal row"
+        );
+        assert!(
+            right_section.contains("flow: Right"),
+            "right tool area should use a single horizontal row"
+        );
+        assert!(
+            right_section.find("player_settings_row = <View>").unwrap()
+                < right_section.find("action_buttons_row = <View>").unwrap(),
+            "player settings should sit before download/share actions"
         );
         assert!(
             !bar.contains("player_rate_label = <Label>"),
             "playback rate should be rendered by the speed button itself to avoid narrow label wrapping"
+        );
+        assert!(
+            live_design.contains("PlayerActionBtn = <Button>"),
+            "download/share should use lighter player action buttons"
         );
         assert!(
             !bar[..bar.len().min(300)].contains("height: 108"),
