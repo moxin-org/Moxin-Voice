@@ -24980,6 +24980,64 @@ impl TTSScreen {
         0.5 - 0.5 * phase.cos()
     }
 
+    fn best_time_stretch_source_index(
+        samples: &[f32],
+        output: &[f32],
+        weights: &[f32],
+        output_pos: usize,
+        desired_source_idx: usize,
+        frame_len: usize,
+        synthesis_hop: usize,
+    ) -> usize {
+        if output_pos == 0 || frame_len == 0 || samples.len() <= frame_len {
+            return desired_source_idx.min(samples.len().saturating_sub(frame_len));
+        }
+
+        let max_candidate = samples.len().saturating_sub(frame_len);
+        let search_radius = (frame_len / 3).clamp(64, 320);
+        let start = desired_source_idx.saturating_sub(search_radius).min(max_candidate);
+        let end = desired_source_idx
+            .saturating_add(search_radius)
+            .min(max_candidate);
+        let compare_len = (frame_len.saturating_sub(synthesis_hop))
+            .min(512)
+            .min(output.len().saturating_sub(output_pos));
+        if compare_len < 32 || start >= end {
+            return desired_source_idx.min(max_candidate);
+        }
+
+        let mut best_idx = desired_source_idx.min(max_candidate);
+        let mut best_score = f32::NEG_INFINITY;
+        for candidate in start..=end {
+            let mut dot = 0.0f32;
+            let mut out_energy = 0.0f32;
+            let mut src_energy = 0.0f32;
+
+            for offset in (0..compare_len).step_by(4) {
+                if weights[output_pos + offset] <= 0.000_001 {
+                    continue;
+                }
+                let out_sample = output[output_pos + offset] / weights[output_pos + offset];
+                let src_sample = samples[candidate + offset];
+                dot += out_sample * src_sample;
+                out_energy += out_sample * out_sample;
+                src_energy += src_sample * src_sample;
+            }
+
+            if out_energy <= 0.000_001 || src_energy <= 0.000_001 {
+                continue;
+            }
+
+            let score = dot / (out_energy.sqrt() * src_energy.sqrt());
+            if score > best_score {
+                best_score = score;
+                best_idx = candidate;
+            }
+        }
+
+        best_idx
+    }
+
     fn time_stretch_preserve_pitch(samples: &[f32], playback_rate: f64) -> Vec<f32> {
         if samples.is_empty() {
             return Vec::new();
@@ -25004,7 +25062,16 @@ impl TTSScreen {
         let mut output_pos = 0usize;
 
         while output_pos < target_len {
-            let source_idx = source_pos.round().max(0.0) as usize;
+            let desired_source_idx = source_pos.round().max(0.0) as usize;
+            let source_idx = Self::best_time_stretch_source_index(
+                samples,
+                &output,
+                &weights,
+                output_pos,
+                desired_source_idx,
+                window_len,
+                synthesis_hop,
+            );
             if source_idx >= samples.len() {
                 break;
             }
@@ -28850,6 +28917,28 @@ mod tests {
             .unwrap();
 
         assert!((second_peak as isize - first_peak as isize - period as isize).abs() <= 2);
+    }
+
+    #[test]
+    fn player_time_stretch_keeps_overlap_energy_coherent() {
+        fn rms(samples: &[f32]) -> f32 {
+            let energy: f32 = samples.iter().map(|sample| sample * sample).sum();
+            (energy / samples.len().max(1) as f32).sqrt()
+        }
+
+        let period = 53usize;
+        let samples: Vec<f32> = (0..period * 240)
+            .map(|n| ((n % period) as f32 / period as f32 * std::f32::consts::TAU).sin())
+            .collect();
+
+        let stretched = TTSScreen::time_stretch_preserve_pitch(&samples, 1.5);
+        let input_rms = rms(&samples);
+        let output_rms = rms(&stretched);
+
+        assert!(
+            output_rms > input_rms * 0.85,
+            "time stretching should avoid hollow-sounding phase cancellation: input={input_rms}, output={output_rms}"
+        );
     }
 
     #[test]
