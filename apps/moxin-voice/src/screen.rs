@@ -68,6 +68,8 @@ enum TtsInputDragTarget {
 const TTS_INPUT_DRAG_AUTOSCROLL_EDGE: f64 = 52.0;
 const TTS_INPUT_DRAG_AUTOSCROLL_MAX_DELTA: f64 = 28.0;
 const TTS_INPUT_SCROLL_TOP_PADDING: f64 = 24.0;
+const PLAYER_SKIP_SECONDS: f64 = 10.0;
+const PLAYER_PLAYBACK_RATES: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
 
 fn tts_input_click_disposition(
     clicked_main_text_input: bool,
@@ -114,6 +116,38 @@ fn tts_input_drag_release_should_restore_focus(
     selected_text_len: usize,
 ) -> bool {
     was_drag_selecting_from_input && selected_text_len > 0
+}
+
+fn player_skip_target(current_secs: f64, total_secs: f64, delta_secs: f64) -> f64 {
+    if total_secs <= 0.0 {
+        return 0.0;
+    }
+    let max_start = (total_secs - 0.05).max(0.0);
+    (current_secs + delta_secs).clamp(0.0, max_start)
+}
+
+fn player_effective_volume(volume: f64, muted: bool) -> f64 {
+    if muted {
+        0.0
+    } else {
+        volume.clamp(0.0, 1.0)
+    }
+}
+
+fn player_volume_label(volume: f64, muted: bool) -> String {
+    if muted {
+        "Muted".to_string()
+    } else {
+        format!("{:.0}%", player_effective_volume(volume, false) * 100.0)
+    }
+}
+
+fn next_player_playback_rate(current_rate: f64) -> f64 {
+    PLAYER_PLAYBACK_RATES
+        .iter()
+        .copied()
+        .find(|rate| *rate > current_rate + 0.01)
+        .unwrap_or(PLAYER_PLAYBACK_RATES[0])
 }
 
 #[derive(Clone, Debug)]
@@ -9177,6 +9211,12 @@ pub struct TTSScreen {
     logs_initialized: bool,
     #[rust]
     audio_playing_time: f64,
+    #[rust]
+    player_volume: f64,
+    #[rust]
+    player_muted: bool,
+    #[rust]
+    player_playback_rate: f64,
 
     // Stored audio for playback/download (not auto-play)
     #[rust]
@@ -9539,6 +9579,9 @@ impl Widget for TTSScreen {
             self.logs_initialized = true;
             // Start timer for polling
             self.update_timer = cx.start_interval(0.1);
+            self.player_volume = 1.0;
+            self.player_muted = false;
+            self.player_playback_rate = 1.0;
             // Initialize stored audio sample rate (PrimeSpeech uses 32000)
             self.stored_audio_sample_rate = 32000;
             self.processed_audio_samples = Vec::new();
@@ -28085,6 +28128,8 @@ fn runtime_init_next_display_progress(current: f64, incoming: f64) -> f64 {
 mod tests {
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
+        next_player_playback_rate, player_effective_volume, player_skip_target,
+        player_volume_label,
         should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
         split_tts_text_segments, tts_input_click_disposition, tts_input_drag_scroll_delta,
         AppPage, DownloadFormat, Event, RuntimeInitState, TtsInputClickDisposition,
@@ -28185,6 +28230,33 @@ mod tests {
             TTSScreen::download_format_for_availability("wav", false),
             DownloadFormat::Wav
         );
+    }
+
+    #[test]
+    fn player_skip_target_clamps_to_audio_bounds() {
+        assert_eq!(player_skip_target(3.0, 30.0, -10.0), 0.0);
+        assert_eq!(player_skip_target(12.0, 30.0, 10.0), 22.0);
+        assert_eq!(player_skip_target(28.0, 30.0, 10.0), 29.95);
+        assert_eq!(player_skip_target(12.0, 0.0, 10.0), 0.0);
+    }
+
+    #[test]
+    fn player_volume_helpers_respect_mute_state() {
+        assert_eq!(player_volume_label(0.73, false), "73%");
+        assert_eq!(player_volume_label(0.73, true), "Muted");
+        assert_eq!(player_effective_volume(0.73, false), 0.73);
+        assert_eq!(player_effective_volume(0.73, true), 0.0);
+        assert_eq!(player_effective_volume(1.8, false), 1.0);
+        assert_eq!(player_effective_volume(-0.2, false), 0.0);
+    }
+
+    #[test]
+    fn player_playback_rate_cycles_through_common_speeds() {
+        assert_eq!(next_player_playback_rate(1.0), 1.25);
+        assert_eq!(next_player_playback_rate(1.25), 1.5);
+        assert_eq!(next_player_playback_rate(1.5), 2.0);
+        assert_eq!(next_player_playback_rate(2.0), 0.75);
+        assert_eq!(next_player_playback_rate(0.76), 1.0);
     }
 
     #[test]
