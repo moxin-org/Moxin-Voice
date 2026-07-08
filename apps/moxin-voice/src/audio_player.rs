@@ -5,7 +5,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 /// Commands sent to the audio thread
@@ -14,6 +14,8 @@ enum AudioCommand {
     Reset,           // Clear playing buffer
     Pause,
     Resume,
+    SetVolume(f32),
+    SetPlaybackRate(f32),
     #[allow(dead_code)]
     Stop,            // Reserved for explicit thread shutdown
 }
@@ -146,6 +148,10 @@ impl PlaybackResampler {
         self.source_pos = 0.0;
     }
 
+    fn set_playback_rate(&mut self, playback_rate: f32) {
+        self.playback_rate = playback_rate.max(0.000_001);
+    }
+
     fn render_mono(&mut self, buffer: &mut CircularAudioBuffer, output: &mut [f32]) -> usize {
         if output.is_empty() {
             return 0;
@@ -179,6 +185,10 @@ impl PlaybackResampler {
 
         produced
     }
+}
+
+fn apply_output_volume(sample: f32, volume: f32) -> f32 {
+    sample * volume.clamp(0.0, 1.0)
 }
 
 /// Shared state between audio thread and main thread
@@ -264,6 +274,18 @@ impl TTSPlayer {
 
     pub fn resume(&self) {
         let _ = self.command_tx.send(AudioCommand::Resume);
+    }
+
+    pub fn set_volume(&self, volume: f64) {
+        let _ = self
+            .command_tx
+            .send(AudioCommand::SetVolume(volume.clamp(0.0, 1.0) as f32));
+    }
+
+    pub fn set_playback_rate(&self, playback_rate: f64) {
+        let _ = self.command_tx.send(AudioCommand::SetPlaybackRate(
+            playback_rate.clamp(0.25, 4.0) as f32,
+        ));
     }
 
     pub fn is_playing(&self) -> bool {
@@ -367,6 +389,8 @@ fn run_audio_thread(
     let resampler_reset = Arc::new(AtomicBool::new(false));
 
     let playback_rate = sample_rate as f32 / stream_sample_rate as f32;
+    let output_volume = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+    let user_playback_rate = Arc::new(AtomicU32::new(1.0f32.to_bits()));
 
     // Helper to build stream with correct sample format.
     fn build_stream_for_format<T>(
@@ -378,6 +402,8 @@ fn run_audio_thread(
         playback_finished: Arc<AtomicBool>,
         output_channels: usize,
         playback_rate: f32,
+        output_volume: Arc<AtomicU32>,
+        user_playback_rate: Arc<AtomicU32>,
         resampler_reset: Arc<AtomicBool>,
     ) -> Result<cpal::Stream, cpal::BuildStreamError>
     where
@@ -392,6 +418,9 @@ fn run_audio_thread(
                 if resampler_reset.swap(false, Ordering::AcqRel) {
                     resampler.reset();
                 }
+                let rate_factor =
+                    f32::from_bits(user_playback_rate.load(Ordering::Relaxed)).clamp(0.25, 4.0);
+                resampler.set_playback_rate(playback_rate * rate_factor);
 
                 if is_playing.load(Ordering::Relaxed) {
                     let frames = data.len() / output_channels;
@@ -412,8 +441,10 @@ fn run_audio_thread(
                         return;
                     }
 
+                    let volume =
+                        f32::from_bits(output_volume.load(Ordering::Relaxed)).clamp(0.0, 1.0);
                     for i in 0..frames {
-                        let output_val = T::from_sample(mono[i]);
+                        let output_val = T::from_sample(apply_output_volume(mono[i], volume));
                         for ch in 0..output_channels {
                             data[i * output_channels + ch] = output_val;
                         }
@@ -444,6 +475,8 @@ fn run_audio_thread(
             Arc::clone(&playback_finished),
             output_channels,
             playback_rate,
+            Arc::clone(&output_volume),
+            Arc::clone(&user_playback_rate),
             Arc::clone(&resampler_reset),
         ),
         cpal::SampleFormat::I16 => build_stream_for_format::<i16>(
@@ -455,6 +488,8 @@ fn run_audio_thread(
             Arc::clone(&playback_finished),
             output_channels,
             playback_rate,
+            Arc::clone(&output_volume),
+            Arc::clone(&user_playback_rate),
             Arc::clone(&resampler_reset),
         ),
         cpal::SampleFormat::U16 => build_stream_for_format::<u16>(
@@ -466,6 +501,8 @@ fn run_audio_thread(
             Arc::clone(&playback_finished),
             output_channels,
             playback_rate,
+            Arc::clone(&output_volume),
+            Arc::clone(&user_playback_rate),
             Arc::clone(&resampler_reset),
         ),
         _ => build_stream_for_format::<f32>(
@@ -477,6 +514,8 @@ fn run_audio_thread(
             Arc::clone(&playback_finished),
             output_channels,
             playback_rate,
+            Arc::clone(&output_volume),
+            Arc::clone(&user_playback_rate),
             Arc::clone(&resampler_reset),
         ),
     };
@@ -510,6 +549,12 @@ fn run_audio_thread(
                     is_playing.store(true, Ordering::Relaxed);
                 }
             }
+            Ok(AudioCommand::SetVolume(volume)) => {
+                output_volume.store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Release);
+            }
+            Ok(AudioCommand::SetPlaybackRate(rate)) => {
+                user_playback_rate.store(rate.clamp(0.25, 4.0).to_bits(), Ordering::Release);
+            }
             Ok(AudioCommand::Stop) => break,
             Err(_) => break,
         }
@@ -519,7 +564,7 @@ fn run_audio_thread(
 
 #[cfg(test)]
 mod tests {
-    use super::{CircularAudioBuffer, PlaybackResampler};
+    use super::{apply_output_volume, CircularAudioBuffer, PlaybackResampler};
 
     #[test]
     fn resampler_consumes_only_completed_source_samples() {
@@ -569,5 +614,30 @@ mod tests {
         assert_eq!(buffer.available_samples, source.len());
         assert_eq!(buffer.sample_at_offset(0), Some(0.0));
         assert_eq!(buffer.sample_at_offset(24), Some(24.0));
+    }
+
+    #[test]
+    fn output_volume_is_clamped_and_applied() {
+        assert_eq!(apply_output_volume(0.5, 0.5), 0.25);
+        assert_eq!(apply_output_volume(0.5, 2.0), 0.5);
+        assert_eq!(apply_output_volume(0.5, -1.0), 0.0);
+    }
+
+    #[test]
+    fn resampler_playback_rate_can_be_updated() {
+        let mut buffer = CircularAudioBuffer::new(1.0, 24_000);
+        let source: Vec<f32> = (0..1_000).map(|n| n as f32).collect();
+        buffer.write(&source);
+
+        let mut resampler = PlaybackResampler::new(1.0);
+        resampler.set_playback_rate(2.0);
+
+        let mut output = vec![0.0; 100];
+        resampler.render_mono(&mut buffer, &mut output);
+
+        assert_eq!(buffer.read_pos, 200);
+        assert_eq!(output[0], 0.0);
+        assert_eq!(output[1], 2.0);
+        assert_eq!(output[2], 4.0);
     }
 }
