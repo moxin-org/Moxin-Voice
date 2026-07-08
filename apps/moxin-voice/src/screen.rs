@@ -1777,78 +1777,120 @@ live_design! {
         }
     }
 
-    PlayerRateDropDown = <DropDown> {
-        width: 42, height: 34
-        padding: {left: 0, right: 0}
-        popup_menu_position: BelowInput
-        labels: ["0.75x", "1x", "1.25x", "1.5x", "2x"]
-        values: [Rate075, Rate100, Rate125, Rate150, Rate200]
-        selected_item: 1
-        popup_menu: <SettingsDevicePopupMenu> {
-            width: 92.0
-            menu_item: {
-                indent_width: 0.0
-                padding: {left: 12, top: 7, bottom: 7, right: 12}
-            }
-        }
+    PlayerSpeedBtn = <Button> {
+        width: 46, height: 34
+        padding: {left: 0, right: 0, top: 0, bottom: 0}
         draw_bg: {
             instance dark_mode: 0.0
             instance hover: 0.0
             instance pressed: 0.0
+            instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 6.0);
-                let bg = mix(vec4(0.95, 0.96, 1.0, 0.72), vec4(0.15, 0.17, 0.24, 0.72), self.dark_mode);
-                let hover = mix(vec4(0.90, 0.92, 1.0, 0.95), vec4(0.22, 0.24, 0.32, 0.95), self.dark_mode);
-                let pressed = mix(vec4(0.84, 0.87, 1.0, 1.0), vec4(0.28, 0.30, 0.40, 1.0), self.dark_mode);
-                let color = mix(mix(bg, hover, self.hover), pressed, self.pressed);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 10.0);
+                let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
+                let active = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
+                let color = mix(mix(mix(bg, hover, self.hover), pressed, self.pressed), active, self.active);
                 sdf.fill(color);
-                sdf.stroke(mix(vec4(0.74, 0.77, 0.92, 1.0), vec4(0.38, 0.42, 0.58, 1.0), self.dark_mode), 1.0);
+                sdf.stroke(mix(vec4(0.78, 0.82, 0.94, 1.0), vec4(0.40, 0.45, 0.58, 1.0), self.dark_mode), 1.0);
                 return sdf.result;
             }
         }
         draw_text: {
             instance dark_mode: 0.0
-            text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+            text_style: <FONT_SEMIBOLD>{ font_size: 12.0 }
             fn get_color(self) -> vec4 {
-                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+            }
+        }
+        text: "1x"
+    }
+
+    PlayerMoreBtn = <Button> {
+        width: 34, height: 34
+        padding: {left: 0, right: 0, top: 0, bottom: 0}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance active: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 10.0);
+                let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
+                let active = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
+                sdf.fill(mix(mix(mix(bg, hover, self.hover), pressed, self.pressed), active, self.active));
+                sdf.stroke(mix(vec4(0.78, 0.82, 0.94, 1.0), vec4(0.40, 0.45, 0.58, 1.0), self.dark_mode), 1.0);
+
+                let icon = mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                sdf.rect(10.0, 11.0, 14.0, 1.8);
+                sdf.fill(icon);
+                sdf.rect(10.0, 16.1, 14.0, 1.8);
+                sdf.fill(icon);
+                sdf.rect(10.0, 21.2, 14.0, 1.8);
+                sdf.fill(icon);
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            text_style: { font_size: 0.0 }
+            fn get_color(self) -> vec4 {
+                return vec4(0.0, 0.0, 0.0, 0.0);
             }
         }
     }
 
-    PlayerMenuDropDown = <DropDown> {
-        width: 34, height: 34
-        padding: {left: 0, right: 0}
-        popup_menu_position: BelowInput
-        labels: ["☰", "Download", "Share"]
-        values: [Menu, Download, Share]
-        selected_item: 0
-        popup_menu: <SettingsDevicePopupMenu> {
-            width: 132.0
-            menu_item: {
-                indent_width: 0.0
-                padding: {left: 12, top: 7, bottom: 7, right: 12}
+    PlayerFloatingMenu = <View> {
+        width: Fit, height: Fit
+        flow: Down
+        spacing: 2
+        padding: {left: 6, right: 6, top: 6, bottom: 6}
+        show_bg: true
+        draw_bg: {
+            instance dark_mode: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 10.0);
+                let bg = mix((WHITE), (SLATE_800), self.dark_mode);
+                let border = mix((SLATE_300), (SLATE_600), self.dark_mode);
+                sdf.fill(bg);
+                sdf.stroke(border, 1.0);
+                return sdf.result;
             }
         }
+    }
+
+    PlayerMenuItemBtn = <Button> {
+        width: Fill, height: 30
+        padding: {left: 10, right: 10, top: 0, bottom: 0}
         draw_bg: {
             instance dark_mode: 0.0
             instance hover: 0.0
             instance pressed: 0.0
+            instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 6.0);
-                let bg = mix(vec4(0.95, 0.96, 1.0, 0.0), vec4(0.15, 0.17, 0.24, 0.0), self.dark_mode);
-                let hover = mix(vec4(0.39, 0.40, 0.95, 0.10), vec4(0.39, 0.40, 0.95, 0.18), self.dark_mode);
-                let pressed = mix(vec4(0.39, 0.40, 0.95, 0.18), vec4(0.39, 0.40, 0.95, 0.26), self.dark_mode);
-                sdf.fill(mix(mix(bg, hover, self.hover), pressed, self.pressed));
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 7.0);
+                let base = mix(vec4(1.0, 1.0, 1.0, 0.0), vec4(0.0, 0.0, 0.0, 0.0), self.dark_mode);
+                let hover = mix((SLATE_100), (SLATE_700), self.dark_mode);
+                let pressed = mix(vec4(0.88, 0.92, 1.0, 1.0), vec4(0.24, 0.29, 0.40, 1.0), self.dark_mode);
+                let active = mix(vec4(0.88, 0.92, 1.0, 1.0), vec4(0.25, 0.31, 0.46, 1.0), self.dark_mode);
+                sdf.fill(mix(mix(mix(base, hover, self.hover), pressed, self.pressed), active, self.active));
                 return sdf.result;
             }
         }
         draw_text: {
             instance dark_mode: 0.0
-            text_style: <FONT_SEMIBOLD>{ font_size: 15.0 }
+            instance active: 0.0
+            text_style: <FONT_MEDIUM>{ font_size: 12.0 }
             fn get_color(self) -> vec4 {
-                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                let normal = mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                let active = mix((MOXIN_PRIMARY), vec4(0.62, 0.76, 1.0, 1.0), self.dark_mode);
+                return mix(normal, active, self.active);
             }
         }
     }
@@ -7718,7 +7760,7 @@ live_design! {
                         }
                     }
 
-                    speed_menu_dropdown = <PlayerRateDropDown> {
+                    speed_menu_btn = <PlayerSpeedBtn> {
                     }
                 }
 
@@ -7728,13 +7770,36 @@ live_design! {
                     spacing: 0
                     align: {x: 1.0, y: 0.5}
 
-                    action_menu_dropdown = <PlayerMenuDropDown> {
+                    action_menu_btn = <PlayerMoreBtn> {
                     }
                 }
             }
             } // End audio_player_bar
         } // End content_wrapper
         } // End app_layout
+
+        player_speed_menu = <PlayerFloatingMenu> {
+            width: 96, height: Fit
+            align: {x: 1.0, y: 1.0}
+            margin: {right: 74, bottom: 86}
+            visible: false
+
+            speed_075_btn = <PlayerMenuItemBtn> { text: "0.75x" }
+            speed_100_btn = <PlayerMenuItemBtn> { text: "1x" }
+            speed_125_btn = <PlayerMenuItemBtn> { text: "1.25x" }
+            speed_150_btn = <PlayerMenuItemBtn> { text: "1.5x" }
+            speed_200_btn = <PlayerMenuItemBtn> { text: "2x" }
+        }
+
+        player_action_menu = <PlayerFloatingMenu> {
+            width: 132, height: Fit
+            align: {x: 1.0, y: 1.0}
+            margin: {right: 20, bottom: 86}
+            visible: false
+
+            download_menu_btn = <PlayerMenuItemBtn> { text: "Download" }
+            share_menu_btn = <PlayerMenuItemBtn> { text: "Share" }
+        }
 
         // Voice clone modal (overlay)
         voice_clone_modal = <VoiceCloneModal> {}
@@ -9388,6 +9453,10 @@ pub struct TTSScreen {
     player_muted: bool,
     #[rust]
     player_playback_rate: f64,
+    #[rust]
+    player_speed_menu_open: bool,
+    #[rust]
+    player_action_menu_open: bool,
 
     // Stored audio for playback/download (not auto-play)
     #[rust]
@@ -9753,6 +9822,8 @@ impl Widget for TTSScreen {
             self.player_volume = 1.0;
             self.player_muted = false;
             self.player_playback_rate = 1.0;
+            self.player_speed_menu_open = false;
+            self.player_action_menu_open = false;
             // Initialize stored audio sample rate (PrimeSpeech uses 32000)
             self.stored_audio_sample_rate = 32000;
             self.processed_audio_samples = Vec::new();
@@ -13551,48 +13622,66 @@ impl Widget for TTSScreen {
             self.toggle_player_mute(cx);
         }
         self.handle_player_volume_seek_event(cx, event);
-        if let Some(idx) = self
+        if self
             .view
-            .drop_down(ids!(
+            .button(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
                     .player_settings_row
-                    .speed_menu_dropdown
+                    .speed_menu_btn
             ))
-            .changed(&actions)
+            .clicked(&actions)
         {
-            self.set_player_playback_rate(
-                cx,
-                PLAYER_PLAYBACK_RATES[idx.min(PLAYER_PLAYBACK_RATES.len() - 1)],
-            );
+            self.player_speed_menu_open = !self.player_speed_menu_open;
+            self.player_action_menu_open = false;
+            self.update_player_menu_visibility(cx);
+        }
+        for (path, rate) in [
+            (ids!(player_speed_menu.speed_075_btn), 0.75),
+            (ids!(player_speed_menu.speed_100_btn), 1.0),
+            (ids!(player_speed_menu.speed_125_btn), 1.25),
+            (ids!(player_speed_menu.speed_150_btn), 1.5),
+            (ids!(player_speed_menu.speed_200_btn), 2.0),
+        ] {
+            if self.view.button(path).clicked(&actions) {
+                self.player_speed_menu_open = false;
+                self.set_player_playback_rate(cx, rate);
+            }
         }
 
-        if let Some(idx) = self
+        if self
             .view
-            .drop_down(ids!(
+            .button(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
                     .action_buttons_row
-                    .action_menu_dropdown
+                    .action_menu_btn
             ))
-            .changed(&actions)
+            .clicked(&actions)
         {
-            self.view
-                .drop_down(ids!(
-                    content_wrapper
-                        .audio_player_bar
-                        .download_section
-                        .action_buttons_row
-                        .action_menu_dropdown
-                ))
-                .set_selected_item(cx, 0);
-            match idx {
-                1 => self.open_download_modal(cx, DownloadSource::CurrentAudio),
-                2 => self.open_share_modal(cx, ShareSource::CurrentAudio),
-                _ => {}
-            }
+            self.player_action_menu_open = !self.player_action_menu_open;
+            self.player_speed_menu_open = false;
+            self.update_player_menu_visibility(cx);
+        }
+        if self
+            .view
+            .button(ids!(player_action_menu.download_menu_btn))
+            .clicked(&actions)
+        {
+            self.player_action_menu_open = false;
+            self.update_player_menu_visibility(cx);
+            self.open_download_modal(cx, DownloadSource::CurrentAudio);
+        }
+        if self
+            .view
+            .button(ids!(player_action_menu.share_menu_btn))
+            .clicked(&actions)
+        {
+            self.player_action_menu_open = false;
+            self.update_player_menu_visibility(cx);
+            self.open_share_modal(cx, ShareSource::CurrentAudio);
         }
 
         // Handle clear logs
@@ -17320,31 +17409,14 @@ impl TTSScreen {
             ))
             .set_text(cx, self.tr("清空", "Clear"));
 
+        let download_label = self.tr("下载", "Download").to_string();
+        let share_label = self.tr("分享", "Share").to_string();
         self.view
-            .drop_down(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .download_section
-                    .action_buttons_row
-                    .action_menu_dropdown
-            ))
-            .set_labels(
-                cx,
-                vec![
-                    "☰".to_string(),
-                    self.tr("下载", "Download").to_string(),
-                    self.tr("分享", "Share").to_string(),
-                ],
-            );
+            .button(ids!(player_action_menu.download_menu_btn))
+            .set_text(cx, &download_label);
         self.view
-            .drop_down(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .download_section
-                    .action_buttons_row
-                    .action_menu_dropdown
-            ))
-            .set_selected_item(cx, 0);
+            .button(ids!(player_action_menu.share_menu_btn))
+            .set_text(cx, &share_label);
         self.update_audio_player_action_layout_for_locale(cx);
 
         self.view
@@ -18779,6 +18851,10 @@ impl TTSScreen {
         let effective_rate = self.effective_audio_sample_rate();
         let has_playable_audio = self.has_generated_audio && audio_len > 0 && effective_rate > 0;
         let controls_enabled = has_playable_audio && self.tts_status != TTSStatus::Generating;
+        if !controls_enabled {
+            self.player_speed_menu_open = false;
+            self.player_action_menu_open = false;
+        }
 
         self.view
             .button(ids!(
@@ -18817,23 +18893,23 @@ impl TTSScreen {
             ))
             .set_enabled(cx, controls_enabled);
         self.view
-            .drop_down(ids!(
+            .button(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
                     .player_settings_row
-                    .speed_menu_dropdown
+                    .speed_menu_btn
             ))
-            .set_selected_item(cx, player_playback_rate_index(self.player_playback_rate));
+            .set_enabled(cx, controls_enabled);
         self.view
-            .drop_down(ids!(
+            .button(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
                     .action_buttons_row
-                    .action_menu_dropdown
+                    .action_menu_btn
             ))
-            .set_selected_item(cx, 0);
+            .set_enabled(cx, controls_enabled);
 
         // Update play button state
         let is_playing = self.tts_status == TTSStatus::Playing;
@@ -18921,10 +18997,7 @@ impl TTSScreen {
     fn update_player_setting_labels(&mut self, cx: &mut Cx) {
         let effective_volume = player_effective_volume(self.player_volume, self.player_muted);
         let speed_idx = player_playback_rate_index(self.player_playback_rate);
-        let speed_labels = PLAYER_PLAYBACK_RATES
-            .iter()
-            .map(|rate| Self::player_rate_label(*rate))
-            .collect::<Vec<_>>();
+        let speed_label = Self::player_rate_label(self.player_playback_rate);
 
         self.view
             .button(ids!(
@@ -18956,32 +19029,58 @@ impl TTSScreen {
                 },
             );
         self.view
-            .drop_down(ids!(
+            .button(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
                     .player_settings_row
-                    .speed_menu_dropdown
+                    .speed_menu_btn
             ))
-            .set_labels(cx, speed_labels);
+            .set_text(cx, &speed_label);
         self.view
-            .drop_down(ids!(
+            .button(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
                     .player_settings_row
-                    .speed_menu_dropdown
+                    .speed_menu_btn
             ))
-            .set_selected_item(cx, speed_idx);
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (if self.player_speed_menu_open { 1.0 } else { 0.0 }) }
+                },
+            );
         self.view
-            .drop_down(ids!(
+            .button(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
                     .action_buttons_row
-                    .action_menu_dropdown
+                    .action_menu_btn
             ))
-            .set_selected_item(cx, 0);
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (if self.player_action_menu_open { 1.0 } else { 0.0 }) }
+                },
+            );
+        for (idx, path) in [
+            (0, ids!(player_speed_menu.speed_075_btn)),
+            (1, ids!(player_speed_menu.speed_100_btn)),
+            (2, ids!(player_speed_menu.speed_125_btn)),
+            (3, ids!(player_speed_menu.speed_150_btn)),
+            (4, ids!(player_speed_menu.speed_200_btn)),
+        ] {
+            self.view.button(path).apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (if speed_idx == idx { 1.0 } else { 0.0 }) }
+                    draw_text: { active: (if speed_idx == idx { 1.0 } else { 0.0 }) }
+                },
+            );
+        }
+        self.update_player_menu_visibility(cx);
     }
 
     fn apply_player_audio_settings(&self) {
@@ -19027,6 +19126,44 @@ impl TTSScreen {
         self.player_muted = self.player_volume <= 0.0;
         self.apply_player_audio_settings();
         self.update_player_bar(cx);
+    }
+
+    fn update_player_menu_visibility(&mut self, cx: &mut Cx) {
+        self.view
+            .view(ids!(player_speed_menu))
+            .set_visible(cx, self.player_speed_menu_open);
+        self.view
+            .view(ids!(player_action_menu))
+            .set_visible(cx, self.player_action_menu_open);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .player_settings_row
+                    .speed_menu_btn
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (if self.player_speed_menu_open { 1.0 } else { 0.0 }) }
+                },
+            );
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .action_buttons_row
+                    .action_menu_btn
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { active: (if self.player_action_menu_open { 1.0 } else { 0.0 }) }
+                },
+            );
+        self.view.redraw(cx);
     }
 
     fn set_player_playback_rate(&mut self, cx: &mut Cx, rate: f64) {
@@ -25033,6 +25170,40 @@ impl TTSScreen {
         self.view
             .view(ids!(content_wrapper.audio_player_bar))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(content_wrapper.audio_player_bar.playback_controls.controls_row.rewind_btn))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(content_wrapper.audio_player_bar.playback_controls.controls_row.forward_btn))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(content_wrapper.audio_player_bar.download_section.player_settings_row.mute_btn))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(content_wrapper.audio_player_bar.download_section.player_settings_row.speed_menu_btn))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .button(ids!(content_wrapper.audio_player_bar.download_section.action_buttons_row.action_menu_btn))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(player_speed_menu))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(player_action_menu))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        for path in [
+            ids!(player_speed_menu.speed_075_btn),
+            ids!(player_speed_menu.speed_100_btn),
+            ids!(player_speed_menu.speed_125_btn),
+            ids!(player_speed_menu.speed_150_btn),
+            ids!(player_speed_menu.speed_200_btn),
+            ids!(player_action_menu.download_menu_btn),
+            ids!(player_action_menu.share_menu_btn),
+        ] {
+            self.view
+                .button(path)
+                .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
+        }
 
         self.view
             .label(ids!(
@@ -28667,8 +28838,12 @@ mod tests {
             "mute_btn = <PlayerVolumeBtn>",
             "volume_slider_container = <View>",
             "volume_slider = <View>",
-            "speed_menu_dropdown = <PlayerRateDropDown>",
-            "action_menu_dropdown = <PlayerMenuDropDown>",
+            "PlayerSpeedBtn = <Button>",
+            "speed_menu_btn = <PlayerSpeedBtn>",
+            "player_speed_menu = <PlayerFloatingMenu>",
+            "PlayerMoreBtn = <Button>",
+            "action_menu_btn = <PlayerMoreBtn>",
+            "player_action_menu = <PlayerFloatingMenu>",
         ] {
             assert!(
                 live_design.contains(marker),
@@ -28690,8 +28865,10 @@ mod tests {
             "self.toggle_player_mute(cx)",
             "self.handle_player_volume_seek_event(cx, event)",
             "self.set_player_volume_from_ratio(cx, ratio)",
+            "self.player_speed_menu_open = !self.player_speed_menu_open",
+            "self.update_player_menu_visibility(cx)",
             "self.set_player_playback_rate(",
-            "PLAYER_PLAYBACK_RATES[idx.min(PLAYER_PLAYBACK_RATES.len() - 1)]",
+            "ids!(player_speed_menu.speed_075_btn)",
             "self.open_download_modal(cx, DownloadSource::CurrentAudio)",
             "self.open_share_modal(cx, ShareSource::CurrentAudio)",
         ] {
@@ -28754,12 +28931,16 @@ mod tests {
             "bottom player should keep the app's existing white background"
         );
         assert!(
-            bar.contains("speed_menu_dropdown = <PlayerRateDropDown>"),
-            "playback rate should open a speed menu"
+            bar.contains("speed_menu_btn = <PlayerSpeedBtn>"),
+            "playback rate should use a visible speed button"
         );
         assert!(
-            bar.contains("action_menu_dropdown = <PlayerMenuDropDown>"),
+            bar.contains("action_menu_btn = <PlayerMoreBtn>"),
             "download/share should be collected behind the right menu"
+        );
+        assert!(
+            !bar.contains("<DropDown>"),
+            "bottom player should not use dropdown popups that clip at the bottom edge"
         );
         assert!(
             bar.contains("mute_btn = <PlayerVolumeBtn>"),
