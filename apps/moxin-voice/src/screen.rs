@@ -7512,7 +7512,7 @@ live_design! {
                         text: "-"
                     }
 
-                    player_volume_value = <Label> {
+                    player_volume_label = <Label> {
                         width: 46, height: Fit
                         align: {x: 0.5}
                         draw_text: {
@@ -7537,7 +7537,7 @@ live_design! {
                         text: "Speed"
                     }
 
-                    player_speed_value = <Label> {
+                    player_rate_label = <Label> {
                         width: 42, height: Fit
                         align: {x: 0.5}
                         draw_text: {
@@ -18871,7 +18871,7 @@ impl TTSScreen {
                     .audio_player_bar
                     .playback_controls
                     .player_settings_row
-                    .player_volume_value
+                    .player_volume_label
             ))
             .set_text(cx, &volume_label);
         self.view
@@ -18880,7 +18880,7 @@ impl TTSScreen {
                     .audio_player_bar
                     .playback_controls
                     .player_settings_row
-                    .player_speed_value
+                    .player_rate_label
             ))
             .set_text(cx, &speed_label);
     }
@@ -28552,9 +28552,9 @@ mod tests {
             "mute_btn = <Button>",
             "volume_down_btn = <Button>",
             "volume_up_btn = <Button>",
-            "player_volume_value = <Label>",
+            "player_volume_label = <Label>",
             "speed_btn = <Button>",
-            "player_speed_value = <Label>",
+            "player_rate_label = <Label>",
         ] {
             assert!(
                 live_design.contains(marker),
