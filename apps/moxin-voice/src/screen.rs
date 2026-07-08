@@ -1714,19 +1714,19 @@ live_design! {
 
                 let icon = mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
                 if self.forward > 0.5 {
-                    sdf.arc_round_caps(17.0, 15.0, 9.0, -1.15, 2.65, 1.6);
+                    sdf.arc_round_caps(17.0, 15.0, 8.4, -1.32, 2.55, 1.5);
                     sdf.fill(icon);
-                    sdf.move_to(22.0, 6.8);
-                    sdf.line_to(27.0, 8.7);
-                    sdf.line_to(23.4, 12.5);
+                    sdf.move_to(23.0, 6.3);
+                    sdf.line_to(27.0, 10.2);
+                    sdf.line_to(21.8, 11.0);
                     sdf.close_path();
                     sdf.fill(icon);
                 } else {
-                    sdf.arc_round_caps(17.0, 15.0, 9.0, 0.5, 4.3, 1.6);
+                    sdf.arc_round_caps(17.0, 15.0, 8.4, 0.58, 4.45, 1.5);
                     sdf.fill(icon);
-                    sdf.move_to(12.0, 6.8);
-                    sdf.line_to(7.0, 8.7);
-                    sdf.line_to(10.6, 12.5);
+                    sdf.move_to(11.0, 6.3);
+                    sdf.line_to(7.0, 10.2);
+                    sdf.line_to(12.2, 11.0);
                     sdf.close_path();
                     sdf.fill(icon);
                 }
@@ -1801,14 +1801,18 @@ live_design! {
             instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.rect_size.y * 0.5);
                 let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
                 let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
                 let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
                 let active = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
                 let color = mix(mix(mix(bg, hover, self.hover), pressed, self.pressed), active, self.active);
+                let radius = self.rect_size.y * 0.5;
+                sdf.rect(radius, 0.0, self.rect_size.x - self.rect_size.y, self.rect_size.y);
                 sdf.fill(color);
-                sdf.stroke(mix(vec4(0.78, 0.82, 0.94, 1.0), vec4(0.40, 0.45, 0.58, 1.0), self.dark_mode), 1.0);
+                sdf.circle(radius, radius, radius);
+                sdf.fill(color);
+                sdf.circle(self.rect_size.x - radius, radius, radius);
+                sdf.fill(color);
                 return sdf.result;
             }
         }
@@ -1832,13 +1836,14 @@ live_design! {
             instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.rect_size.y * 0.5);
                 let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
                 let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
                 let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
                 let active = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
-                sdf.fill(mix(mix(mix(bg, hover, self.hover), pressed, self.pressed), active, self.active));
-                sdf.stroke(mix(vec4(0.78, 0.82, 0.94, 1.0), vec4(0.40, 0.45, 0.58, 1.0), self.dark_mode), 1.0);
+                let color = mix(mix(mix(bg, hover, self.hover), pressed, self.pressed), active, self.active);
+                let radius = min(self.rect_size.x, self.rect_size.y) * 0.5;
+                sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, radius);
+                sdf.fill(color);
 
                 let icon = mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                 sdf.rect(10.0, 11.0, 14.0, 1.8);
@@ -1868,9 +1873,11 @@ live_design! {
             instance dark_mode: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 10.0);
+                sdf.box(3.0, 4.0, self.rect_size.x, self.rect_size.y, 5.0);
+                sdf.fill(mix(vec4(0.10, 0.12, 0.18, 0.16), vec4(0.0, 0.0, 0.0, 0.26), self.dark_mode));
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 5.0);
                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                let border = mix((SLATE_300), (SLATE_600), self.dark_mode);
+                let border = mix(vec4(0.76, 0.80, 0.88, 1.0), vec4(0.38, 0.43, 0.54, 1.0), self.dark_mode);
                 sdf.fill(bg);
                 sdf.stroke(border, 1.0);
                 return sdf.result;
@@ -29008,8 +29015,22 @@ mod tests {
             "download/share should be collected behind the right menu"
         );
         assert!(
-            live_design.contains("self.rect_size.y * 0.5"),
-            "speed and more buttons should render as fully rounded pills/circles"
+            live_design.contains("sdf.circle(radius, radius, radius)")
+                && live_design.contains("sdf.circle(self.rect_size.x - radius, radius, radius)")
+                && live_design.contains("sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, radius)"),
+            "speed and more buttons should render with circle geometry instead of oversized box radius"
+        );
+        assert!(
+            live_design.contains("sdf.box(3.0, 4.0, self.rect_size.x, self.rect_size.y, 5.0)"),
+            "floating menus should render a visible shadow"
+        );
+        assert!(
+            live_design.contains("sdf.stroke(border, 1.0)"),
+            "floating menus should render a visible border"
+        );
+        assert!(
+            !live_design.contains("sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, self.rect_size.y * 0.5)"),
+            "player buttons should not use oversized box radius that renders as a diamond"
         );
         assert!(
             !bar.contains("<DropDown>"),
