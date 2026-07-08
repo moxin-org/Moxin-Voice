@@ -131,6 +131,19 @@ fn player_skip_target(current_secs: f64, total_secs: f64, delta_secs: f64) -> f6
     (current_secs + delta_secs).clamp(0.0, max_start)
 }
 
+fn player_playback_position_after_tick(
+    current_secs: f64,
+    total_secs: f64,
+    tick_secs: f64,
+    playback_rate: f64,
+) -> f64 {
+    if total_secs <= 0.0 {
+        return 0.0;
+    }
+    let media_delta = tick_secs.max(0.0) * playback_rate.max(0.0);
+    (current_secs + media_delta).clamp(0.0, total_secs)
+}
+
 fn player_effective_volume(volume: f64, muted: bool) -> f64 {
     if muted {
         0.0
@@ -1714,21 +1727,21 @@ live_design! {
 
                 let icon = mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
                 if self.forward > 0.5 {
-                    sdf.arc_round_caps(17.0, 15.0, 8.4, -1.32, 2.55, 1.5);
+                    // Lucide rotate-cw: M21 2v6h-6, plus clockwise arc.
+                    sdf.arc_round_caps(17.0, 15.0, 8.3, -1.05, 2.80, 1.45);
                     sdf.fill(icon);
-                    sdf.move_to(23.0, 6.3);
-                    sdf.line_to(27.0, 10.2);
-                    sdf.line_to(21.8, 11.0);
-                    sdf.close_path();
-                    sdf.fill(icon);
+                    sdf.move_to(24.2, 5.0);
+                    sdf.line_to(24.2, 10.4);
+                    sdf.line_to(18.8, 10.4);
+                    sdf.stroke(icon, 1.45);
                 } else {
-                    sdf.arc_round_caps(17.0, 15.0, 8.4, 0.58, 4.45, 1.5);
+                    // Lucide rotate-ccw: M3 2v6h6, plus counter-clockwise arc.
+                    sdf.arc_round_caps(17.0, 15.0, 8.3, 0.34, 4.19, 1.45);
                     sdf.fill(icon);
-                    sdf.move_to(11.0, 6.3);
-                    sdf.line_to(7.0, 10.2);
-                    sdf.line_to(12.2, 11.0);
-                    sdf.close_path();
-                    sdf.fill(icon);
+                    sdf.move_to(9.8, 5.0);
+                    sdf.line_to(9.8, 10.4);
+                    sdf.line_to(15.2, 10.4);
+                    sdf.stroke(icon, 1.45);
                 }
                 return sdf.result;
             }
@@ -10307,7 +10320,14 @@ impl Widget for TTSScreen {
                         self.add_log(cx, "[INFO] [tts] Playback completed");
                     } else if player.is_playing() {
                         // Still playing - update playback time and progress bar
-                        self.audio_playing_time += 0.1;
+                        if let Some(total_duration) = self.playback_duration_secs() {
+                            self.audio_playing_time = player_playback_position_after_tick(
+                                self.audio_playing_time,
+                                total_duration,
+                                0.1,
+                                self.player_playback_rate,
+                            );
+                        }
                         self.update_playback_progress(cx);
                     }
                     // If paused (is_playing=false but not finished), do nothing - keep current time
@@ -28744,11 +28764,12 @@ fn runtime_init_next_display_progress(current: f64, incoming: f64) -> f64 {
 mod tests {
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
-        player_effective_volume, player_menu_abs_pos, player_playback_rate_index,
-        player_skip_target, should_probe_translation_permission_on_page_entry,
-        should_show_runtime_download_ui, split_tts_text_segments, tts_input_click_disposition,
-        tts_input_drag_scroll_delta, AppPage, DownloadFormat, Event, RuntimeInitState,
-        TtsInputClickDisposition, TtsSegmentDispatch, TTSScreen, TTS_INPUT_MAX_CHARS,
+        player_effective_volume, player_menu_abs_pos, player_playback_position_after_tick,
+        player_playback_rate_index, player_skip_target,
+        should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
+        split_tts_text_segments, tts_input_click_disposition, tts_input_drag_scroll_delta,
+        AppPage, DownloadFormat, Event, RuntimeInitState, TtsInputClickDisposition,
+        TtsSegmentDispatch, TTSScreen, TTS_INPUT_MAX_CHARS,
     };
     use makepad_widgets::{
         dvec2, Area, DVec2, KeyModifiers, MouseButton, MouseDownEvent, MouseUpEvent, Rect,
@@ -28857,6 +28878,16 @@ mod tests {
     }
 
     #[test]
+    fn player_playback_position_advances_by_playback_rate() {
+        assert_eq!(player_playback_position_after_tick(1.0, 10.0, 0.1, 2.0), 1.2);
+        assert_eq!(
+            player_playback_position_after_tick(9.95, 10.0, 0.1, 2.0),
+            10.0
+        );
+        assert_eq!(player_playback_position_after_tick(1.0, 10.0, 0.1, 0.0), 1.0);
+    }
+
+    #[test]
     fn player_menu_position_anchors_above_button() {
         let anchor = Rect {
             pos: dvec2(880.0, 712.0),
@@ -28941,6 +28972,7 @@ mod tests {
             "self.update_player_menu_visibility(cx)",
             "self.set_player_playback_rate(",
             "ids!(player_speed_menu.speed_075_btn)",
+            "player_playback_position_after_tick(",
             "self.open_download_modal(cx, DownloadSource::CurrentAudio)",
             "self.open_share_modal(cx, ShareSource::CurrentAudio)",
         ] {
@@ -28980,6 +29012,13 @@ mod tests {
         assert!(
             live_design.contains("arc_round_caps"),
             "skip controls should use circular skip icons"
+        );
+        assert!(
+            live_design.contains("Lucide rotate-cw")
+                && live_design.contains("Lucide rotate-ccw")
+                && live_design.contains("M21 2v6h-6")
+                && live_design.contains("M3 2v6h6"),
+            "skip controls should follow Lucide rotate icon geometry"
         );
         let right_section = bar
             .split("download_section = <View>")
