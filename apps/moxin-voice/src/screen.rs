@@ -68,7 +68,6 @@ enum TtsInputDragTarget {
 const TTS_INPUT_DRAG_AUTOSCROLL_EDGE: f64 = 52.0;
 const TTS_INPUT_DRAG_AUTOSCROLL_MAX_DELTA: f64 = 28.0;
 const TTS_INPUT_SCROLL_TOP_PADDING: f64 = 24.0;
-const PLAYER_SKIP_SECONDS: f64 = 10.0;
 const PLAYER_PLAYBACK_RATES: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
 const PLAYER_SPEED_MENU_WIDTH: f64 = 96.0;
 const PLAYER_SPEED_MENU_HEIGHT: f64 = 170.0;
@@ -121,14 +120,6 @@ fn tts_input_drag_release_should_restore_focus(
     selected_text_len: usize,
 ) -> bool {
     was_drag_selecting_from_input && selected_text_len > 0
-}
-
-fn player_skip_target(current_secs: f64, total_secs: f64, delta_secs: f64) -> f64 {
-    if total_secs <= 0.0 {
-        return 0.0;
-    }
-    let max_start = (total_secs - 0.05).max(0.0);
-    (current_secs + delta_secs).clamp(0.0, max_start)
 }
 
 fn player_playback_position_after_tick(
@@ -1681,79 +1672,6 @@ live_design! {
                 return vec4(0.0, 0.0, 0.0, 0.0);
             }
         }
-    }
-
-    PlayerControlBtn = <Button> {
-        width: Fit, height: 30
-        padding: {left: 8, right: 8}
-        draw_bg: {
-            instance dark_mode: 0.0
-            instance hover: 0.0
-            instance pressed: 0.0
-            fn pixel(self) -> vec4 {
-                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 7.0);
-                let base = vec4(0.39, 0.40, 0.95, 0.0);
-                let hover = mix(vec4(0.39, 0.40, 0.95, 0.10), vec4(0.39, 0.40, 0.95, 0.18), self.dark_mode);
-                let pressed = mix(vec4(0.39, 0.40, 0.95, 0.18), vec4(0.39, 0.40, 0.95, 0.26), self.dark_mode);
-                let color = mix(mix(base, hover, self.hover), pressed, self.pressed);
-                sdf.fill(color);
-                return sdf.result;
-            }
-        }
-        draw_text: {
-            instance dark_mode: 0.0
-            text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
-            fn get_color(self) -> vec4 {
-                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
-            }
-        }
-    }
-
-    PlayerSkipBtn = <Button> {
-        width: 34, height: 30
-        padding: {left: 0, right: 0}
-        draw_bg: {
-            instance dark_mode: 0.0
-            instance hover: 0.0
-            instance pressed: 0.0
-            instance forward: 0.0
-            fn pixel(self) -> vec4 {
-                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 7.0);
-                let hover = mix(vec4(0.39, 0.40, 0.95, 0.10), vec4(0.39, 0.40, 0.95, 0.18), self.dark_mode);
-                let pressed = mix(vec4(0.39, 0.40, 0.95, 0.18), vec4(0.39, 0.40, 0.95, 0.26), self.dark_mode);
-                sdf.fill(mix(vec4(0.0, 0.0, 0.0, 0.0), mix(hover, pressed, self.pressed), self.hover));
-
-                let icon = mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
-                if self.forward > 0.5 {
-                    // Lucide rotate-cw: M21 2v6h-6, plus clockwise arc.
-                    sdf.arc_round_caps(17.0, 15.0, 8.3, -1.05, 2.80, 1.45);
-                    sdf.fill(icon);
-                    sdf.move_to(24.2, 5.0);
-                    sdf.line_to(24.2, 10.4);
-                    sdf.line_to(18.8, 10.4);
-                    sdf.stroke(icon, 1.45);
-                } else {
-                    // Lucide rotate-ccw: M3 2v6h6, plus counter-clockwise arc.
-                    sdf.arc_round_caps(17.0, 15.0, 8.3, 0.34, 4.19, 1.45);
-                    sdf.fill(icon);
-                    sdf.move_to(9.8, 5.0);
-                    sdf.line_to(9.8, 10.4);
-                    sdf.line_to(15.2, 10.4);
-                    sdf.stroke(icon, 1.45);
-                }
-                return sdf.result;
-            }
-        }
-        draw_text: {
-            instance dark_mode: 0.0
-            text_style: <FONT_SEMIBOLD>{ font_size: 8.0 }
-            fn get_color(self) -> vec4 {
-                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
-            }
-        }
-        text: "10"
     }
 
     PlayerVolumeBtn = <Button> {
@@ -7653,10 +7571,6 @@ live_design! {
                     align: {x: 0.5, y: 0.5}
                     spacing: 12
 
-                    rewind_btn = <PlayerSkipBtn> {
-                        draw_bg: { forward: 0.0 }
-                    }
-
                     // Play/Pause button - Moxin.tts style
                     play_btn = <PlayButton> {
                         text: ""
@@ -7686,9 +7600,6 @@ live_design! {
                         }
                     }
 
-                    forward_btn = <PlayerSkipBtn> {
-                        draw_bg: { forward: 1.0 }
-                    }
                 }
 
                 // Progress bar row - centered with max width constraint
@@ -13602,20 +13513,6 @@ impl Widget for TTSScreen {
             }
         }
 
-        if self
-            .view
-            .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .playback_controls
-                    .controls_row
-                    .rewind_btn
-            ))
-            .clicked(&actions)
-        {
-            self.skip_playback_by(cx, -PLAYER_SKIP_SECONDS);
-        }
-
         // Handle play button in audio player bar
         if self
             .view
@@ -13629,19 +13526,6 @@ impl Widget for TTSScreen {
             .clicked(&actions)
         {
             self.toggle_playback(cx);
-        }
-        if self
-            .view
-            .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .playback_controls
-                    .controls_row
-                    .forward_btn
-            ))
-            .clicked(&actions)
-        {
-            self.skip_playback_by(cx, PLAYER_SKIP_SECONDS);
         }
         self.handle_playback_progress_seek_event(cx, event);
 
@@ -18906,24 +18790,6 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
-                    .controls_row
-                    .rewind_btn
-            ))
-            .set_enabled(cx, controls_enabled);
-        self.view
-            .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .playback_controls
-                    .controls_row
-                    .forward_btn
-            ))
-            .set_enabled(cx, controls_enabled);
-        self.view
-            .button(ids!(
-                content_wrapper
-                    .audio_player_bar
                     .download_section
                     .player_settings_row
                     .mute_btn
@@ -19128,28 +18994,6 @@ impl TTSScreen {
             ));
             player.set_playback_rate(self.player_playback_rate);
         }
-    }
-
-    fn skip_playback_by(&mut self, cx: &mut Cx, delta_secs: f64) {
-        if self.tts_status == TTSStatus::Generating {
-            return;
-        }
-        let Some(total_duration) = self.playback_duration_secs() else {
-            return;
-        };
-        let target_time = player_skip_target(self.audio_playing_time, total_duration, delta_secs);
-        if self.tts_status == TTSStatus::Playing {
-            if self.start_playback_from_time(cx, target_time) {
-                self.add_log(
-                    cx,
-                    &format!("[INFO] [tts] Skipped playback to {:.1}s", target_time),
-                );
-            }
-        } else {
-            self.audio_playing_time = target_time;
-            self.update_playback_progress(cx);
-        }
-        self.update_player_bar(cx);
     }
 
     fn toggle_player_mute(&mut self, cx: &mut Cx) {
@@ -25250,12 +25094,6 @@ impl TTSScreen {
             .view(ids!(content_wrapper.audio_player_bar))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
-            .button(ids!(content_wrapper.audio_player_bar.playback_controls.controls_row.rewind_btn))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
-        self.view
-            .button(ids!(content_wrapper.audio_player_bar.playback_controls.controls_row.forward_btn))
-            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } draw_text: { dark_mode: (dark_mode) } });
-        self.view
             .button(ids!(content_wrapper.audio_player_bar.download_section.player_settings_row.mute_btn))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
         self.view
@@ -28765,11 +28603,10 @@ mod tests {
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
         player_effective_volume, player_menu_abs_pos, player_playback_position_after_tick,
-        player_playback_rate_index, player_skip_target,
-        should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
-        split_tts_text_segments, tts_input_click_disposition, tts_input_drag_scroll_delta,
-        AppPage, DownloadFormat, Event, RuntimeInitState, TtsInputClickDisposition,
-        TtsSegmentDispatch, TTSScreen, TTS_INPUT_MAX_CHARS,
+        player_playback_rate_index, should_probe_translation_permission_on_page_entry,
+        should_show_runtime_download_ui, split_tts_text_segments, tts_input_click_disposition,
+        tts_input_drag_scroll_delta, AppPage, DownloadFormat, Event, RuntimeInitState,
+        TtsInputClickDisposition, TtsSegmentDispatch, TTSScreen, TTS_INPUT_MAX_CHARS,
     };
     use makepad_widgets::{
         dvec2, Area, DVec2, KeyModifiers, MouseButton, MouseDownEvent, MouseUpEvent, Rect,
@@ -28870,14 +28707,6 @@ mod tests {
     }
 
     #[test]
-    fn player_skip_target_clamps_to_audio_bounds() {
-        assert_eq!(player_skip_target(3.0, 30.0, -10.0), 0.0);
-        assert_eq!(player_skip_target(12.0, 30.0, 10.0), 22.0);
-        assert_eq!(player_skip_target(28.0, 30.0, 10.0), 29.95);
-        assert_eq!(player_skip_target(12.0, 0.0, 10.0), 0.0);
-    }
-
-    #[test]
     fn player_playback_position_advances_by_playback_rate() {
         assert_eq!(player_playback_position_after_tick(1.0, 10.0, 0.1, 2.0), 1.2);
         assert_eq!(
@@ -28932,10 +28761,6 @@ mod tests {
             .unwrap();
 
         for marker in [
-            "PlayerControlBtn = <Button>",
-            "PlayerSkipBtn = <Button>",
-            "rewind_btn = <PlayerSkipBtn>",
-            "forward_btn = <PlayerSkipBtn>",
             "player_settings_row = <View>",
             "PlayerVolumeBtn = <Button>",
             "mute_btn = <PlayerVolumeBtn>",
@@ -28963,8 +28788,6 @@ mod tests {
             .unwrap();
 
         for marker in [
-            "self.skip_playback_by(cx, -PLAYER_SKIP_SECONDS)",
-            "self.skip_playback_by(cx, PLAYER_SKIP_SECONDS)",
             "self.toggle_player_mute(cx)",
             "self.handle_player_volume_seek_event(cx, event)",
             "self.set_player_volume_from_ratio(cx, ratio)",
@@ -29002,23 +28825,12 @@ mod tests {
             "center playback row should only contain transport controls"
         );
         assert!(
-            !controls_before_progress.contains("text: \"-10s\""),
-            "rewind should use an icon instead of text"
-        );
-        assert!(
-            !controls_before_progress.contains("text: \"+10s\""),
-            "forward should use an icon instead of text"
-        );
-        assert!(
-            live_design.contains("arc_round_caps"),
-            "skip controls should use circular skip icons"
-        );
-        assert!(
-            live_design.contains("Lucide rotate-cw")
-                && live_design.contains("Lucide rotate-ccw")
-                && live_design.contains("M21 2v6h-6")
-                && live_design.contains("M3 2v6h6"),
-            "skip controls should follow Lucide rotate icon geometry"
+            !live_design.contains("PlayerSkipBtn = <Button>")
+                && !controls_before_progress.contains("rewind_btn")
+                && !controls_before_progress.contains("forward_btn")
+                && !controls_before_progress.contains("-10")
+                && !controls_before_progress.contains("+10"),
+            "bottom player should not expose skip controls"
         );
         let right_section = bar
             .split("download_section = <View>")
