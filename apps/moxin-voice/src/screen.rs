@@ -7281,7 +7281,7 @@ live_design! {
 
             // Bottom audio player bar - Moxin.tts style
             audio_player_bar = <View> {
-                width: Fill, height: 90
+                width: Fill, height: 108
                 flow: Right
                 align: {x: 0.5, y: 0.5}
                 padding: {left: 24, right: 24, top: 8, bottom: 8}
@@ -7382,7 +7382,7 @@ live_design! {
                 width: Fill, height: Fill
                 flow: Down
                 align: {x: 0.5, y: 0.5}
-                spacing: 6
+                spacing: 4
 
                 // Control buttons row - centered
                 controls_row = <View> {
@@ -7390,6 +7390,12 @@ live_design! {
                     flow: Right
                     align: {x: 0.5, y: 0.5}
                     spacing: 12
+
+                    rewind_btn = <Button> {
+                        width: Fit, height: 32
+                        padding: {left: 12, right: 12}
+                        text: "-10s"
+                    }
 
                     // Play/Pause button - Moxin.tts style
                     play_btn = <PlayButton> {
@@ -7418,6 +7424,12 @@ live_design! {
                                 return sdf.result;
                             }
                         }
+                    }
+
+                    forward_btn = <Button> {
+                        width: Fit, height: 32
+                        padding: {left: 12, right: 12}
+                        text: "+10s"
                     }
                 }
 
@@ -7479,6 +7491,63 @@ live_design! {
                             }
                         }
                         text: "00:00"
+                    }
+                }
+
+                player_settings_row = <View> {
+                    width: Fill, height: Fit
+                    flow: Right
+                    align: {x: 0.5, y: 0.5}
+                    spacing: 8
+
+                    mute_btn = <Button> {
+                        width: Fit, height: 28
+                        padding: {left: 12, right: 12}
+                        text: "Mute"
+                    }
+
+                    volume_down_btn = <Button> {
+                        width: 28, height: 28
+                        padding: {left: 0, right: 0}
+                        text: "-"
+                    }
+
+                    player_volume_value = <Label> {
+                        width: 46, height: Fit
+                        align: {x: 0.5}
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: { font_size: 11.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                            }
+                        }
+                        text: "100%"
+                    }
+
+                    volume_up_btn = <Button> {
+                        width: 28, height: 28
+                        padding: {left: 0, right: 0}
+                        text: "+"
+                    }
+
+                    speed_btn = <Button> {
+                        width: Fit, height: 28
+                        padding: {left: 12, right: 12}
+                        text: "Speed"
+                    }
+
+                    player_speed_value = <Label> {
+                        width: 42, height: Fit
+                        align: {x: 0.5}
+                        draw_text: {
+                            instance dark_mode: 0.0
+                            text_style: { font_size: 11.0 }
+                            fn get_color(self) -> vec4 {
+                                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                            }
+                        }
+                        text: "1x"
                     }
                 }
             }
@@ -13323,6 +13392,20 @@ impl Widget for TTSScreen {
             }
         }
 
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .controls_row
+                    .rewind_btn
+            ))
+            .clicked(&actions)
+        {
+            self.skip_playback_by(cx, -PLAYER_SKIP_SECONDS);
+        }
+
         // Handle play button in audio player bar
         if self
             .view
@@ -13337,9 +13420,6 @@ impl Widget for TTSScreen {
         {
             self.toggle_playback(cx);
         }
-        self.handle_playback_progress_seek_event(cx, event);
-
-        // Handle stop button in audio player bar
         if self
             .view
             .button(ids!(
@@ -13347,11 +13427,65 @@ impl Widget for TTSScreen {
                     .audio_player_bar
                     .playback_controls
                     .controls_row
-                    .stop_btn
+                    .forward_btn
             ))
             .clicked(&actions)
         {
-            self.stop_playback(cx);
+            self.skip_playback_by(cx, PLAYER_SKIP_SECONDS);
+        }
+        self.handle_playback_progress_seek_event(cx, event);
+
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .mute_btn
+            ))
+            .clicked(&actions)
+        {
+            self.toggle_player_mute(cx);
+        }
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .volume_down_btn
+            ))
+            .clicked(&actions)
+        {
+            self.adjust_player_volume(cx, -0.1);
+        }
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .volume_up_btn
+            ))
+            .clicked(&actions)
+        {
+            self.adjust_player_volume(cx, 0.1);
+        }
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .speed_btn
+            ))
+            .clicked(&actions)
+        {
+            self.cycle_player_playback_rate(cx);
         }
 
         // Handle download button in audio player bar
@@ -18574,6 +18708,60 @@ impl TTSScreen {
                 content_wrapper.audio_player_bar.download_section.share_btn
             ))
             .set_enabled(cx, controls_enabled);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .controls_row
+                    .rewind_btn
+            ))
+            .set_enabled(cx, controls_enabled);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .controls_row
+                    .forward_btn
+            ))
+            .set_enabled(cx, controls_enabled);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .mute_btn
+            ))
+            .set_enabled(cx, controls_enabled);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .volume_down_btn
+            ))
+            .set_enabled(cx, controls_enabled);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .volume_up_btn
+            ))
+            .set_enabled(cx, controls_enabled);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .speed_btn
+            ))
+            .set_enabled(cx, controls_enabled);
 
         // Update play button state
         let is_playing = self.tts_status == TTSStatus::Playing;
@@ -18591,6 +18779,7 @@ impl TTSScreen {
                     draw_bg: { is_playing: (if is_playing { 1.0 } else { 0.0 }) }
                 },
             );
+        self.update_player_setting_labels(cx);
 
         // Update total time
         if has_playable_audio {
@@ -18644,6 +18833,109 @@ impl TTSScreen {
         }
 
         self.view.redraw(cx);
+    }
+
+    fn player_rate_label(rate: f64) -> String {
+        if (rate - rate.round()).abs() < 0.01 {
+            format!("{:.0}x", rate)
+        } else {
+            format!("{:.2}x", rate)
+        }
+    }
+
+    fn update_player_setting_labels(&mut self, cx: &mut Cx) {
+        let volume_label = if self.player_muted {
+            self.tr("静音", "Muted").to_string()
+        } else {
+            player_volume_label(self.player_volume, false)
+        };
+        let mute_text = if self.player_muted {
+            self.tr("取消静音", "Unmute")
+        } else {
+            self.tr("静音", "Mute")
+        };
+        let speed_label = Self::player_rate_label(self.player_playback_rate);
+
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .mute_btn
+            ))
+            .set_text(cx, mute_text);
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .player_volume_value
+            ))
+            .set_text(cx, &volume_label);
+        self.view
+            .label(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .playback_controls
+                    .player_settings_row
+                    .player_speed_value
+            ))
+            .set_text(cx, &speed_label);
+    }
+
+    fn apply_player_audio_settings(&self) {
+        if let Some(player) = &self.audio_player {
+            player.set_volume(player_effective_volume(
+                self.player_volume,
+                self.player_muted,
+            ));
+            player.set_playback_rate(self.player_playback_rate);
+        }
+    }
+
+    fn skip_playback_by(&mut self, cx: &mut Cx, delta_secs: f64) {
+        if self.tts_status == TTSStatus::Generating {
+            return;
+        }
+        let Some(total_duration) = self.playback_duration_secs() else {
+            return;
+        };
+        let target_time = player_skip_target(self.audio_playing_time, total_duration, delta_secs);
+        if self.tts_status == TTSStatus::Playing {
+            if self.start_playback_from_time(cx, target_time) {
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [tts] Skipped playback to {:.1}s", target_time),
+                );
+            }
+        } else {
+            self.audio_playing_time = target_time;
+            self.update_playback_progress(cx);
+        }
+        self.update_player_bar(cx);
+    }
+
+    fn toggle_player_mute(&mut self, cx: &mut Cx) {
+        self.player_muted = !self.player_muted;
+        self.apply_player_audio_settings();
+        self.update_player_bar(cx);
+    }
+
+    fn adjust_player_volume(&mut self, cx: &mut Cx, delta: f64) {
+        self.player_volume = (self.player_volume + delta).clamp(0.0, 1.0);
+        if self.player_volume > 0.0 {
+            self.player_muted = false;
+        }
+        self.apply_player_audio_settings();
+        self.update_player_bar(cx);
+    }
+
+    fn cycle_player_playback_rate(&mut self, cx: &mut Cx) {
+        self.player_playback_rate = next_player_playback_rate(self.player_playback_rate);
+        self.apply_player_audio_settings();
+        self.update_player_bar(cx);
     }
 
     fn format_duration(duration_secs: f32) -> String {
@@ -19142,6 +19434,7 @@ impl TTSScreen {
 
         if let Some(player) = &self.audio_player {
             player.stop();
+            self.apply_player_audio_settings();
             player.write_audio(remaining_samples);
             self.audio_playing_time = start_time;
             self.tts_status = TTSStatus::Playing;
@@ -22504,19 +22797,6 @@ impl TTSScreen {
                 }
             }
         }
-        self.update_player_bar(cx);
-    }
-
-    fn stop_playback(&mut self, cx: &mut Cx) {
-        if let Some(player) = &self.audio_player {
-            player.stop();
-        }
-        if self.tts_status == TTSStatus::Playing {
-            self.tts_status = TTSStatus::Ready;
-            self.add_log(cx, "[INFO] [tts] Playback stopped");
-        }
-        self.audio_playing_time = 0.0;
-        self.update_playback_progress(cx);
         self.update_player_bar(cx);
     }
 
@@ -28257,6 +28537,49 @@ mod tests {
         assert_eq!(next_player_playback_rate(1.5), 2.0);
         assert_eq!(next_player_playback_rate(2.0), 0.75);
         assert_eq!(next_player_playback_rate(0.76), 1.0);
+    }
+
+    #[test]
+    fn player_bar_exposes_common_audio_controls() {
+        let live_design = include_str!("screen.rs")
+            .split("#[derive(Live, LiveHook, Widget)]")
+            .next()
+            .unwrap();
+
+        for marker in [
+            "rewind_btn = <Button>",
+            "forward_btn = <Button>",
+            "mute_btn = <Button>",
+            "volume_down_btn = <Button>",
+            "volume_up_btn = <Button>",
+            "player_volume_value = <Label>",
+            "speed_btn = <Button>",
+            "player_speed_value = <Label>",
+        ] {
+            assert!(
+                live_design.contains(marker),
+                "bottom player should expose {marker}"
+            );
+        }
+    }
+
+    #[test]
+    fn player_bar_controls_are_wired_to_actions() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+
+        for marker in [
+            "self.skip_playback_by(cx, -PLAYER_SKIP_SECONDS)",
+            "self.skip_playback_by(cx, PLAYER_SKIP_SECONDS)",
+            "self.toggle_player_mute(cx)",
+            "self.adjust_player_volume(cx, -0.1)",
+            "self.adjust_player_volume(cx, 0.1)",
+            "self.cycle_player_playback_rate(cx)",
+        ] {
+            assert!(source.contains(marker), "missing player action: {marker}");
+        }
     }
 
     #[test]
