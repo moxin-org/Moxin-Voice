@@ -1685,6 +1685,50 @@ live_design! {
         }
     }
 
+    PlayerSkipBtn = <Button> {
+        width: 30, height: 30
+        padding: {left: 0, right: 0}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance forward: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 7.0);
+                let hover = mix(vec4(0.39, 0.40, 0.95, 0.10), vec4(0.39, 0.40, 0.95, 0.18), self.dark_mode);
+                let pressed = mix(vec4(0.39, 0.40, 0.95, 0.18), vec4(0.39, 0.40, 0.95, 0.26), self.dark_mode);
+                sdf.fill(mix(vec4(0.0, 0.0, 0.0, 0.0), mix(hover, pressed, self.pressed), self.hover));
+
+                let icon = mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                if self.forward > 0.5 {
+                    sdf.rect(20.0, 9.0, 1.7, 12.0);
+                    sdf.fill(icon);
+                    sdf.move_to(10.0, 9.0);
+                    sdf.line_to(18.0, 15.0);
+                    sdf.line_to(10.0, 21.0);
+                    sdf.close_path();
+                    sdf.fill(icon);
+                } else {
+                    sdf.rect(8.3, 9.0, 1.7, 12.0);
+                    sdf.fill(icon);
+                    sdf.move_to(20.0, 9.0);
+                    sdf.line_to(12.0, 15.0);
+                    sdf.line_to(20.0, 21.0);
+                    sdf.close_path();
+                    sdf.fill(icon);
+                }
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            text_style: { font_size: 0.0 }
+            fn get_color(self) -> vec4 {
+                return vec4(0.0, 0.0, 0.0, 0.0);
+            }
+        }
+    }
+
     PlayerVolumeBtn = <Button> {
         width: 30, height: 30
         padding: {left: 0, right: 0}
@@ -7533,8 +7577,8 @@ live_design! {
                     align: {x: 0.5, y: 0.5}
                     spacing: 12
 
-                    rewind_btn = <PlayerControlBtn> {
-                        text: "-10s"
+                    rewind_btn = <PlayerSkipBtn> {
+                        draw_bg: { forward: 0.0 }
                     }
 
                     // Play/Pause button - Moxin.tts style
@@ -7566,8 +7610,8 @@ live_design! {
                         }
                     }
 
-                    forward_btn = <PlayerControlBtn> {
-                        text: "+10s"
+                    forward_btn = <PlayerSkipBtn> {
+                        draw_bg: { forward: 1.0 }
                     }
                 }
 
@@ -28615,8 +28659,9 @@ mod tests {
 
         for marker in [
             "PlayerControlBtn = <Button>",
-            "rewind_btn = <PlayerControlBtn>",
-            "forward_btn = <PlayerControlBtn>",
+            "PlayerSkipBtn = <Button>",
+            "rewind_btn = <PlayerSkipBtn>",
+            "forward_btn = <PlayerSkipBtn>",
             "player_settings_row = <View>",
             "PlayerVolumeBtn = <Button>",
             "mute_btn = <PlayerVolumeBtn>",
@@ -28674,6 +28719,14 @@ mod tests {
         assert!(
             !controls_before_progress.contains("player_settings_row = <View>"),
             "center playback row should only contain transport controls"
+        );
+        assert!(
+            !controls_before_progress.contains("text: \"-10s\""),
+            "rewind should use an icon instead of text"
+        );
+        assert!(
+            !controls_before_progress.contains("text: \"+10s\""),
+            "forward should use an icon instead of text"
         );
         let right_section = bar
             .split("download_section = <View>")
