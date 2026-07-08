@@ -1667,6 +1667,33 @@ live_design! {
         }
     }
 
+    PlayerControlBtn = <Button> {
+        width: Fit, height: 28
+        padding: {left: 10, right: 10}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
+                let base = mix(vec4(0.39, 0.40, 0.95, 0.08), vec4(0.39, 0.40, 0.95, 0.16), self.dark_mode);
+                let hover = mix(vec4(0.39, 0.40, 0.95, 0.15), vec4(0.39, 0.40, 0.95, 0.24), self.dark_mode);
+                let pressed = mix(vec4(0.39, 0.40, 0.95, 0.24), vec4(0.39, 0.40, 0.95, 0.32), self.dark_mode);
+                let color = mix(mix(base, hover, self.hover), pressed, self.pressed);
+                sdf.fill(color);
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            instance dark_mode: 0.0
+            text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
+            fn get_color(self) -> vec4 {
+                return mix((MOXIN_PRIMARY), (PRIMARY_300), self.dark_mode);
+            }
+        }
+    }
+
     // Moxin.tts Navigation item button for sidebar
     NavItem = <Button> {
         width: Fill, height: 40
@@ -7281,7 +7308,7 @@ live_design! {
 
             // Bottom audio player bar - Moxin.tts style
             audio_player_bar = <View> {
-                width: Fill, height: 108
+                width: Fill, height: 90
                 flow: Right
                 align: {x: 0.5, y: 0.5}
                 padding: {left: 24, right: 24, top: 8, bottom: 8}
@@ -7391,9 +7418,7 @@ live_design! {
                     align: {x: 0.5, y: 0.5}
                     spacing: 12
 
-                    rewind_btn = <Button> {
-                        width: Fit, height: 32
-                        padding: {left: 12, right: 12}
+                    rewind_btn = <PlayerControlBtn> {
                         text: "-10s"
                     }
 
@@ -7426,9 +7451,7 @@ live_design! {
                         }
                     }
 
-                    forward_btn = <Button> {
-                        width: Fit, height: 32
-                        padding: {left: 12, right: 12}
+                    forward_btn = <PlayerControlBtn> {
                         text: "+10s"
                     }
                 }
@@ -7494,26 +7517,33 @@ live_design! {
                     }
                 }
 
+            }
+
+            // Right: Download/share buttons (fixed width for balance) - Moxin.tts style
+            download_section = <View> {
+                width: 280, height: Fill
+                flow: Down
+                spacing: 6
+                align: {x: 1.0, y: 0.5}
+
                 player_settings_row = <View> {
                     width: Fill, height: Fit
                     flow: Right
-                    align: {x: 0.5, y: 0.5}
-                    spacing: 8
+                    align: {x: 1.0, y: 0.5}
+                    spacing: 6
 
-                    mute_btn = <Button> {
-                        width: Fit, height: 28
-                        padding: {left: 12, right: 12}
+                    mute_btn = <PlayerControlBtn> {
                         text: "Mute"
                     }
 
-                    volume_down_btn = <Button> {
-                        width: 28, height: 28
+                    volume_down_btn = <PlayerControlBtn> {
+                        width: 26, height: 28
                         padding: {left: 0, right: 0}
                         text: "-"
                     }
 
                     player_volume_label = <Label> {
-                        width: 46, height: Fit
+                        width: 42, height: Fit
                         align: {x: 0.5}
                         draw_text: {
                             instance dark_mode: 0.0
@@ -7525,20 +7555,18 @@ live_design! {
                         text: "100%"
                     }
 
-                    volume_up_btn = <Button> {
-                        width: 28, height: 28
+                    volume_up_btn = <PlayerControlBtn> {
+                        width: 26, height: 28
                         padding: {left: 0, right: 0}
                         text: "+"
                     }
 
-                    speed_btn = <Button> {
-                        width: Fit, height: 28
-                        padding: {left: 12, right: 12}
+                    speed_btn = <PlayerControlBtn> {
                         text: "Speed"
                     }
 
                     player_rate_label = <Label> {
-                        width: 42, height: Fit
+                        width: 36, height: Fit
                         align: {x: 0.5}
                         draw_text: {
                             instance dark_mode: 0.0
@@ -7550,82 +7578,81 @@ live_design! {
                         text: "1x"
                     }
                 }
-            }
 
-            // Right: Download/share buttons (fixed width for balance) - Moxin.tts style
-            download_section = <View> {
-                width: 220, height: Fill
-                flow: Right
-                spacing: 10
-                align: {x: 1.0, y: 0.5}
+                action_buttons_row = <View> {
+                    width: Fill, height: Fit
+                    flow: Right
+                    spacing: 10
+                    align: {x: 1.0, y: 0.5}
 
-                download_btn = <Button> {
-                    width: Fit, height: 40
-                    padding: {left: 24, right: 24}
-                    text: "Download"
+                    download_btn = <Button> {
+                        width: Fit, height: 38
+                        padding: {left: 20, right: 20}
+                        text: "Download"
 
-                    draw_bg: {
-                        instance hover: 0.0
-                        instance pressed: 0.0
+                        draw_bg: {
+                            instance hover: 0.0
+                            instance pressed: 0.0
 
-                        fn pixel(self) -> vec4 {
-                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                            sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
+                            fn pixel(self) -> vec4 {
+                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
 
-                            // Moxin.tts style: primary color outline button
-                            let base = vec4(0.39, 0.40, 0.95, 0.08);
-                            let hover_color = vec4(0.39, 0.40, 0.95, 0.15);
-                            let pressed_color = vec4(0.39, 0.40, 0.95, 0.25);
-                            let border = (MOXIN_PRIMARY);
+                                // Moxin.tts style: primary color outline button
+                                let base = vec4(0.39, 0.40, 0.95, 0.08);
+                                let hover_color = vec4(0.39, 0.40, 0.95, 0.15);
+                                let pressed_color = vec4(0.39, 0.40, 0.95, 0.25);
+                                let border = (MOXIN_PRIMARY);
 
-                            let color = mix(base, hover_color, self.hover);
-                            let color = mix(color, pressed_color, self.pressed);
+                                let color = mix(base, hover_color, self.hover);
+                                let color = mix(color, pressed_color, self.pressed);
 
-                            sdf.fill(color);
-                            sdf.stroke(border, 1.5);
-                            return sdf.result;
+                                sdf.fill(color);
+                                sdf.stroke(border, 1.5);
+                                return sdf.result;
+                            }
+                        }
+
+                        draw_text: {
+                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                            fn get_color(self) -> vec4 {
+                                return (MOXIN_PRIMARY);
+                            }
                         }
                     }
 
-                    draw_text: {
-                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
-                        fn get_color(self) -> vec4 {
-                            return (MOXIN_PRIMARY);
+                    share_btn = <Button> {
+                        width: Fit, height: 38
+                        padding: {left: 20, right: 20}
+                        text: "Share"
+
+                        draw_bg: {
+                            instance hover: 0.0
+                            instance pressed: 0.0
+
+                            fn pixel(self) -> vec4 {
+                                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
+
+                                let base = vec4(0.39, 0.40, 0.95, 0.08);
+                                let hover_color = vec4(0.39, 0.40, 0.95, 0.15);
+                                let pressed_color = vec4(0.39, 0.40, 0.95, 0.25);
+                                let border = (MOXIN_PRIMARY);
+
+                                let color = mix(base, hover_color, self.hover);
+                                let color = mix(color, pressed_color, self.pressed);
+
+                                sdf.fill(color);
+                                sdf.stroke(border, 1.5);
+                                return sdf.result;
+                            }
                         }
-                    }
-                }
 
-                share_btn = <Button> {
-                    width: Fit, height: 40
-                    padding: {left: 24, right: 24}
-                    text: "Share"
-
-                    draw_bg: {
-                        instance hover: 0.0
-                        instance pressed: 0.0
-
-                        fn pixel(self) -> vec4 {
-                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                            sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 8.0);
-
-                            let base = vec4(0.39, 0.40, 0.95, 0.08);
-                            let hover_color = vec4(0.39, 0.40, 0.95, 0.15);
-                            let pressed_color = vec4(0.39, 0.40, 0.95, 0.25);
-                            let border = (MOXIN_PRIMARY);
-
-                            let color = mix(base, hover_color, self.hover);
-                            let color = mix(color, pressed_color, self.pressed);
-
-                            sdf.fill(color);
-                            sdf.stroke(border, 1.5);
-                            return sdf.result;
-                        }
-                    }
-
-                    draw_text: {
-                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
-                        fn get_color(self) -> vec4 {
-                            return (MOXIN_PRIMARY);
+                        draw_text: {
+                            text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                            fn get_color(self) -> vec4 {
+                                return (MOXIN_PRIMARY);
+                            }
                         }
                     }
                 }
@@ -13440,7 +13467,7 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .mute_btn
             ))
@@ -13453,7 +13480,7 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .volume_down_btn
             ))
@@ -13466,7 +13493,7 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .volume_up_btn
             ))
@@ -13479,7 +13506,7 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .speed_btn
             ))
@@ -13495,6 +13522,7 @@ impl Widget for TTSScreen {
                 content_wrapper
                     .audio_player_bar
                     .download_section
+                    .action_buttons_row
                     .download_btn
             ))
             .clicked(&actions)
@@ -13506,7 +13534,7 @@ impl Widget for TTSScreen {
         if self
             .view
             .button(ids!(
-                content_wrapper.audio_player_bar.download_section.share_btn
+                content_wrapper.audio_player_bar.download_section.action_buttons_row.share_btn
             ))
             .clicked(&actions)
         {
@@ -17243,12 +17271,13 @@ impl TTSScreen {
                 content_wrapper
                     .audio_player_bar
                     .download_section
+                    .action_buttons_row
                     .download_btn
             ))
             .set_text(cx, self.tr("下载", "Download"));
         self.view
             .button(ids!(
-                content_wrapper.audio_player_bar.download_section.share_btn
+                content_wrapper.audio_player_bar.download_section.action_buttons_row.share_btn
             ))
             .set_text(cx, self.tr("分享", "Share"));
         self.update_audio_player_action_layout_for_locale(cx);
@@ -18700,12 +18729,13 @@ impl TTSScreen {
                 content_wrapper
                     .audio_player_bar
                     .download_section
+                    .action_buttons_row
                     .download_btn
             ))
             .set_enabled(cx, controls_enabled);
         self.view
             .button(ids!(
-                content_wrapper.audio_player_bar.download_section.share_btn
+                content_wrapper.audio_player_bar.download_section.action_buttons_row.share_btn
             ))
             .set_enabled(cx, controls_enabled);
         self.view
@@ -18730,7 +18760,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .mute_btn
             ))
@@ -18739,7 +18769,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .volume_down_btn
             ))
@@ -18748,7 +18778,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .volume_up_btn
             ))
@@ -18757,7 +18787,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .speed_btn
             ))
@@ -18860,7 +18890,7 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .mute_btn
             ))
@@ -18869,7 +18899,7 @@ impl TTSScreen {
             .label(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .player_volume_label
             ))
@@ -18878,7 +18908,7 @@ impl TTSScreen {
             .label(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .playback_controls
+                    .download_section
                     .player_settings_row
                     .player_rate_label
             ))
@@ -22053,38 +22083,40 @@ impl TTSScreen {
         if self.is_english() {
             self.view
                 .view(ids!(content_wrapper.audio_player_bar.download_section))
-                .apply_over(cx, live! { width: 250.0 });
+                .apply_over(cx, live! { width: 280.0 });
             self.view
                 .button(ids!(
                     content_wrapper
                         .audio_player_bar
                         .download_section
+                        .action_buttons_row
                         .download_btn
                 ))
                 .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
             self.view
                 .button(ids!(
-                    content_wrapper.audio_player_bar.download_section.share_btn
+                    content_wrapper.audio_player_bar.download_section.action_buttons_row.share_btn
                 ))
                 .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
             return;
         }
         self.view
             .view(ids!(content_wrapper.audio_player_bar.download_section))
-            .apply_over(cx, live! { width: 220.0 });
+            .apply_over(cx, live! { width: 280.0 });
         self.view
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
+                    .action_buttons_row
                     .download_btn
             ))
-            .apply_over(cx, live! { padding: { left: 24.0, right: 24.0 } });
+            .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
         self.view
             .button(ids!(
-                content_wrapper.audio_player_bar.download_section.share_btn
+                content_wrapper.audio_player_bar.download_section.action_buttons_row.share_btn
             ))
-            .apply_over(cx, live! { padding: { left: 24.0, right: 24.0 } });
+            .apply_over(cx, live! { padding: { left: 20.0, right: 20.0 } });
     }
 
     /// Sync the opacity dropdown selection with the current opacity value.
@@ -28547,13 +28579,14 @@ mod tests {
             .unwrap();
 
         for marker in [
-            "rewind_btn = <Button>",
-            "forward_btn = <Button>",
-            "mute_btn = <Button>",
-            "volume_down_btn = <Button>",
-            "volume_up_btn = <Button>",
+            "PlayerControlBtn = <Button>",
+            "rewind_btn = <PlayerControlBtn>",
+            "forward_btn = <PlayerControlBtn>",
+            "mute_btn = <PlayerControlBtn>",
+            "volume_down_btn = <PlayerControlBtn>",
+            "volume_up_btn = <PlayerControlBtn>",
             "player_volume_label = <Label>",
-            "speed_btn = <Button>",
+            "speed_btn = <PlayerControlBtn>",
             "player_rate_label = <Label>",
         ] {
             assert!(
@@ -28580,6 +28613,36 @@ mod tests {
         ] {
             assert!(source.contains(marker), "missing player action: {marker}");
         }
+    }
+
+    #[test]
+    fn player_bar_keeps_secondary_controls_in_the_right_action_area() {
+        let live_design = include_str!("screen.rs")
+            .split("#[derive(Live, LiveHook, Widget)]")
+            .next()
+            .unwrap();
+        let bar = live_design
+            .split("audio_player_bar = <View>")
+            .nth(1)
+            .expect("audio player bar should exist");
+
+        assert!(
+            !bar[..bar.find("download_section = <View>").unwrap_or(bar.len())]
+                .contains("player_settings_row = <View>"),
+            "secondary player controls should not add a third row to the center playback column"
+        );
+        let right_section = bar
+            .split("download_section = <View>")
+            .nth(1)
+            .expect("download section should exist");
+        assert!(
+            right_section.contains("player_settings_row = <View>"),
+            "secondary player controls should live in the right action area"
+        );
+        assert!(
+            !bar[..bar.len().min(300)].contains("height: 108"),
+            "bottom player should not rely on the clipped three-row height"
+        );
     }
 
     #[test]
