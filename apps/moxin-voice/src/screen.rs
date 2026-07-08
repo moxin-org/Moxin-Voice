@@ -134,14 +134,6 @@ fn player_effective_volume(volume: f64, muted: bool) -> f64 {
     }
 }
 
-fn player_volume_label(volume: f64, muted: bool) -> String {
-    if muted {
-        "Muted".to_string()
-    } else {
-        format!("{:.0}%", player_effective_volume(volume, false) * 100.0)
-    }
-}
-
 fn player_playback_rate_index(current_rate: f64) -> usize {
     PLAYER_PLAYBACK_RATES
         .iter()
@@ -1689,6 +1681,54 @@ live_design! {
             text_style: <FONT_SEMIBOLD>{ font_size: 11.0 }
             fn get_color(self) -> vec4 {
                 return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+            }
+        }
+    }
+
+    PlayerVolumeBtn = <Button> {
+        width: 30, height: 30
+        padding: {left: 0, right: 0}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance muted: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 7.0);
+                let hover = mix(vec4(0.39, 0.40, 0.95, 0.10), vec4(0.39, 0.40, 0.95, 0.18), self.dark_mode);
+                let pressed = mix(vec4(0.39, 0.40, 0.95, 0.18), vec4(0.39, 0.40, 0.95, 0.26), self.dark_mode);
+                sdf.fill(mix(vec4(0.0, 0.0, 0.0, 0.0), mix(hover, pressed, self.pressed), self.hover));
+
+                let icon = mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                sdf.rect(7.0, 12.0, 4.0, 6.0);
+                sdf.fill(icon);
+                sdf.move_to(11.0, 12.0);
+                sdf.line_to(17.0, 8.0);
+                sdf.line_to(17.0, 22.0);
+                sdf.line_to(11.0, 18.0);
+                sdf.close_path();
+                sdf.fill(icon);
+                if self.muted > 0.5 {
+                    sdf.move_to(21.0, 11.0);
+                    sdf.line_to(25.0, 19.0);
+                    sdf.stroke(icon, 1.4);
+                    sdf.move_to(25.0, 11.0);
+                    sdf.line_to(21.0, 19.0);
+                    sdf.stroke(icon, 1.4);
+                } else {
+                    sdf.rect(20.0, 12.0, 1.4, 6.0);
+                    sdf.fill(icon);
+                    sdf.rect(24.0, 10.0, 1.4, 10.0);
+                    sdf.fill(icon);
+                }
+                return sdf.result;
+            }
+        }
+        draw_text: {
+            text_style: { font_size: 0.0 }
+            fn get_color(self) -> vec4 {
+                return vec4(0.0, 0.0, 0.0, 0.0);
             }
         }
     }
@@ -7607,33 +7647,31 @@ live_design! {
                     align: {x: 0.5, y: 0.5}
                     spacing: 6
 
-                    mute_btn = <PlayerControlBtn> {
-                        text: "Mute"
+                    mute_btn = <PlayerVolumeBtn> {
                     }
 
-                    volume_down_btn = <PlayerControlBtn> {
-                        width: 26, height: 30
-                        padding: {left: 0, right: 0}
-                        text: "-"
-                    }
+                    volume_slider_container = <View> {
+                        width: 72, height: 18
+                        align: {y: 0.5}
 
-                    player_volume_label = <Label> {
-                        width: 42, height: Fit
-                        align: {x: 0.5}
-                        draw_text: {
-                            instance dark_mode: 0.0
-                            text_style: { font_size: 11.0 }
-                            fn get_color(self) -> vec4 {
-                                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                        volume_slider = <View> {
+                            width: Fill, height: 4
+                            show_bg: true
+                            draw_bg: {
+                                instance dark_mode: 0.0
+                                instance progress: 1.0
+                                fn pixel(self) -> vec4 {
+                                    let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                                    sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 2.0);
+                                    let track = mix((GRAY_200), (GRAY_700), self.dark_mode);
+                                    sdf.fill(track);
+                                    let progress_width = self.rect_size.x * self.progress;
+                                    sdf.box(0.0, 0.0, progress_width, self.rect_size.y, 2.0);
+                                    sdf.fill((PRIMARY_500));
+                                    return sdf.result;
+                                }
                             }
                         }
-                        text: "100%"
-                    }
-
-                    volume_up_btn = <PlayerControlBtn> {
-                        width: 26, height: 30
-                        padding: {left: 0, right: 0}
-                        text: "+"
                     }
 
                     speed_menu_dropdown = <PlayerRateDropDown> {
@@ -13468,32 +13506,7 @@ impl Widget for TTSScreen {
         {
             self.toggle_player_mute(cx);
         }
-        if self
-            .view
-            .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .download_section
-                    .player_settings_row
-                    .volume_down_btn
-            ))
-            .clicked(&actions)
-        {
-            self.adjust_player_volume(cx, -0.1);
-        }
-        if self
-            .view
-            .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .download_section
-                    .player_settings_row
-                    .volume_up_btn
-            ))
-            .clicked(&actions)
-        {
-            self.adjust_player_volume(cx, 0.1);
-        }
+        self.handle_player_volume_seek_event(cx, event);
         if let Some(idx) = self
             .view
             .drop_down(ids!(
@@ -18760,24 +18773,6 @@ impl TTSScreen {
             ))
             .set_enabled(cx, controls_enabled);
         self.view
-            .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .download_section
-                    .player_settings_row
-                    .volume_down_btn
-            ))
-            .set_enabled(cx, controls_enabled);
-        self.view
-            .button(ids!(
-                content_wrapper
-                    .audio_player_bar
-                    .download_section
-                    .player_settings_row
-                    .volume_up_btn
-            ))
-            .set_enabled(cx, controls_enabled);
-        self.view
             .drop_down(ids!(
                 content_wrapper
                     .audio_player_bar
@@ -18880,16 +18875,7 @@ impl TTSScreen {
     }
 
     fn update_player_setting_labels(&mut self, cx: &mut Cx) {
-        let volume_label = if self.player_muted {
-            self.tr("静音", "Muted").to_string()
-        } else {
-            player_volume_label(self.player_volume, false)
-        };
-        let mute_text = if self.player_muted {
-            self.tr("取消静音", "Unmute")
-        } else {
-            self.tr("静音", "Mute")
-        };
+        let effective_volume = player_effective_volume(self.player_volume, self.player_muted);
         let speed_idx = player_playback_rate_index(self.player_playback_rate);
         let speed_labels = PLAYER_PLAYBACK_RATES
             .iter()
@@ -18904,16 +18890,27 @@ impl TTSScreen {
                     .player_settings_row
                     .mute_btn
             ))
-            .set_text(cx, mute_text);
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { muted: (if self.player_muted { 1.0 } else { 0.0 }) }
+                },
+            );
         self.view
-            .label(ids!(
+            .view(ids!(
                 content_wrapper
                     .audio_player_bar
                     .download_section
                     .player_settings_row
-                    .player_volume_label
+                    .volume_slider_container
+                    .volume_slider
             ))
-            .set_text(cx, &volume_label);
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: { progress: (effective_volume) }
+                },
+            );
         self.view
             .drop_down(ids!(
                 content_wrapper
@@ -18981,11 +18978,9 @@ impl TTSScreen {
         self.update_player_bar(cx);
     }
 
-    fn adjust_player_volume(&mut self, cx: &mut Cx, delta: f64) {
-        self.player_volume = (self.player_volume + delta).clamp(0.0, 1.0);
-        if self.player_volume > 0.0 {
-            self.player_muted = false;
-        }
+    fn set_player_volume_from_ratio(&mut self, cx: &mut Cx, ratio: f64) {
+        self.player_volume = ratio.clamp(0.0, 1.0);
+        self.player_muted = self.player_volume <= 0.0;
         self.apply_player_audio_settings();
         self.update_player_bar(cx);
     }
@@ -19549,6 +19544,41 @@ impl TTSScreen {
             Hit::FingerDown(fe) if fe.device.is_primary_hit() => {
                 let ratio = Self::slider_ratio_from_rect(fe.abs.x, fe.rect);
                 self.seek_playback_to_ratio(cx, ratio);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_player_volume_seek_event(&mut self, cx: &mut Cx, event: &Event) {
+        let slider_area = self
+            .view
+            .view(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .player_settings_row
+                    .volume_slider_container
+            ))
+            .area();
+        if slider_area.is_empty() {
+            return;
+        }
+
+        match event.hits_with_capture_overload(cx, slider_area, true) {
+            Hit::FingerHoverOver(_) => {
+                cx.set_cursor(MouseCursor::Hand);
+            }
+            Hit::FingerDown(fe) if fe.device.is_primary_hit() => {
+                let ratio = Self::slider_ratio_from_rect(fe.abs.x, fe.rect);
+                self.set_player_volume_from_ratio(cx, ratio);
+            }
+            Hit::FingerMove(fe) => {
+                let ratio = Self::slider_ratio_from_rect(fe.abs.x, fe.rect);
+                self.set_player_volume_from_ratio(cx, ratio);
+            }
+            Hit::FingerUp(fe) if fe.is_primary_hit() => {
+                let ratio = Self::slider_ratio_from_rect(fe.abs.x, fe.rect);
+                self.set_player_volume_from_ratio(cx, ratio);
             }
             _ => {}
         }
@@ -28441,7 +28471,6 @@ mod tests {
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
         player_effective_volume, player_playback_rate_index, player_skip_target,
-        player_volume_label,
         should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
         split_tts_text_segments, tts_input_click_disposition, tts_input_drag_scroll_delta,
         AppPage, DownloadFormat, Event, RuntimeInitState, TtsInputClickDisposition,
@@ -28554,8 +28583,6 @@ mod tests {
 
     #[test]
     fn player_volume_helpers_respect_mute_state() {
-        assert_eq!(player_volume_label(0.73, false), "73%");
-        assert_eq!(player_volume_label(0.73, true), "Muted");
         assert_eq!(player_effective_volume(0.73, false), 0.73);
         assert_eq!(player_effective_volume(0.73, true), 0.0);
         assert_eq!(player_effective_volume(1.8, false), 1.0);
@@ -28591,10 +28618,10 @@ mod tests {
             "rewind_btn = <PlayerControlBtn>",
             "forward_btn = <PlayerControlBtn>",
             "player_settings_row = <View>",
-            "mute_btn = <PlayerControlBtn>",
-            "volume_down_btn = <PlayerControlBtn>",
-            "volume_up_btn = <PlayerControlBtn>",
-            "player_volume_label = <Label>",
+            "PlayerVolumeBtn = <Button>",
+            "mute_btn = <PlayerVolumeBtn>",
+            "volume_slider_container = <View>",
+            "volume_slider = <View>",
             "speed_menu_dropdown = <PlayerRateDropDown>",
             "action_menu_dropdown = <PlayerMenuDropDown>",
         ] {
@@ -28616,8 +28643,8 @@ mod tests {
             "self.skip_playback_by(cx, -PLAYER_SKIP_SECONDS)",
             "self.skip_playback_by(cx, PLAYER_SKIP_SECONDS)",
             "self.toggle_player_mute(cx)",
-            "self.adjust_player_volume(cx, -0.1)",
-            "self.adjust_player_volume(cx, 0.1)",
+            "self.handle_player_volume_seek_event(cx, event)",
+            "self.set_player_volume_from_ratio(cx, ratio)",
             "self.set_player_playback_rate(",
             "PLAYER_PLAYBACK_RATES[idx.min(PLAYER_PLAYBACK_RATES.len() - 1)]",
             "self.open_download_modal(cx, DownloadSource::CurrentAudio)",
@@ -28680,6 +28707,26 @@ mod tests {
         assert!(
             bar.contains("action_menu_dropdown = <PlayerMenuDropDown>"),
             "download/share should be collected behind the right menu"
+        );
+        assert!(
+            bar.contains("mute_btn = <PlayerVolumeBtn>"),
+            "volume control should use an icon button"
+        );
+        assert!(
+            bar.contains("volume_slider_container = <View>"),
+            "volume control should use a compact slider"
+        );
+        assert!(
+            !bar.contains("volume_down_btn = <"),
+            "volume down should not be exposed as a separate bottom-bar button"
+        );
+        assert!(
+            !bar.contains("volume_up_btn = <"),
+            "volume up should not be exposed as a separate bottom-bar button"
+        );
+        assert!(
+            !bar.contains("player_volume_label = <"),
+            "volume percentage should not consume bottom-bar space"
         );
         assert!(
             !bar.contains("download_btn = <"),
