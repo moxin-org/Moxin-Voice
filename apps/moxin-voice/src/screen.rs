@@ -7416,7 +7416,7 @@ live_design! {
                     width: Fill, height: Fit
                     flow: Right
                     align: {x: 0.5, y: 0.5}
-                    spacing: 12
+                    spacing: 8
 
                     rewind_btn = <PlayerControlBtn> {
                         text: "-10s"
@@ -7453,6 +7453,46 @@ live_design! {
 
                     forward_btn = <PlayerControlBtn> {
                         text: "+10s"
+                    }
+
+                    player_settings_row = <View> {
+                        width: Fit, height: Fit
+                        flow: Right
+                        align: {x: 0.5, y: 0.5}
+                        spacing: 6
+
+                        mute_btn = <PlayerControlBtn> {
+                            text: "Mute"
+                        }
+
+                        volume_down_btn = <PlayerControlBtn> {
+                            width: 26, height: 28
+                            padding: {left: 0, right: 0}
+                            text: "-"
+                        }
+
+                        player_volume_label = <Label> {
+                            width: 42, height: Fit
+                            align: {x: 0.5}
+                            draw_text: {
+                                instance dark_mode: 0.0
+                                text_style: { font_size: 11.0 }
+                                fn get_color(self) -> vec4 {
+                                    return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
+                                }
+                            }
+                            text: "100%"
+                        }
+
+                        volume_up_btn = <PlayerControlBtn> {
+                            width: 26, height: 28
+                            padding: {left: 0, right: 0}
+                            text: "+"
+                        }
+
+                        speed_btn = <PlayerControlBtn> {
+                            text: "1x"
+                        }
                     }
                 }
 
@@ -7521,63 +7561,9 @@ live_design! {
 
             // Right: Download/share buttons (fixed width for balance) - Moxin.tts style
             download_section = <View> {
-                width: 280, height: Fill
-                flow: Down
-                spacing: 6
+                width: 220, height: Fill
+                flow: Right
                 align: {x: 1.0, y: 0.5}
-
-                player_settings_row = <View> {
-                    width: Fill, height: Fit
-                    flow: Right
-                    align: {x: 1.0, y: 0.5}
-                    spacing: 6
-
-                    mute_btn = <PlayerControlBtn> {
-                        text: "Mute"
-                    }
-
-                    volume_down_btn = <PlayerControlBtn> {
-                        width: 26, height: 28
-                        padding: {left: 0, right: 0}
-                        text: "-"
-                    }
-
-                    player_volume_label = <Label> {
-                        width: 42, height: Fit
-                        align: {x: 0.5}
-                        draw_text: {
-                            instance dark_mode: 0.0
-                            text_style: { font_size: 11.0 }
-                            fn get_color(self) -> vec4 {
-                                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
-                            }
-                        }
-                        text: "100%"
-                    }
-
-                    volume_up_btn = <PlayerControlBtn> {
-                        width: 26, height: 28
-                        padding: {left: 0, right: 0}
-                        text: "+"
-                    }
-
-                    speed_btn = <PlayerControlBtn> {
-                        text: "Speed"
-                    }
-
-                    player_rate_label = <Label> {
-                        width: 36, height: Fit
-                        align: {x: 0.5}
-                        draw_text: {
-                            instance dark_mode: 0.0
-                            text_style: { font_size: 11.0 }
-                            fn get_color(self) -> vec4 {
-                                return mix((MOXIN_TEXT_MUTED), (TEXT_TERTIARY_DARK), self.dark_mode);
-                            }
-                        }
-                        text: "1x"
-                    }
-                }
 
                 action_buttons_row = <View> {
                     width: Fill, height: Fit
@@ -13467,7 +13453,8 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .mute_btn
             ))
@@ -13480,7 +13467,8 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .volume_down_btn
             ))
@@ -13493,7 +13481,8 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .volume_up_btn
             ))
@@ -13506,7 +13495,8 @@ impl Widget for TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .speed_btn
             ))
@@ -18760,7 +18750,8 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .mute_btn
             ))
@@ -18769,7 +18760,8 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .volume_down_btn
             ))
@@ -18778,7 +18770,8 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .volume_up_btn
             ))
@@ -18787,7 +18780,8 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .speed_btn
             ))
@@ -18866,10 +18860,13 @@ impl TTSScreen {
     }
 
     fn player_rate_label(rate: f64) -> String {
-        if (rate - rate.round()).abs() < 0.01 {
-            format!("{:.0}x", rate)
+        let rounded_hundredths = (rate * 100.0).round() as i32;
+        if rounded_hundredths % 100 == 0 {
+            format!("{}x", rounded_hundredths / 100)
+        } else if rounded_hundredths % 10 == 0 {
+            format!("{:.1}x", rounded_hundredths as f64 / 100.0)
         } else {
-            format!("{:.2}x", rate)
+            format!("{:.2}x", rounded_hundredths as f64 / 100.0)
         }
     }
 
@@ -18890,7 +18887,8 @@ impl TTSScreen {
             .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .mute_btn
             ))
@@ -18899,18 +18897,20 @@ impl TTSScreen {
             .label(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
                     .player_volume_label
             ))
             .set_text(cx, &volume_label);
         self.view
-            .label(ids!(
+            .button(ids!(
                 content_wrapper
                     .audio_player_bar
-                    .download_section
+                    .playback_controls
+                    .controls_row
                     .player_settings_row
-                    .player_rate_label
+                    .speed_btn
             ))
             .set_text(cx, &speed_label);
     }
@@ -22083,7 +22083,7 @@ impl TTSScreen {
         if self.is_english() {
             self.view
                 .view(ids!(content_wrapper.audio_player_bar.download_section))
-                .apply_over(cx, live! { width: 280.0 });
+                .apply_over(cx, live! { width: 220.0 });
             self.view
                 .button(ids!(
                     content_wrapper
@@ -22102,7 +22102,7 @@ impl TTSScreen {
         }
         self.view
             .view(ids!(content_wrapper.audio_player_bar.download_section))
-            .apply_over(cx, live! { width: 280.0 });
+            .apply_over(cx, live! { width: 220.0 });
         self.view
             .button(ids!(
                 content_wrapper
@@ -28572,6 +28572,14 @@ mod tests {
     }
 
     #[test]
+    fn player_rate_label_uses_compact_player_format() {
+        assert_eq!(TTSScreen::player_rate_label(1.0), "1x");
+        assert_eq!(TTSScreen::player_rate_label(1.25), "1.25x");
+        assert_eq!(TTSScreen::player_rate_label(1.5), "1.5x");
+        assert_eq!(TTSScreen::player_rate_label(2.0), "2x");
+    }
+
+    #[test]
     fn player_bar_exposes_common_audio_controls() {
         let live_design = include_str!("screen.rs")
             .split("#[derive(Live, LiveHook, Widget)]")
@@ -28582,12 +28590,12 @@ mod tests {
             "PlayerControlBtn = <Button>",
             "rewind_btn = <PlayerControlBtn>",
             "forward_btn = <PlayerControlBtn>",
+            "player_settings_row = <View>",
             "mute_btn = <PlayerControlBtn>",
             "volume_down_btn = <PlayerControlBtn>",
             "volume_up_btn = <PlayerControlBtn>",
             "player_volume_label = <Label>",
             "speed_btn = <PlayerControlBtn>",
-            "player_rate_label = <Label>",
         ] {
             assert!(
                 live_design.contains(marker),
@@ -28616,7 +28624,7 @@ mod tests {
     }
 
     #[test]
-    fn player_bar_keeps_secondary_controls_in_the_right_action_area() {
+    fn player_bar_keeps_secondary_controls_on_one_visible_playback_row() {
         let live_design = include_str!("screen.rs")
             .split("#[derive(Live, LiveHook, Widget)]")
             .next()
@@ -28625,23 +28633,31 @@ mod tests {
             .split("audio_player_bar = <View>")
             .nth(1)
             .expect("audio player bar should exist");
+        let playback_controls = bar
+            .split("playback_controls = <View>")
+            .nth(1)
+            .expect("playback controls should exist");
 
         assert!(
-            !bar[..bar.find("download_section = <View>").unwrap_or(bar.len())]
+            playback_controls[..playback_controls.find("progress_row = <View>").unwrap()]
                 .contains("player_settings_row = <View>"),
-            "secondary player controls should not add a third row to the center playback column"
+            "secondary player controls should be on the same visible row as the primary controls"
         );
         let right_section = bar
             .split("download_section = <View>")
             .nth(1)
             .expect("download section should exist");
         assert!(
-            right_section.contains("player_settings_row = <View>"),
-            "secondary player controls should live in the right action area"
+            !right_section.contains("player_settings_row = <View>"),
+            "right action area should only contain download/share actions"
+        );
+        assert!(
+            !bar.contains("player_rate_label = <Label>"),
+            "playback rate should be rendered by the speed button itself to avoid narrow label wrapping"
         );
         assert!(
             !bar[..bar.len().min(300)].contains("height: 108"),
-            "bottom player should not rely on the clipped three-row height"
+            "bottom player should stay within the existing bar height"
         );
     }
 
