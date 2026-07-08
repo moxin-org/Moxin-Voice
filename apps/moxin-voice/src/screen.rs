@@ -18992,7 +18992,9 @@ impl TTSScreen {
                 self.player_volume,
                 self.player_muted,
             ));
-            player.set_playback_rate(self.player_playback_rate);
+            // Playback speed is applied by preparing time-stretched samples before
+            // writing to the player. Keep the realtime player at 1x to preserve pitch.
+            player.set_playback_rate(1.0);
         }
     }
 
@@ -19091,7 +19093,11 @@ impl TTSScreen {
 
     fn set_player_playback_rate(&mut self, cx: &mut Cx, rate: f64) {
         self.player_playback_rate = rate;
-        self.apply_player_audio_settings();
+        if self.tts_status == TTSStatus::Playing {
+            let _ = self.start_playback_from_time(cx, self.audio_playing_time);
+        } else {
+            self.apply_player_audio_settings();
+        }
         self.update_player_bar(cx);
     }
 
@@ -19588,11 +19594,13 @@ impl TTSScreen {
         if remaining_samples.is_empty() {
             return false;
         }
+        let prepared_samples =
+            Self::time_stretch_preserve_pitch(remaining_samples, self.player_playback_rate);
 
         if let Some(player) = &self.audio_player {
             player.stop();
             self.apply_player_audio_settings();
-            player.write_audio(remaining_samples);
+            player.write_audio(&prepared_samples);
             self.audio_playing_time = start_time;
             self.tts_status = TTSStatus::Playing;
             self.update_playback_progress(cx);
@@ -24964,6 +24972,66 @@ impl TTSScreen {
         result
     }
 
+    fn hann_window_sample(index: usize, len: usize) -> f32 {
+        if len <= 1 {
+            return 1.0;
+        }
+        let phase = std::f32::consts::TAU * index as f32 / (len - 1) as f32;
+        0.5 - 0.5 * phase.cos()
+    }
+
+    fn time_stretch_preserve_pitch(samples: &[f32], playback_rate: f64) -> Vec<f32> {
+        if samples.is_empty() {
+            return Vec::new();
+        }
+
+        let rate = playback_rate.clamp(0.5, 2.0);
+        if (rate - 1.0).abs() < 0.01 {
+            return samples.to_vec();
+        }
+
+        let target_len = (samples.len() as f64 / rate).round().max(1.0) as usize;
+        let window_len = samples.len().min(1024);
+        if window_len < 32 {
+            return samples.to_vec();
+        }
+
+        let synthesis_hop = (window_len / 4).max(8);
+        let analysis_hop = (synthesis_hop as f64 * rate).round().max(1.0);
+        let mut output = vec![0.0f32; target_len + window_len];
+        let mut weights = vec![0.0f32; target_len + window_len];
+        let mut source_pos = 0.0f64;
+        let mut output_pos = 0usize;
+
+        while output_pos < target_len {
+            let source_idx = source_pos.round().max(0.0) as usize;
+            if source_idx >= samples.len() {
+                break;
+            }
+
+            let frame_len = window_len
+                .min(samples.len() - source_idx)
+                .min(output.len() - output_pos);
+            for i in 0..frame_len {
+                let window = Self::hann_window_sample(i, window_len).max(0.000_001);
+                output[output_pos + i] += samples[source_idx + i] * window;
+                weights[output_pos + i] += window;
+            }
+
+            source_pos += analysis_hop;
+            output_pos = output_pos.saturating_add(synthesis_hop);
+        }
+
+        for i in 0..target_len {
+            if weights[i] > 0.000_001 {
+                output[i] /= weights[i];
+            }
+        }
+
+        output.truncate(target_len);
+        output
+    }
+
     fn rebuild_processed_audio_samples(&mut self) {
         if self.stored_audio_samples.is_empty() {
             self.processed_audio_samples.clear();
@@ -28751,6 +28819,37 @@ mod tests {
         assert_eq!(TTSScreen::player_rate_label(1.25), "1.25x");
         assert_eq!(TTSScreen::player_rate_label(1.5), "1.5x");
         assert_eq!(TTSScreen::player_rate_label(2.0), "2x");
+    }
+
+    #[test]
+    fn player_time_stretch_changes_duration_without_resampling_pitch() {
+        let period = 48usize;
+        let samples: Vec<f32> = (0..period * 80)
+            .map(|n| ((n % period) as f32 / period as f32 * std::f32::consts::TAU).sin())
+            .collect();
+
+        let stretched = TTSScreen::time_stretch_preserve_pitch(&samples, 2.0);
+
+        assert!(stretched.len() > samples.len() / 2 - period);
+        assert!(stretched.len() < samples.len() / 2 + period);
+
+        let first_peak = stretched
+            .iter()
+            .take(period)
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(idx, _)| idx)
+            .unwrap();
+        let second_peak = stretched
+            .iter()
+            .skip(period)
+            .take(period)
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map(|(idx, _)| idx + period)
+            .unwrap();
+
+        assert!((second_peak as isize - first_peak as isize - period as isize).abs() <= 2);
     }
 
     #[test]
