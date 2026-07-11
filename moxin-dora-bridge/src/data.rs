@@ -144,6 +144,13 @@ pub struct AudioData {
     pub question_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct TtsSegmentEvent {
+    pub complete: bool,
+    pub attempts: u8,
+    pub generation_frames: usize,
+}
+
 impl AudioData {
     /// Duration in seconds
     pub fn duration_secs(&self) -> f32 {

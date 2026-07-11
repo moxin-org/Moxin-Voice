@@ -18,6 +18,7 @@ use audio_post::apply_runtime_audio_params;
 use dora_node_api::{DoraNode, Event, IntoArrow, Parameter};
 use protocol::TtsRequest;
 use qwen3_tts_mlx::{SynthesizeOptions, Synthesizer};
+use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -28,6 +29,39 @@ struct TtsParams {
     pitch: Option<f32>,
     volume: Option<f32>,
     instruct: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SegmentResult {
+    complete: bool,
+    attempts: u8,
+    generation_frames: usize,
+}
+
+impl SegmentResult {
+    fn from_attempts(attempts: u8, incomplete_clone: bool, generation_frames: usize) -> Self {
+        Self {
+            complete: !incomplete_clone,
+            attempts,
+            generation_frames,
+        }
+    }
+}
+
+struct SynthesizedSegment {
+    samples: Vec<f32>,
+    sample_rate: u32,
+    result: SegmentResult,
+}
+
+fn retry_seed(text: &str, attempt: u8) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    text.as_bytes()
+        .iter()
+        .chain(std::iter::once(&attempt))
+        .fold(FNV_OFFSET, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME))
 }
 
 fn parse_text_and_params(raw: &str) -> (String, TtsParams) {
@@ -432,7 +466,7 @@ fn synthesize_qwen(
     state: &mut QwenState,
     request: TtsRequest,
     params: &TtsParams,
-) -> Result<(Vec<f32>, u32)> {
+) -> Result<SynthesizedSegment> {
     match request {
         TtsRequest::Preset { voice, text } => {
             let synth = state.customvoice()?;
@@ -452,8 +486,12 @@ fn synthesize_qwen(
                 max_new_tokens,
                 ..Default::default()
             };
-            let samples = synth.synthesize(&text, &options)?;
-            Ok((samples, synth.sample_rate))
+            let (samples, timing) = synth.synthesize_with_timing(&text, &options)?;
+            Ok(SynthesizedSegment {
+                samples,
+                sample_rate: synth.sample_rate,
+                result: SegmentResult::from_attempts(1, false, timing.generation_frames),
+            })
         }
         TtsRequest::Custom {
             ref_wav,
@@ -473,44 +511,65 @@ fn synthesize_qwen(
                 max_new_tokens
             );
 
-            let options = SynthesizeOptions {
-                language: &lang,
-                max_new_tokens,
-                ..Default::default()
-            };
+            let mut synthesize_once = |seed| -> Result<_> {
+                let options = SynthesizeOptions {
+                    language: &lang,
+                    max_new_tokens,
+                    seed,
+                    ..Default::default()
+                };
 
-            // Prefer ICL when prompt text available; fallback to x-vector mode on hard failure.
-            let samples = if use_xvector {
-                synth.synthesize_voice_clone_cached(
-                    &text,
-                    &ref_audio_24k,
-                    &lang,
-                    &speaker_cache_key,
-                    &options,
-                )?
-            } else {
-                match synth.synthesize_voice_clone_icl_cached(
-                    &text,
-                    &ref_audio_24k,
-                    &prompt_text,
-                    &lang,
-                    &speaker_cache_key,
-                    &options,
-                ) {
-                    Ok(samples) => samples,
-                    Err(err) => {
-                        tracing::warn!("ICL clone failed, fallback to x-vector mode: {}", err);
-                        synth.synthesize_voice_clone_cached(
-                            &text,
-                            &ref_audio_24k,
-                            &lang,
-                            &speaker_cache_key,
-                            &options,
-                        )?
+                if use_xvector {
+                    Ok(synth.synthesize_voice_clone_with_timing_cached(
+                        &text,
+                        &ref_audio_24k,
+                        &lang,
+                        &speaker_cache_key,
+                        &options,
+                    )?)
+                } else {
+                    match synth.synthesize_voice_clone_icl_with_timing_cached(
+                        &text,
+                        &ref_audio_24k,
+                        &prompt_text,
+                        &lang,
+                        &speaker_cache_key,
+                        &options,
+                    ) {
+                        Ok(result) => Ok(result),
+                        Err(err) => {
+                            tracing::warn!("ICL clone failed, fallback to x-vector mode: {}", err);
+                            Ok(synth.synthesize_voice_clone_with_timing_cached(
+                                &text,
+                                &ref_audio_24k,
+                                &lang,
+                                &speaker_cache_key,
+                                &options,
+                            )?)
+                        }
                     }
                 }
             };
-            Ok((samples, synth.sample_rate))
+
+            let (mut samples, mut timing) = synthesize_once(None)?;
+            let mut attempts = 1;
+            if timing.incomplete_clone {
+                attempts = 2;
+                tracing::warn!(
+                    "Clone generation ended before its streamed text was consumed; retrying once"
+                );
+                (samples, timing) = synthesize_once(Some(retry_seed(&text, 1)))?;
+            }
+
+            Ok(SynthesizedSegment {
+                samples,
+                sample_rate: synth.sample_rate,
+                result: SegmentResult::from_attempts(
+                    attempts,
+                    timing.incomplete_clone,
+                    timing.generation_frames,
+                ),
+            })
         }
         TtsRequest::Trained { .. } => Err(anyhow!(
             "Qwen backend does not support VOICE:TRAINED custom-weight inference yet"
@@ -541,9 +600,8 @@ fn send_log(node: &mut DoraNode, s: &str) -> Result<()> {
         .map_err(|e| anyhow!("send_output(log) failed: {}", e))
 }
 
-fn send_segment_complete(node: &mut DoraNode) -> Result<()> {
-    let empty: Vec<f32> = Vec::new();
-    let arr = empty.into_arrow();
+fn send_segment_complete(node: &mut DoraNode, result: &SegmentResult) -> Result<()> {
+    let arr = vec![serde_json::to_string(result)?].into_arrow();
     node.send_output("segment_complete".into(), Default::default(), arr)
         .map_err(|e| anyhow!("send_output(segment_complete) failed: {}", e))
 }
@@ -601,16 +659,27 @@ fn main() -> Result<()> {
                 send_status(&mut node, "synthesizing")?;
 
                 match synthesize_qwen(&mut qwen_state, request, &params) {
-                    Ok((samples, sample_rate)) => {
-                        let samples = apply_runtime_audio_params(samples, &params);
-                        send_audio(&mut node, &samples, sample_rate)?;
-                        send_segment_complete(&mut node)?;
+                    Ok(segment) => {
+                        if !segment.result.complete {
+                            send_segment_complete(&mut node, &segment.result)?;
+                            send_status(&mut node, "error: incomplete clone synthesis")?;
+                            send_log(
+                                &mut node,
+                                "{\"error\":\"clone synthesis ended before all text was consumed\"}",
+                            )?;
+                            continue;
+                        }
+
+                        let samples = apply_runtime_audio_params(segment.samples, &params);
+                        send_audio(&mut node, &samples, segment.sample_rate)?;
+                        send_segment_complete(&mut node, &segment.result)?;
                         send_status(&mut node, "done")?;
                         tracing::info!(
-                            "Qwen synthesis complete: {} samples ({:.1}s @ {}Hz)",
+                            "Qwen synthesis complete: {} samples ({:.1}s @ {}Hz, attempts={})",
                             samples.len(),
-                            samples.len() as f32 / sample_rate as f32,
-                            sample_rate
+                            samples.len() as f32 / segment.sample_rate as f32,
+                            segment.sample_rate,
+                            segment.result.attempts
                         );
                     }
                     Err(e) => {
@@ -665,5 +734,25 @@ mod tests {
         assert_eq!(parse_max_new_tokens_override(Some("0")), None);
         assert_eq!(parse_max_new_tokens_override(Some("-1")), None);
         assert_eq!(parse_max_new_tokens_override(Some("4096")), Some(4096));
+    }
+
+    #[test]
+    fn retry_seed_is_stable_and_changes_between_attempts() {
+        assert_eq!(
+            retry_seed("VOICE:CUSTOM|ref|text", 0),
+            retry_seed("VOICE:CUSTOM|ref|text", 0)
+        );
+        assert_ne!(
+            retry_seed("VOICE:CUSTOM|ref|text", 0),
+            retry_seed("VOICE:CUSTOM|ref|text", 1)
+        );
+    }
+
+    #[test]
+    fn segment_result_reports_second_incomplete_attempt_as_failure() {
+        let result = SegmentResult::from_attempts(2, true, 44);
+
+        assert!(!result.complete);
+        assert_eq!(result.attempts, 2);
     }
 }
