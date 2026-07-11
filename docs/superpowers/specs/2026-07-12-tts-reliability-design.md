@@ -27,7 +27,7 @@ Reduce local Qwen3-TTS long-text pitch drift and prevent silently incomplete cus
 
 ## Architecture
 
-`TTSScreen` splits 120-character-or-shorter sentence groups and sends one request at a time. The Dora node emits the audio payload, a JSON `segment_result` payload, and then `segment_complete`. The bridge records audio and completion/result events separately. The screen appends any audio but does not dispatch the next group until it observes the matching completion event.
+`TTSScreen` splits 120-character-or-shorter sentence groups and sends one request at a time. The Dora node emits the audio payload, a JSON `segment_result` payload, and then `segment_complete`. The dataflow routes `segment_complete` into the existing audio-player bridge. That bridge places a `TtsSegmentEvent` in a new `SharedDoraState` queue, separate from the audio queue. The screen appends any audio but does not dispatch the next group until it observes the matching completion event.
 
 The Qwen MLX library returns generation metadata. Clone modes report whether EOS occurred before their remaining streamed text tokens were consumed. The Dora node retries only that segment once, using a seed derived from the request content plus retry number. If both attempts are incomplete, it emits an error result; the screen stops and tells the user which segment failed rather than silently omitting text.
 
