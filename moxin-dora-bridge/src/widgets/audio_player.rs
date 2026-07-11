@@ -838,6 +838,7 @@ impl DoraBridge for AudioPlayerBridge {
     fn expected_inputs(&self) -> Vec<String> {
         vec![
             "audio".to_string(),
+            "segment_complete".to_string(),
             "audio_student1".to_string(),
             "audio_student2".to_string(),
             "audio_tutor".to_string(),
@@ -858,5 +859,19 @@ impl DoraBridge for AudioPlayerBridge {
 impl Drop for AudioPlayerBridge {
     fn drop(&mut self) {
         let _ = self.disconnect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_tts_segment_completion_input() {
+        let bridge = AudioPlayerBridge::new("moxin-audio-player");
+
+        assert!(bridge
+            .expected_inputs()
+            .contains(&"segment_complete".to_string()));
     }
 }
