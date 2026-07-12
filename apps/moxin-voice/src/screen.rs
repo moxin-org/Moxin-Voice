@@ -1841,7 +1841,7 @@ live_design! {
                 return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
             }
         }
-        icon_walk: {width: 19, height: 19}
+        icon_walk: {width: 20, height: 20}
         draw_text: {
             text_style: { font_size: 0.0 }
             fn get_color(self) -> vec4 {
@@ -1851,7 +1851,7 @@ live_design! {
     }
 
     PlayerSegmentActionBtn = <Button> {
-        width: 28, height: 28
+        width: 32, height: 32
         padding: {left: 0, right: 0, top: 0, bottom: 0}
         draw_bg: {
             instance dark_mode: 0.0
@@ -1861,11 +1861,13 @@ live_design! {
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                 sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 6.0);
-                let base = mix(vec4(0.98, 0.99, 1.0, 0.0), vec4(0.0, 0.0, 0.0, 0.0), self.dark_mode);
+                let base = mix(vec4(0.92, 0.95, 1.0, 1.0), vec4(0.16, 0.20, 0.29, 1.0), self.dark_mode);
                 let hover = mix(vec4(0.86, 0.91, 1.0, 1.0), vec4(0.24, 0.30, 0.42, 1.0), self.dark_mode);
                 let pressed = mix(vec4(0.78, 0.86, 1.0, 1.0), vec4(0.31, 0.38, 0.52, 1.0), self.dark_mode);
                 let active = mix(vec4(0.80, 0.87, 1.0, 1.0), vec4(0.29, 0.37, 0.52, 1.0), self.dark_mode);
                 sdf.fill(mix(mix(mix(base, hover, self.hover), pressed, self.pressed), active, self.active));
+                let border = mix(vec4(0.66, 0.73, 0.85, 1.0), vec4(0.34, 0.41, 0.55, 1.0), self.dark_mode);
+                sdf.stroke(border, 1.0);
 
                 return sdf.result;
             }
@@ -1877,7 +1879,7 @@ live_design! {
                 return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
             }
         }
-        icon_walk: {width: 18, height: 18}
+        icon_walk: {width: 20, height: 20}
         draw_text: {
             text_style: { font_size: 0.0 }
             fn get_color(self) -> vec4 {
@@ -1916,7 +1918,7 @@ live_design! {
         width: Fit, height: Fit
         flow: Down
         spacing: 2
-        padding: {left: 6, right: 6, top: 6, bottom: 6}
+        padding: {left: 12, right: 12, top: 12, bottom: 16}
         show_bg: true
         draw_bg: {
             instance dark_mode: 0.0
@@ -1924,13 +1926,14 @@ live_design! {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                 let shadow_far = mix(vec4(0.08, 0.12, 0.22, 0.14), vec4(0.0, 0.0, 0.0, 0.42), self.dark_mode);
                 let shadow_near = mix(vec4(0.08, 0.12, 0.22, 0.24), vec4(0.0, 0.0, 0.0, 0.52), self.dark_mode);
-                sdf.box(7.0, 13.0, self.rect_size.x - 14.0, self.rect_size.y - 7.0, 8.0);
+                let panel_inset = 4.0;
+                sdf.box(10.0, 16.0, self.rect_size.x - 20.0, self.rect_size.y - 16.0, 9.0);
                 sdf.fill(shadow_far);
-                sdf.box(3.0, 6.0, self.rect_size.x - 6.0, self.rect_size.y - 3.0, 6.0);
+                sdf.box(6.0, 10.0, self.rect_size.x - 12.0, self.rect_size.y - 12.0, 7.0);
                 sdf.fill(shadow_near);
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 5.0);
+                sdf.box(panel_inset, panel_inset, self.rect_size.x - panel_inset * 2.0, self.rect_size.y - 14.0, 7.0);
                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                let border = mix(vec4(0.76, 0.80, 0.88, 1.0), vec4(0.38, 0.43, 0.54, 1.0), self.dark_mode);
+                let border = mix(vec4(0.58, 0.66, 0.79, 1.0), vec4(0.42, 0.49, 0.63, 1.0), self.dark_mode);
                 sdf.fill(bg);
                 sdf.stroke(border, 1.0);
                 return sdf.result;
@@ -7895,6 +7898,7 @@ live_design! {
 
                 SegmentCard = <RoundedView> {
                     width: Fill, height: Fit
+                    show_bg: true
                     flow: Down
                     padding: {left: 10, right: 10, top: 8, bottom: 8}
                     spacing: 6
@@ -7907,7 +7911,7 @@ live_design! {
                             sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
                             let base = mix((WHITE), (SLATE_800), self.dark_mode);
                             let playing = mix(vec4(0.16, 0.49, 0.92, 0.13), vec4(0.25, 0.55, 1.0, 0.20), self.dark_mode);
-                            let inactive_border = mix(vec4(0.73, 0.79, 0.89, 1.0), vec4(0.34, 0.40, 0.52, 1.0), self.dark_mode);
+                            let inactive_border = mix(vec4(0.45, 0.55, 0.70, 1.0), vec4(0.42, 0.51, 0.67, 1.0), self.dark_mode);
                             let active_border = mix(vec4(0.22, 0.50, 0.92, 0.88), vec4(0.40, 0.66, 1.0, 0.92), self.dark_mode);
                             let border = mix(inactive_border, active_border, self.active);
                             sdf.fill(mix(base, playing, self.active));
@@ -29933,6 +29937,33 @@ mod tests {
             .unwrap();
         assert!(menu.contains("let shadow_far ="));
         assert!(menu.contains("let shadow_near ="));
+    }
+
+    #[test]
+    fn segment_popover_renders_card_surfaces_and_reserved_shadow_gutter() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let segment_card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("row = <View>")
+            .next()
+            .unwrap();
+        let menu = source
+            .split("PlayerFloatingMenu = <View>")
+            .nth(1)
+            .expect("floating menu should exist")
+            .split("PlayerMenuItemBtn = <Button>")
+            .next()
+            .unwrap();
+
+        assert!(segment_card.contains("show_bg: true"));
+        assert!(menu.contains("panel_inset"));
+        assert!(menu.contains("padding: {left: 12, right: 12, top: 12, bottom: 16}"));
+        assert!(source.contains("icon_walk: {width: 20, height: 20}"));
     }
 
     #[test]
