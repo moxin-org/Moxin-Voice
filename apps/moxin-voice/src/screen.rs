@@ -9950,7 +9950,7 @@ pub struct TTSScreen {
     #[rust]
     history_item_areas: Vec<(usize, Area, Area, Area, Area, Area, Area)>, // (idx, card, play, use, download, share, delete)
     #[rust]
-    segment_item_areas: Vec<(usize, Area, Area, Area, Area)>, // (idx, card, preview, download, retry)
+    segment_item_areas: Vec<(usize, Area, Area, Area, Area, Area)>, // (idx, row, text, preview, download, retry)
     #[rust]
     currently_playing_history_id: Option<String>,
     #[rust]
@@ -13860,7 +13860,7 @@ impl Widget for TTSScreen {
         }
 
         if self.player_segment_menu_open {
-            for (item_idx, card_area, preview_area, download_area, retry_area) in
+            for (item_idx, row_area, text_area, preview_area, download_area, retry_area) in
                 self.segment_item_areas.clone()
             {
                 let Some(segments) = self.tts_audio_segments.as_ref() else {
@@ -13893,20 +13893,27 @@ impl Widget for TTSScreen {
                     }
                 }
                 if !handled {
-                    if let Hit::FingerUp(fe) = event.hits(cx, card_area) {
-                        if fe.was_tap()
+                    let row_tapped = if let Hit::FingerUp(fe) = event.hits(cx, row_area) {
+                        fe.was_tap()
                             && !preview_area.rect(cx).contains(fe.abs)
                             && !download_area.rect(cx).contains(fe.abs)
                             && !retry_area.rect(cx).contains(fe.abs)
+                    } else {
+                        false
+                    };
+                    let text_tapped = if let Hit::FingerUp(fe) = event.hits(cx, text_area) {
+                        fe.was_tap()
+                    } else {
+                        false
+                    };
+                    if row_tapped || text_tapped {
+                        if let Some(segment) = self
+                            .tts_audio_segments
+                            .as_mut()
+                            .and_then(|segments| segments.segment_mut(item_idx))
                         {
-                            if let Some(segment) = self
-                                .tts_audio_segments
-                                .as_mut()
-                                .and_then(|segments| segments.segment_mut(item_idx))
-                            {
-                                segment.text_expanded = !segment.text_expanded;
-                                self.view.redraw(cx);
-                            }
+                            segment.text_expanded = !segment.text_expanded;
+                            self.view.redraw(cx);
                         }
                     }
                 }
@@ -14467,7 +14474,8 @@ impl Widget for TTSScreen {
                             card.draw_all(cx, &mut Scope::empty());
                             self.segment_item_areas.push((
                                 item_id,
-                                card.area(),
+                                card.view(ids!(row)).area(),
+                                card.label(ids!(text_preview)).area(),
                                 card.button(ids!(row.preview_btn)).area(),
                                 card.button(ids!(row.download_btn)).area(),
                                 card.button(ids!(row.retry_btn)).area(),
@@ -29914,7 +29922,9 @@ mod tests {
             .next()
             .unwrap();
 
-        assert!(handler.contains("event.hits(cx, card_area)"));
+        assert!(handler.contains("event.hits(cx, row_area)"));
+        assert!(handler.contains("event.hits(cx, text_area)"));
+        assert!(!handler.contains("event.hits(cx, card_area)"));
         assert!(handler.contains("segment.text_expanded = !segment.text_expanded"));
         assert!(!handler.contains("expand_area"));
         assert!(!handler.contains("start_playback_from_time"));
