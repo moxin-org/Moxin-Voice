@@ -1815,6 +1815,7 @@ live_design! {
     PlayerSegmentBtn = <Button> {
         width: 34, height: 34
         padding: {left: 0, right: 0, top: 0, bottom: 0}
+        align: {x: 0.5, y: 0.5}
         draw_bg: {
             instance dark_mode: 0.0
             instance hover: 0.0
@@ -1838,7 +1839,7 @@ live_design! {
             instance dark_mode: 0.0
             svg_file: (ICO_TTS_SEGMENTS)
             fn get_color(self) -> vec4 {
-                return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                return mix((SLATE_600), (SLATE_300), self.dark_mode);
             }
         }
         icon_walk: {width: 20, height: 20}
@@ -1853,6 +1854,7 @@ live_design! {
     PlayerSegmentActionBtn = <Button> {
         width: 32, height: 32
         padding: {left: 0, right: 0, top: 0, bottom: 0}
+        align: {x: 0.5, y: 0.5}
         draw_bg: {
             instance dark_mode: 0.0
             instance hover: 0.0
@@ -1876,7 +1878,7 @@ live_design! {
             instance dark_mode: 0.0
             svg_file: (ICO_TTS_SEGMENT_PLAY)
             fn get_color(self) -> vec4 {
-                return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                return mix((SLATE_600), (SLATE_300), self.dark_mode);
             }
         }
         icon_walk: {width: 20, height: 20}
@@ -1944,7 +1946,7 @@ live_design! {
                     + min(max(shadow_q.x, shadow_q.y), 0.0) - panel_radius;
                 let shadow_alpha = (1.0 - smoothstep(0.0, 12.0, shadow_distance))
                     * mix(0.18, 0.34, self.dark_mode);
-                let shadow_rgb = mix(vec3(0.08, 0.12, 0.22), vec3(0.0, 0.0, 0.0), self.dark_mode);
+                let shadow_rgb = mix(vec3(0.20, 0.20, 0.20), vec3(0.0, 0.0, 0.0), self.dark_mode);
 
                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
                 let border = mix(vec4(0.76, 0.81, 0.89, 1.0), vec4(0.42, 0.49, 0.63, 1.0), self.dark_mode);
@@ -29982,6 +29984,7 @@ mod tests {
         assert!(menu.contains("panel_inset"));
         assert!(menu.contains("let shadow_offset = vec2(0.0, 3.0)"));
         assert!(menu.contains("smoothstep(0.0, 12.0, shadow_distance)"));
+        assert!(menu.contains("vec3(0.20, 0.20, 0.20)"));
         assert!(!menu.contains("shadow_far"));
         assert!(!menu.contains("shadow_near"));
         assert!(menu.contains("padding: {left: 16, right: 16, top: 16, bottom: 18}"));
@@ -30018,6 +30021,26 @@ mod tests {
             assert!(asset.contains("fill=\"currentColor\""));
             assert!(!asset.contains("stroke="));
             assert!(asset.contains('Q'));
+            assert!(asset.contains("lucide-1-5px"));
+        }
+    }
+
+    #[test]
+    fn segment_icon_buttons_center_thin_neutral_icons() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        for button_name in ["PlayerSegmentBtn = <Button>", "PlayerSegmentActionBtn = <Button>"] {
+            let button = source
+                .split(button_name)
+                .nth(1)
+                .expect("segment icon button should exist")
+                .split("draw_text:")
+                .next()
+                .unwrap();
+            assert!(button.contains("align: {x: 0.5, y: 0.5}"));
+            assert!(button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
         }
     }
 
