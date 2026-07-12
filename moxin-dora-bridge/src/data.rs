@@ -149,6 +149,8 @@ pub struct TtsSegmentEvent {
     pub complete: bool,
     pub attempts: u8,
     pub generation_frames: usize,
+    #[serde(default)]
+    pub sample_count: Option<usize>,
 }
 
 impl AudioData {
@@ -217,6 +219,21 @@ pub enum LogLevel {
 impl Default for LogLevel {
     fn default() -> Self {
         LogLevel::Info
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TtsSegmentEvent;
+
+    #[test]
+    fn tts_segment_event_deserializes_audio_sample_count() {
+        let event: TtsSegmentEvent = serde_json::from_str(
+            r#"{"complete":true,"attempts":1,"generation_frames":44,"sample_count":2400}"#,
+        )
+        .unwrap();
+
+        assert_eq!(event.sample_count, Some(2_400));
     }
 }
 

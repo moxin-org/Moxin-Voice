@@ -18,6 +18,7 @@ pub mod training_manager;
 pub mod transcript_export;
 pub mod tts_emotion;
 pub mod tts_history;
+pub mod tts_segments;
 pub mod voice_clone_modal;
 pub mod voice_data;
 pub mod voice_persistence;

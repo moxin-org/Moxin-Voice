@@ -14,6 +14,9 @@ use crate::task_persistence;
 use crate::training_executor::TrainingExecutor;
 use crate::tts_emotion::{self, TtsInstructSelection, TtsInstructState, NEUTRAL_EMOTION_ID};
 use crate::tts_history::{self, TtsHistoryEntry};
+use crate::tts_segments::{
+    ActiveSegmentAssembly, RetryCommit, TtsAudioSegment, TtsAudioSegments,
+};
 use crate::voice_clone_modal::{CloneMode, VoiceCloneModalAction, VoiceCloneModalWidgetExt};
 use crate::voice_data::{LanguageFilter, TTSStatus, Voice, VoiceFilter, VoiceSource};
 use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
@@ -72,7 +75,9 @@ const PLAYER_PLAYBACK_RATES: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
 const PLAYER_SPEED_MENU_WIDTH: f64 = 96.0;
 const PLAYER_SPEED_MENU_HEIGHT: f64 = 170.0;
 const PLAYER_ACTION_MENU_WIDTH: f64 = 132.0;
-const PLAYER_ACTION_MENU_HEIGHT: f64 = 74.0;
+const PLAYER_ACTION_MENU_HEIGHT: f64 = 96.0;
+const PLAYER_SEGMENT_MENU_WIDTH: f64 = 560.0;
+const PLAYER_SEGMENT_MENU_HEIGHT: f64 = 360.0;
 const PLAYER_MENU_ANCHOR_GAP: f64 = 8.0;
 
 fn tts_input_click_disposition(
@@ -166,6 +171,7 @@ enum ShareSource {
 #[derive(Clone, Debug)]
 enum DownloadSource {
     CurrentAudio,
+    Segment(usize),
     History(String),
 }
 
@@ -409,6 +415,12 @@ struct TtsSegmentDispatch {
     received: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActiveTtsOperation {
+    Initial,
+    Retry,
+}
+
 impl TtsSegmentDispatch {
     fn new(segments: Vec<String>) -> Self {
         Self {
@@ -536,6 +548,13 @@ live_design! {
     use link::widgets::*;
 
     use moxin_widgets::theme::*;
+
+    ICO_TTS_SEGMENTS = dep("crate://self/resources/icons/segments.svg")
+    ICO_TTS_SEGMENT_PLAY = dep("crate://self/resources/icons/segment-play.svg")
+    ICO_TTS_SEGMENT_PAUSE = dep("crate://self/resources/icons/segment-pause.svg")
+    ICO_TTS_SEGMENT_DOWNLOAD = dep("crate://self/resources/icons/segment-download.svg")
+    ICO_TTS_SEGMENT_RETRY = dep("crate://self/resources/icons/segment-retry.svg")
+    ICO_TTS_ACTION_MENU = dep("crate://self/resources/icons/action-menu.svg")
     use crate::voice_selector::VoiceSelector;
     use crate::voice_clone_modal::VoiceCloneModal;
 
@@ -1767,9 +1786,9 @@ live_design! {
             instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
-                let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
-                let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
+                let bg = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.74, 0.82, 1.0, 1.0), vec4(0.34, 0.40, 0.54, 1.0), self.dark_mode);
                 let active = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
                 let color = mix(mix(mix(bg, hover, self.hover), pressed, self.pressed), active, self.active);
                 let radius = min(self.rect_size.x, self.rect_size.y) * 0.5;
@@ -1794,23 +1813,179 @@ live_design! {
         }
     }
 
+    PlayerSegmentBtn = <Button> {
+        width: 34, height: 34
+        padding: {left: 0, right: 0, top: 0, bottom: 0}
+        align: {x: 0.5, y: 0.5}
+        spacing: 0
+        label_walk: {width: 0, height: 0}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance active: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                let base = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);
+                let hover_color = mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
+                let pressed_color = mix((PRIMARY_700), (PRIMARY_500), self.dark_mode);
+                let color = mix(base, hover_color, self.hover);
+                let color = mix(color, pressed_color, self.pressed);
+                let radius = min(self.rect_size.x, self.rect_size.y) * 0.5;
+                sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, radius);
+                sdf.fill(color);
+
+                return sdf.result;
+            }
+        }
+        draw_icon: {
+            instance dark_mode: 0.0
+            svg_file: (ICO_TTS_SEGMENTS)
+            fn get_color(self) -> vec4 {
+                return (WHITE);
+            }
+        }
+        icon_walk: {width: 16, height: 16, margin: {left: 9, right: 9, top: 9, bottom: 9}}
+        draw_text: {
+            text_style: { font_size: 0.0 }
+            fn get_color(self) -> vec4 {
+                return vec4(0.0, 0.0, 0.0, 0.0);
+            }
+        }
+    }
+
+    PlayerSegmentActionBtn = <Button> {
+        width: 32, height: 32
+        padding: {left: 0, right: 0, top: 0, bottom: 0}
+        align: {x: 0.5, y: 0.5}
+        spacing: 0
+        label_walk: {width: 0, height: 0}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance active: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 6.0);
+                let base = mix(vec4(0.92, 0.95, 1.0, 1.0), vec4(0.16, 0.20, 0.29, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.86, 0.91, 1.0, 1.0), vec4(0.24, 0.30, 0.42, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.78, 0.86, 1.0, 1.0), vec4(0.31, 0.38, 0.52, 1.0), self.dark_mode);
+                let active = mix(vec4(0.80, 0.87, 1.0, 1.0), vec4(0.29, 0.37, 0.52, 1.0), self.dark_mode);
+                sdf.fill(mix(mix(mix(base, hover, self.hover), pressed, self.pressed), active, self.active));
+                let border = mix(vec4(0.66, 0.73, 0.85, 1.0), vec4(0.34, 0.41, 0.55, 1.0), self.dark_mode);
+                sdf.stroke(border, 1.0);
+
+                return sdf.result;
+            }
+        }
+        draw_icon: {
+            instance dark_mode: 0.0
+            svg_file: (ICO_TTS_SEGMENT_PLAY)
+            fn get_color(self) -> vec4 {
+                return mix((SLATE_600), (SLATE_300), self.dark_mode);
+            }
+        }
+        icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}
+        draw_text: {
+            text_style: { font_size: 0.0 }
+            fn get_color(self) -> vec4 {
+                return vec4(0.0, 0.0, 0.0, 0.0);
+            }
+        }
+    }
+
+    PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn> {
+        icon_walk: {width: 0, height: 0}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance active: 0.0
+            instance previewing: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 6.0);
+                let base = mix(vec4(0.92, 0.95, 1.0, 1.0), vec4(0.16, 0.20, 0.29, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.86, 0.91, 1.0, 1.0), vec4(0.24, 0.30, 0.42, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.78, 0.86, 1.0, 1.0), vec4(0.31, 0.38, 0.52, 1.0), self.dark_mode);
+                let active = mix(vec4(0.80, 0.87, 1.0, 1.0), vec4(0.29, 0.37, 0.52, 1.0), self.dark_mode);
+                sdf.fill(mix(mix(mix(base, hover, self.hover), pressed, self.pressed), active, self.active));
+                let border = mix(vec4(0.66, 0.73, 0.85, 1.0), vec4(0.34, 0.41, 0.55, 1.0), self.dark_mode);
+                sdf.stroke(border, 1.0);
+
+                let icon = mix((SLATE_600), (SLATE_300), self.dark_mode);
+                if self.previewing > 0.5 {
+                    sdf.box(10.5, 9.0, 4.0, 14.0, 1.0);
+                    sdf.fill(icon);
+                    sdf.box(17.5, 9.0, 4.0, 14.0, 1.0);
+                    sdf.fill(icon);
+                } else {
+                    sdf.move_to(12.0, 8.5);
+                    sdf.line_to(23.0, 16.0);
+                    sdf.line_to(12.0, 23.5);
+                    sdf.close_path();
+                    sdf.fill(icon);
+                }
+                return sdf.result;
+            }
+        }
+    }
+
+    PlayerSegmentDownloadBtn = <PlayerSegmentActionBtn> {
+        icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}
+        draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) }
+    }
+
+    PlayerActionMenuTriggerBtn = <PlayerSegmentBtn> {
+        draw_icon: { svg_file: (ICO_TTS_ACTION_MENU) }
+    }
+
+    SegmentPrimaryLabel = <Label> {
+        draw_text: {
+            instance dark_mode: 0.0
+            instance active: 0.0
+            text_style: { font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                let normal = mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                let playing = mix(vec4(0.05, 0.17, 0.34, 1.0), vec4(0.91, 0.95, 1.0, 1.0), self.dark_mode);
+                return mix(normal, playing, self.active);
+            }
+        }
+    }
+
+    SegmentTextPreview = <Label> {
+        draw_text: {
+            instance dark_mode: 0.0
+            instance active: 0.0
+            text_style: { font_size: 12.0 }
+            fn get_color(self) -> vec4 {
+                let normal = mix(vec4(0.18, 0.22, 0.30, 1.0), vec4(0.86, 0.90, 0.96, 1.0), self.dark_mode);
+                let playing = mix(vec4(0.04, 0.14, 0.28, 1.0), vec4(0.94, 0.97, 1.0, 1.0), self.dark_mode);
+                return mix(normal, playing, self.active);
+            }
+        }
+    }
+
     PlayerFloatingMenu = <View> {
         width: Fit, height: Fit
         flow: Down
         spacing: 2
-        padding: {left: 6, right: 6, top: 6, bottom: 6}
+        padding: {left: 16, right: 16, top: 16, bottom: 18}
         show_bg: true
         draw_bg: {
             instance dark_mode: 0.0
+            instance border_radius: 9.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(3.0, 4.0, self.rect_size.x, self.rect_size.y, 5.0);
-                sdf.fill(mix(vec4(0.10, 0.12, 0.18, 0.16), vec4(0.0, 0.0, 0.0, 0.26), self.dark_mode));
-                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 5.0);
-                let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                let border = mix(vec4(0.76, 0.80, 0.88, 1.0), vec4(0.38, 0.43, 0.54, 1.0), self.dark_mode);
+                sdf.box(1., 1., self.rect_size.x - 2., self.rect_size.y - 2., self.border_radius + 3.0);
+                sdf.fill(mix(vec4(0.05, 0.10, 0.20, 0.07), vec4(0.0, 0.0, 0.0, 0.18), self.dark_mode));
+                sdf.box(3., 3., self.rect_size.x - 6., self.rect_size.y - 6., self.border_radius + 1.5);
+                sdf.fill(mix(vec4(0.05, 0.10, 0.20, 0.05), vec4(0.0, 0.0, 0.0, 0.12), self.dark_mode));
+                sdf.box(4.5, 4.5, self.rect_size.x - 9., self.rect_size.y - 9., self.border_radius);
+                let bg = mix(vec4(1.0, 1.0, 1.0, 0.98), vec4(0.12, 0.16, 0.24, 0.98), self.dark_mode);
                 sdf.fill(bg);
-                sdf.stroke(border, 1.0);
+                sdf.stroke(mix(vec4(0.74, 0.80, 0.90, 1.0), vec4(0.37, 0.45, 0.60, 1.0), self.dark_mode), 1.25);
                 return sdf.result;
             }
         }
@@ -7715,8 +7890,9 @@ live_design! {
                     spacing: 0
                     align: {x: 1.0, y: 0.5}
 
-                    action_menu_btn = <PlayerMoreBtn> {
-                    }
+                    segment_menu_btn = <PlayerSegmentBtn> {}
+
+                    action_menu_btn = <PlayerActionMenuTriggerBtn> {}
                 }
             }
             } // End audio_player_bar
@@ -7740,6 +7916,96 @@ live_design! {
 
             download_menu_btn = <PlayerMenuItemBtn> { text: "Download" }
             share_menu_btn = <PlayerMenuItemBtn> { text: "Share" }
+        }
+
+        player_segment_menu = <PlayerFloatingMenu> {
+            width: 560, height: 360
+            visible: false
+
+            segment_header = <View> {
+                width: Fill, height: Fit
+                flow: Right
+                align: {y: 0.5}
+                padding: {left: 6, right: 6, top: 4, bottom: 8}
+
+                segment_title = <Label> {
+                    width: Fill, height: Fit
+                    draw_text: {
+                        instance dark_mode: 0.0
+                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                        fn get_color(self) -> vec4 {
+                            return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                        }
+                    }
+                    text: "Audio Segments"
+                }
+                segment_summary = <Label> {
+                    width: Fit, height: Fit
+                    draw_text: {
+                        instance dark_mode: 0.0
+                        text_style: { font_size: 11.0 }
+                        fn get_color(self) -> vec4 {
+                            return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                        }
+                    }
+                    text: ""
+                }
+            }
+
+            segment_portal_list = <PortalList> {
+                width: Fill, height: Fill
+                flow: Down
+                spacing: 4
+
+                SegmentCard = <RoundedView> {
+                    width: Fill, height: Fit
+                    show_bg: true
+                    cursor: Hand
+                    flow: Down
+                    padding: {left: 10, right: 10, top: 8, bottom: 8}
+                    spacing: 6
+                    draw_bg: {
+                        instance dark_mode: 0.0
+                        instance active: 0.0
+                        instance border_radius: 7.0
+                        fn pixel(self) -> vec4 {
+                            let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                            sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
+                            let base = mix((WHITE), (SLATE_800), self.dark_mode);
+                            let playing = mix(vec4(0.16, 0.49, 0.92, 0.13), vec4(0.25, 0.55, 1.0, 0.20), self.dark_mode);
+                            let inactive_border = mix(vec4(0.45, 0.55, 0.70, 1.0), vec4(0.42, 0.51, 0.67, 1.0), self.dark_mode);
+                            let active_border = mix(vec4(0.22, 0.50, 0.92, 0.88), vec4(0.40, 0.66, 1.0, 0.92), self.dark_mode);
+                            let border = mix(inactive_border, active_border, self.active);
+                            sdf.fill(border);
+                            sdf.box(1.5, 1.5, self.rect_size.x - 3.0, self.rect_size.y - 3.0, self.border_radius - 1.5);
+                            sdf.fill(mix(base, playing, self.active));
+                            sdf.stroke(border, 1.0);
+                            return sdf.result;
+                        }
+                    }
+
+                    row = <View> {
+                        width: Fill, height: Fit
+                        flow: Right
+                        align: {y: 0.5}
+                        spacing: 8
+
+                        index_label = <SegmentPrimaryLabel> { width: 28, height: Fit text: "01" }
+                        range_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "00:00–00:00" }
+                        playing_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "" }
+                        <View> { width: Fill, height: 1 }
+                        preview_btn = <PlayerSegmentPreviewBtn> {}
+                        download_btn = <PlayerSegmentDownloadBtn> {}
+                        retry_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_RETRY) } }
+                    }
+
+                    text_preview = <SegmentTextPreview> {
+                        width: Fill, height: 0
+                        draw_text: { text_style: { font_size: 12.0 } }
+                        text: ""
+                    }
+                }
+            }
         }
 
         // Voice clone modal (overlay)
@@ -9398,6 +9664,8 @@ pub struct TTSScreen {
     player_speed_menu_open: bool,
     #[rust]
     player_action_menu_open: bool,
+    #[rust]
+    player_segment_menu_open: bool,
 
     // Stored audio for playback/download (not auto-play)
     #[rust]
@@ -9441,6 +9709,14 @@ pub struct TTSScreen {
     #[rust]
     pending_generation_dispatch: TtsSegmentDispatch,
     #[rust]
+    pending_tts_segments: Vec<TtsAudioSegment>,
+    #[rust]
+    active_tts_segment: Option<ActiveSegmentAssembly>,
+    #[rust]
+    active_tts_operation: Option<ActiveTtsOperation>,
+    #[rust]
+    tts_audio_segments: Option<TtsAudioSegments>,
+    #[rust]
     has_generated_audio: bool,
 
     // Preview player for reference audio
@@ -9448,6 +9724,8 @@ pub struct TTSScreen {
     preview_player: Option<TTSPlayer>,
     #[rust]
     preview_playing_voice_id: Option<String>,
+    #[rust]
+    segment_preview_playing: bool,
 
     // Toast notification state
     #[rust]
@@ -9765,6 +10043,7 @@ impl Widget for TTSScreen {
             self.player_playback_rate = 1.0;
             self.player_speed_menu_open = false;
             self.player_action_menu_open = false;
+            self.player_segment_menu_open = false;
             // Initialize stored audio sample rate (PrimeSpeech uses 32000)
             self.stored_audio_sample_rate = 32000;
             self.processed_audio_samples = Vec::new();
@@ -9785,6 +10064,10 @@ impl Widget for TTSScreen {
             self.pending_generation_expected_segments = 0;
             self.pending_generation_received_segments = 0;
             self.pending_generation_dispatch.clear();
+            self.pending_tts_segments.clear();
+            self.active_tts_segment = None;
+            self.active_tts_operation = None;
+            self.tts_audio_segments = None;
             self.has_generated_audio = false;
             // Initialize current page — Live Translation is the primary feature
             self.current_page = AppPage::Translation;
@@ -10154,68 +10437,67 @@ impl Widget for TTSScreen {
                 .as_ref()
                 .map(|dora| dora.shared_dora_state().tts_segment_events.drain())
                 .unwrap_or_default();
-            for event in segment_events {
-                if self.tts_status != TTSStatus::Generating {
-                    continue;
-                }
-                if !event.complete {
-                    self.fail_pending_tts_generation(
-                        cx,
-                        "[ERROR] [tts] Segment generation ended before all text was synthesized",
-                    );
-                    break;
-                }
-                self.pending_generation_dispatch.mark_received();
-                self.pending_generation_received_segments = self.pending_generation_dispatch.received;
-                self.update_generation_status(cx);
-                if !self.pending_generation_dispatch.is_complete()
-                    && !self.send_next_pending_tts_segment(cx)
-                {
-                    self.fail_pending_tts_generation(
-                        cx,
-                        "[ERROR] [tts] Failed to send next prompt segment to Dora",
-                    );
-                    break;
-                }
-            }
-            {
+            if self.tts_status == TTSStatus::Generating {
+                let mut generation_error = None;
                 for audio in chunks {
-                    self.stored_audio_samples.extend(&audio.samples);
-                    self.stored_audio_sample_rate = audio.sample_rate;
-                }
-                self.rebuild_processed_audio_samples();
-                // Transition to Ready state - user must click Play
-                if self.tts_status == TTSStatus::Generating
-                    && self.pending_generation_dispatch.is_complete()
-                {
-                    let sample_count = self.effective_audio_samples().len();
-                    let effective_rate = self.effective_audio_sample_rate();
-                    let duration_secs = if effective_rate > 0 {
-                        sample_count as f32 / effective_rate as f32
-                    } else {
-                        0.0
+                    let Some(active) = self.active_tts_segment.as_mut() else {
+                        generation_error = Some(
+                            "[ERROR] [tts] Received audio without an active segment".to_string(),
+                        );
+                        break;
                     };
-                    self.add_log(
-                        cx,
-                        &format!(
-                            "[INFO] [tts] Audio generated: {} samples, {:.1}s duration",
-                            sample_count, duration_secs
-                        ),
-                    );
-                    self.tts_status = TTSStatus::Ready;
-                    self.audio_playing_time = 0.0;
-                    self.has_generated_audio = true;
-                    let generated_voice_id = self
-                        .pending_generation_voice_id
-                        .clone()
-                        .or_else(|| self.selected_voice_id.clone());
-                    if let Some(voice_id) = generated_voice_id {
-                        self.apply_generated_voice_to_player_bar(cx, &voice_id, None);
+                    if let Err(error) = active.push_audio(&audio.samples, audio.sample_rate) {
+                        generation_error = Some(format!(
+                            "[ERROR] [tts] Invalid audio for active segment: {error:?}"
+                        ));
+                        break;
                     }
-                    self.append_current_generation_to_history(cx);
-                    self.clear_pending_generation_snapshot();
-                    self.set_generate_button_loading(cx, false);
-                    self.update_player_bar(cx);
+                }
+                if generation_error.is_none() {
+                    for event in segment_events {
+                        if !event.complete {
+                            generation_error = Some(
+                                "[ERROR] [tts] Segment generation ended before all text was synthesized"
+                                    .to_string(),
+                            );
+                            break;
+                        }
+                        let Some(active) = self.active_tts_segment.as_mut() else {
+                            generation_error = Some(
+                                "[ERROR] [tts] Received completion without an active segment"
+                                    .to_string(),
+                            );
+                            break;
+                        };
+                        if let Err(error) = active.mark_complete(event.sample_count) {
+                            generation_error = Some(format!(
+                                "[ERROR] [tts] Invalid active segment completion: {error:?}"
+                            ));
+                            break;
+                        }
+                    }
+                }
+                if let Some(message) = generation_error {
+                    if self.active_tts_operation == Some(ActiveTtsOperation::Retry) {
+                        self.fail_active_tts_retry(cx, &message);
+                    } else {
+                        self.fail_pending_tts_generation(cx, &message);
+                    }
+                } else if self
+                    .active_tts_segment
+                    .as_ref()
+                    .is_some_and(ActiveSegmentAssembly::is_ready)
+                {
+                    match self.active_tts_operation {
+                        Some(ActiveTtsOperation::Initial) => {
+                            self.finalize_active_initial_tts_segment(cx)
+                        }
+                        Some(ActiveTtsOperation::Retry) => self.finalize_active_tts_retry(cx),
+                        None => self.fail_pending_tts_generation(
+                            cx,
+                            "[ERROR] [tts] Active segment has no operation",
+                        ),
+                    }
                 }
             }
 
@@ -10251,6 +10533,7 @@ impl Widget for TTSScreen {
                 if let Some(player) = &self.preview_player {
                     if player.check_playback_finished() {
                         // Preview finished - reset preview state
+                        self.segment_preview_playing = false;
                         self.preview_playing_voice_id = None;
                         let voice_selector = self.view.voice_selector(ids!(
                             content_wrapper
@@ -10266,6 +10549,8 @@ impl Widget for TTSScreen {
                         ));
                         voice_selector.set_preview_playing(cx, None);
                         self.update_voice_picker_controls(cx);
+                        self.update_player_bar(cx);
+                        self.view.redraw(cx);
                         self.add_log(cx, "[INFO] [tts] Preview playback finished");
                     }
                 }
@@ -13557,6 +13842,7 @@ impl Widget for TTSScreen {
         {
             self.player_speed_menu_open = !self.player_speed_menu_open;
             self.player_action_menu_open = false;
+            self.player_segment_menu_open = false;
             self.update_player_menu_visibility(cx);
         }
         for (path, rate) in [
@@ -13579,12 +13865,29 @@ impl Widget for TTSScreen {
                     .audio_player_bar
                     .download_section
                     .action_buttons_row
+                    .segment_menu_btn
+            ))
+            .clicked(&actions)
+        {
+            self.player_segment_menu_open = !self.player_segment_menu_open;
+            self.player_speed_menu_open = false;
+            self.player_action_menu_open = false;
+            self.update_player_menu_visibility(cx);
+        }
+        if self
+            .view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .action_buttons_row
                     .action_menu_btn
             ))
             .clicked(&actions)
         {
             self.player_action_menu_open = !self.player_action_menu_open;
             self.player_speed_menu_open = false;
+            self.player_segment_menu_open = false;
             self.update_player_menu_visibility(cx);
         }
         if self
@@ -13604,6 +13907,46 @@ impl Widget for TTSScreen {
             self.player_action_menu_open = false;
             self.update_player_menu_visibility(cx);
             self.open_share_modal(cx, ShareSource::CurrentAudio);
+        }
+
+        if self.player_segment_menu_open {
+            let segment_list = self
+                .view
+                .portal_list(ids!(player_segment_menu.segment_portal_list));
+            let mut processed_items = Vec::new();
+            for (item_idx, item) in segment_list.items_with_actions(&actions) {
+                if processed_items.contains(&item_idx) {
+                    continue;
+                }
+                processed_items.push(item_idx);
+                let Some(segments) = self.tts_audio_segments.as_ref() else {
+                    continue;
+                };
+                if item_idx >= segments.len() {
+                    continue;
+                }
+                if item.button(ids!(row.preview_btn)).clicked(&actions) {
+                    self.preview_tts_segment(cx, item_idx);
+                } else if item.button(ids!(row.download_btn)).clicked(&actions) {
+                    self.open_download_modal(cx, DownloadSource::Segment(item_idx));
+                } else if item.button(ids!(row.retry_btn)).clicked(&actions) {
+                    self.retry_tts_segment(cx, item_idx);
+                } else if item
+                    .as_view()
+                    .finger_up(&actions)
+                    .map(|fe| fe.was_tap())
+                    .unwrap_or(false)
+                {
+                    if let Some(segment) = self
+                        .tts_audio_segments
+                        .as_mut()
+                        .and_then(|segments| segments.segment_mut(item_idx))
+                    {
+                        segment.text_expanded = !segment.text_expanded;
+                        self.view.redraw(cx);
+                    }
+                }
+            }
         }
 
         // Handle clear logs
@@ -13663,7 +14006,6 @@ impl Widget for TTSScreen {
         self.model_picker_card_areas.clear();
         self.voice_picker_item_areas.clear();
         self.history_item_areas.clear();
-
         // Get UIDs of our PortalLists using full paths to avoid name collisions
         let voice_list_uid = self
             .view
@@ -13721,6 +14063,10 @@ impl Widget for TTSScreen {
                     .history_panel
                     .history_list
             ))
+            .widget_uid();
+        let segment_list_uid = self
+            .view
+            .portal_list(ids!(player_segment_menu.segment_portal_list))
             .widget_uid();
 
         // Draw PortalLists
@@ -14042,6 +14388,143 @@ impl Widget for TTSScreen {
                             let play_area = item.view(ids!(picker_info.picker_header_row.picker_play_btn)).area();
                             self.voice_picker_item_areas
                                 .push((item_id, item_area, play_area));
+                        }
+                    }
+                } else if list_id == segment_list_uid {
+                    let current_sample = if self.tts_status == TTSStatus::Playing {
+                        self.tts_audio_segments.as_ref().map(|segments| {
+                            (self.audio_playing_time * segments.sample_rate() as f64).max(0.0)
+                                as usize
+                        })
+                    } else {
+                        None
+                    };
+                    let previewing_segment_index = if self.segment_preview_playing {
+                        self.preview_playing_voice_id
+                            .as_deref()
+                            .and_then(|id| id.strip_prefix("tts-segment-"))
+                            .and_then(|index| index.parse::<usize>().ok())
+                    } else {
+                        None
+                    };
+                    let rows: Vec<_> = self
+                        .tts_audio_segments
+                        .as_ref()
+                        .map(|segments| {
+                            segments
+                                .iter()
+                                .enumerate()
+                                .map(|(index, segment)| {
+                                    let start = segments.start_time_secs(index).unwrap_or(0.0);
+                                    let duration = if segment.sample_rate == 0 {
+                                        0.0
+                                    } else {
+                                        segment.samples.len() as f64 / segment.sample_rate as f64
+                                    };
+                                    (
+                                        format!("{:02}", index + 1),
+                                        format!(
+                                            "{}–{}",
+                                            Self::format_duration(start as f32),
+                                            Self::format_duration((start + duration) as f32)
+                                        ),
+                                        segment.text.clone(),
+                                        segment.text_expanded,
+                                        current_sample
+                                            .and_then(|sample| segments.index_at_sample(sample))
+                                            == Some(index),
+                                        previewing_segment_index == Some(index),
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let retrying_index = if self.active_tts_operation == Some(ActiveTtsOperation::Retry) {
+                        self.active_tts_segment.as_ref().map(|active| active.index)
+                    } else {
+                        None
+                    };
+                    list.set_item_range(cx, 0, rows.len());
+                    while let Some(item_id) = list.next_visible_item(cx) {
+                        if let Some((
+                            ordinal,
+                            range,
+                            text,
+                            expanded,
+                            is_playing,
+                            is_preview_playing,
+                        )) = rows.get(item_id)
+                        {
+                            let card = list.item(cx, item_id, live_id!(SegmentCard));
+                            card.label(ids!(row.index_label)).set_text(cx, ordinal);
+                            card.label(ids!(row.range_label)).set_text(cx, range);
+                            card.label(ids!(row.playing_label)).set_text(
+                                cx,
+                                if *is_playing { self.tr("播放中", "Playing") } else { "" },
+                            );
+                            card.label(ids!(text_preview)).set_text(cx, text);
+                            card.label(ids!(text_preview)).apply_over(
+                                cx,
+                                live! {
+                                    height: (if *expanded { 72.0 } else { 0.0 })
+                                    draw_text: {
+                                        dark_mode: (self.dark_mode)
+                                        active: (if *is_playing { 1.0 } else { 0.0 })
+                                    }
+                                },
+                            );
+                            for label_path in [
+                                ids!(row.index_label),
+                                ids!(row.range_label),
+                                ids!(row.playing_label),
+                            ] {
+                                card.label(label_path).apply_over(
+                                    cx,
+                                    live! {
+                                        draw_text: {
+                                            dark_mode: (self.dark_mode)
+                                            active: (if *is_playing { 1.0 } else { 0.0 })
+                                        }
+                                    },
+                                );
+                            }
+                            for button_path in [
+                                ids!(row.download_btn),
+                                ids!(row.retry_btn),
+                            ] {
+                                card.button(button_path).apply_over(
+                                    cx,
+                                    live! {
+                                        draw_bg: {
+                                            dark_mode: (self.dark_mode)
+                                        }
+                                        draw_icon: { dark_mode: (self.dark_mode) }
+                                    },
+                                );
+                            }
+                            card.button(ids!(row.preview_btn)).apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: {
+                                        dark_mode: (self.dark_mode)
+                                        active: (if *is_preview_playing { 1.0 } else { 0.0 })
+                                        previewing: (if *is_preview_playing { 1.0 } else { 0.0 })
+                                    }
+                                },
+                            );
+                            card.button(ids!(row.retry_btn)).apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: {
+                                        active: (if retrying_index == Some(item_id) { 1.0 } else { 0.0 })
+                                    }
+                                },
+                            );
+                            card.apply_over(
+                                cx,
+                                live! { draw_bg: { dark_mode: (self.dark_mode), active: (if *is_playing { 1.0 } else { 0.0 }) } },
+                            );
+                            card.draw_all(cx, &mut Scope::empty());
                         }
                     }
                 } else if list_id == history_list_uid {
@@ -18194,6 +18677,13 @@ impl TTSScreen {
             return; // Already on this page
         }
 
+        // Floating player menus are root overlays. Close them while their player-bar
+        // anchors are still laid out, before switching away from the TTS page.
+        self.player_speed_menu_open = false;
+        self.player_action_menu_open = false;
+        self.player_segment_menu_open = false;
+        self.update_player_menu_visibility(cx);
+
         self.current_page = page;
         self.add_log(cx, &format!("[INFO] [ui] Switching to {:?} page", page));
         self.update_sidebar_nav_states(cx);
@@ -18535,6 +19025,20 @@ impl TTSScreen {
             "instruct": self.pending_generation_instruct.clone(),
         });
         let payload_text = payload.to_string();
+        let segment_index = segment_number.saturating_sub(1);
+        let Some(pending_segment) = self.pending_tts_segments.get_mut(segment_index) else {
+            self.add_log(
+                cx,
+                &format!(
+                    "[ERROR] [tts] Missing pending audio segment {}/{}",
+                    segment_number, total_segments
+                ),
+            );
+            return false;
+        };
+        pending_segment.request_payload = payload_text.clone();
+        self.active_tts_segment = Some(ActiveSegmentAssembly::new(segment_index));
+        self.active_tts_operation = Some(ActiveTtsOperation::Initial);
         let sent = self
             .dora
             .as_ref()
@@ -18548,8 +19052,285 @@ impl TTSScreen {
                     segment_number, total_segments
                 ),
             );
+            self.active_tts_segment = None;
+            self.active_tts_operation = None;
         }
         sent
+    }
+
+    fn rebuild_audio_from_tts_segments(&mut self) {
+        let Some(segments) = self.tts_audio_segments.as_ref() else {
+            return;
+        };
+        self.stored_audio_samples = segments.merged_samples();
+        self.stored_audio_sample_rate = segments.sample_rate();
+        self.rebuild_processed_audio_samples();
+    }
+
+    fn finalize_active_initial_tts_segment(&mut self, cx: &mut Cx) {
+        let Some(active) = self.active_tts_segment.take() else {
+            self.fail_pending_tts_generation(cx, "[ERROR] [tts] Missing active TTS segment");
+            return;
+        };
+        let segment_index = active.index;
+        let (samples, sample_rate) = match active.into_samples() {
+            Ok(audio) => audio,
+            Err(error) => {
+                self.fail_pending_tts_generation(
+                    cx,
+                    &format!("[ERROR] [tts] Invalid segment audio: {error:?}"),
+                );
+                return;
+            }
+        };
+        let expected_rate = self
+            .pending_tts_segments
+            .iter()
+            .find(|segment| segment.sample_rate != 0)
+            .map(|segment| segment.sample_rate);
+        if let Some(expected_rate) = expected_rate {
+            if expected_rate != sample_rate {
+                self.fail_pending_tts_generation(
+                    cx,
+                    &format!(
+                        "[ERROR] [tts] Segment sample rate mismatch: expected {}, got {}",
+                        expected_rate, sample_rate
+                    ),
+                );
+                return;
+            }
+        }
+        let Some(segment) = self.pending_tts_segments.get_mut(segment_index) else {
+            self.fail_pending_tts_generation(cx, "[ERROR] [tts] Missing pending TTS segment");
+            return;
+        };
+        segment.samples = samples;
+        segment.sample_rate = sample_rate;
+
+        self.pending_generation_dispatch.mark_received();
+        self.pending_generation_received_segments = self.pending_generation_dispatch.received;
+        self.update_generation_status(cx);
+        if !self.pending_generation_dispatch.is_complete() {
+            if !self.send_next_pending_tts_segment(cx) {
+                self.fail_pending_tts_generation(
+                    cx,
+                    "[ERROR] [tts] Failed to send next prompt segment to Dora",
+                );
+            }
+            return;
+        }
+
+        let completed_segments = std::mem::take(&mut self.pending_tts_segments);
+        let segments = match TtsAudioSegments::new(completed_segments) {
+            Ok(segments) => segments,
+            Err(error) => {
+                self.fail_pending_tts_generation(
+                    cx,
+                    &format!("[ERROR] [tts] Failed to publish audio segments: {error:?}"),
+                );
+                return;
+            }
+        };
+        self.tts_audio_segments = Some(segments);
+        self.rebuild_audio_from_tts_segments();
+        let sample_count = self.effective_audio_samples().len();
+        let effective_rate = self.effective_audio_sample_rate();
+        let duration_secs = if effective_rate > 0 {
+            sample_count as f32 / effective_rate as f32
+        } else {
+            0.0
+        };
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [tts] Audio generated: {} samples, {:.1}s duration",
+                sample_count, duration_secs
+            ),
+        );
+        self.tts_status = TTSStatus::Ready;
+        self.audio_playing_time = 0.0;
+        self.has_generated_audio = true;
+        let generated_voice_id = self
+            .pending_generation_voice_id
+            .clone()
+            .or_else(|| self.selected_voice_id.clone());
+        if let Some(voice_id) = generated_voice_id {
+            self.apply_generated_voice_to_player_bar(cx, &voice_id, None);
+        }
+        self.append_current_generation_to_history(cx);
+        self.clear_pending_generation_snapshot();
+        self.set_generate_button_loading(cx, false);
+        self.update_player_bar(cx);
+    }
+
+    fn fail_active_tts_retry(&mut self, cx: &mut Cx, message: &str) {
+        self.active_tts_segment = None;
+        self.active_tts_operation = None;
+        self.tts_status = TTSStatus::Ready;
+        self.set_generate_button_loading(cx, false);
+        self.add_log(cx, message);
+        self.show_toast(
+            cx,
+            self.tr("分段重试失败，可再次重试", "Segment retry failed; try again"),
+        );
+        self.update_player_bar(cx);
+    }
+
+    fn finalize_active_tts_retry(&mut self, cx: &mut Cx) {
+        let Some(active) = self.active_tts_segment.take() else {
+            self.fail_active_tts_retry(cx, "[ERROR] [tts] Missing active retry segment");
+            return;
+        };
+        let segment_index = active.index;
+        let (samples, sample_rate) = match active.into_samples() {
+            Ok(audio) => audio,
+            Err(error) => {
+                self.fail_active_tts_retry(
+                    cx,
+                    &format!("[ERROR] [tts] Invalid retry audio: {error:?}"),
+                );
+                return;
+            }
+        };
+        let Some(segments) = self.tts_audio_segments.as_mut() else {
+            self.fail_active_tts_retry(cx, "[ERROR] [tts] No audio segments available to retry");
+            return;
+        };
+        if let Err(error) = segments.apply_retry(
+            segment_index,
+            RetryCommit::Replace {
+                samples,
+                sample_rate,
+            },
+        ) {
+            self.fail_active_tts_retry(
+                cx,
+                &format!("[ERROR] [tts] Failed to replace retry segment: {error:?}"),
+            );
+            return;
+        }
+        let start_time = segments.start_time_secs(segment_index).unwrap_or(0.0);
+        self.active_tts_operation = None;
+        self.rebuild_audio_from_tts_segments();
+        self.tts_status = TTSStatus::Ready;
+        self.set_generate_button_loading(cx, false);
+        if self.start_playback_from_time(cx, start_time) {
+            self.add_log(
+                cx,
+                &format!(
+                    "[INFO] [tts] Replaced segment {} and started playback at {:.1}s",
+                    segment_index + 1,
+                    start_time
+                ),
+            );
+        }
+        self.update_player_bar(cx);
+    }
+
+    fn retry_tts_segment(&mut self, cx: &mut Cx, segment_index: usize) {
+        if self.tts_status == TTSStatus::Generating {
+            return;
+        }
+        let Some(payload) = self
+            .tts_audio_segments
+            .as_ref()
+            .and_then(|segments| segments.segment(segment_index))
+            .map(|segment| segment.request_payload.clone())
+        else {
+            self.show_toast(cx, self.tr("找不到音频分段", "Audio segment not found"));
+            return;
+        };
+        if payload.is_empty() {
+            self.show_toast(
+                cx,
+                self.tr("该分段没有可重试的请求", "This segment has no retry request"),
+            );
+            return;
+        }
+        if self.dora.is_none() {
+            self.show_toast(cx, self.tr("TTS 引擎未就绪", "TTS engine is not ready"));
+            return;
+        }
+        self.stop_preview_playback(cx);
+        if let Some(player) = &self.audio_player {
+            player.stop();
+        }
+        self.active_tts_segment = Some(ActiveSegmentAssembly::new(segment_index));
+        self.active_tts_operation = Some(ActiveTtsOperation::Retry);
+        self.tts_status = TTSStatus::Generating;
+        self.set_generate_button_loading(cx, true);
+        let dora = self.dora.as_ref().expect("Dora availability was checked");
+        let _ = dora.shared_dora_state().audio.drain();
+        dora.shared_dora_state().tts_segment_events.clear();
+        if !dora.send_prompt(payload) {
+            self.fail_active_tts_retry(cx, "[ERROR] [tts] Failed to send segment retry to Dora");
+            return;
+        }
+        self.update_player_bar(cx);
+    }
+
+    fn preview_tts_segment(&mut self, cx: &mut Cx, segment_index: usize) {
+        if self.tts_status == TTSStatus::Generating {
+            return;
+        }
+        let preview_id = format!("tts-segment-{}", segment_index);
+        if self.preview_playing_voice_id.as_deref() == Some(preview_id.as_str()) {
+            if self.segment_preview_playing {
+                if let Some(player) = &self.preview_player {
+                    player.pause();
+                }
+                self.segment_preview_playing = false;
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [tts] Paused segment {}", segment_index + 1),
+                );
+            } else {
+                self.stop_main_playback_for_preview(cx);
+                if let Some(player) = &self.preview_player {
+                    player.resume();
+                }
+                self.segment_preview_playing = true;
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [tts] Resumed segment {}", segment_index + 1),
+                );
+            }
+            self.update_player_bar(cx);
+            self.view.redraw(cx);
+            return;
+        }
+        let Some((samples, sample_rate)) = self
+            .tts_audio_segments
+            .as_ref()
+            .and_then(|segments| segments.segment(segment_index))
+            .map(|segment| (segment.samples.clone(), segment.sample_rate))
+        else {
+            self.show_toast(cx, self.tr("找不到音频分段", "Audio segment not found"));
+            return;
+        };
+        if samples.is_empty() || sample_rate == 0 {
+            self.show_toast(cx, self.tr("该分段没有音频", "This segment has no audio"));
+            return;
+        }
+        self.stop_main_playback_for_preview(cx);
+        if let Some(player) = &self.preview_player {
+            player.stop();
+        }
+        let player = TTSPlayer::new_with_output_device(
+            sample_rate,
+            self.app_preferences.preferred_output_device.as_deref(),
+        );
+        player.write_audio(&samples);
+        player.resume();
+        self.preview_player = Some(player);
+        self.preview_playing_voice_id = Some(preview_id);
+        self.segment_preview_playing = true;
+        self.add_log(
+            cx,
+            &format!("[INFO] [tts] Previewing segment {}", segment_index + 1),
+        );
+        self.update_player_bar(cx);
+        self.view.redraw(cx);
     }
 
     fn fail_pending_tts_generation(&mut self, cx: &mut Cx, message: &str) {
@@ -18685,6 +19466,9 @@ impl TTSScreen {
         self.pending_generation_expected_segments = 0;
         self.pending_generation_received_segments = 0;
         self.pending_generation_dispatch.clear();
+        self.pending_tts_segments.clear();
+        self.active_tts_segment = None;
+        self.active_tts_operation = None;
     }
 
     fn update_audio_player_visibility(&mut self, cx: &mut Cx) {
@@ -18751,6 +19535,10 @@ impl TTSScreen {
     fn update_player_bar(&mut self, cx: &mut Cx) {
         self.update_audio_player_visibility(cx);
 
+        self.view
+            .label(ids!(player_segment_menu.segment_header.segment_title))
+            .set_text(cx, self.tr("音频分段", "Audio Segments"));
+
         // Update status label
         let status_text = match self.tts_status {
             TTSStatus::Idle => self.tr("就绪", "Ready"),
@@ -18772,12 +19560,43 @@ impl TTSScreen {
         let audio_len = self.effective_audio_samples().len();
         let effective_rate = self.effective_audio_sample_rate();
         let has_playable_audio = self.has_generated_audio && audio_len > 0 && effective_rate > 0;
+        let is_english = self.is_english();
+        let segment_summary = self
+            .tts_audio_segments
+            .as_ref()
+            .map(|segments| {
+                let duration = if effective_rate > 0 {
+                    audio_len as f32 / effective_rate as f32
+                } else {
+                    0.0
+                };
+                let count = if is_english {
+                    format!("{} segments", segments.len())
+                } else {
+                    format!("{} 段", segments.len())
+                };
+                format!("{} · {}", count, Self::format_duration(duration))
+            })
+            .unwrap_or_default();
+        self.view
+            .label(ids!(player_segment_menu.segment_header.segment_summary))
+            .set_text(cx, &segment_summary);
         let controls_enabled = has_playable_audio && self.tts_status != TTSStatus::Generating;
         if !controls_enabled {
             self.player_speed_menu_open = false;
             self.player_action_menu_open = false;
+            self.player_segment_menu_open = false;
         }
 
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .action_buttons_row
+                    .segment_menu_btn
+            ))
+            .set_enabled(cx, controls_enabled && self.tts_audio_segments.is_some());
         self.view
             .button(ids!(
                 content_wrapper
@@ -18966,7 +19785,7 @@ impl TTSScreen {
             .apply_over(
                 cx,
                 live! {
-                    draw_bg: { active: (if self.player_action_menu_open { 1.0 } else { 0.0 }) }
+                    draw_bg: { dark_mode: (self.dark_mode) active: 1.0 }
                 },
             );
         for (idx, path) in [
@@ -19055,12 +19874,54 @@ impl TTSScreen {
                 .view(ids!(player_action_menu))
                 .apply_over(cx, live! { abs_pos: (action_menu_pos) });
         }
+        if self.player_segment_menu_open {
+            let segment_anchor = self
+                .view
+                .button(ids!(
+                    content_wrapper
+                        .audio_player_bar
+                        .download_section
+                        .action_buttons_row
+                        .segment_menu_btn
+                ))
+                .area()
+                .rect(cx);
+            let segment_menu_pos = player_menu_abs_pos(
+                segment_anchor,
+                PLAYER_SEGMENT_MENU_WIDTH,
+                PLAYER_SEGMENT_MENU_HEIGHT,
+            );
+            self.view
+                .view(ids!(player_segment_menu))
+                .apply_over(cx, live! { abs_pos: (segment_menu_pos) });
+        }
         self.view
             .view(ids!(player_speed_menu))
             .set_visible(cx, self.player_speed_menu_open);
         self.view
             .view(ids!(player_action_menu))
             .set_visible(cx, self.player_action_menu_open);
+        self.view
+            .view(ids!(player_segment_menu))
+            .set_visible(cx, self.player_segment_menu_open);
+        self.view
+            .button(ids!(
+                content_wrapper
+                    .audio_player_bar
+                    .download_section
+                    .action_buttons_row
+                    .segment_menu_btn
+            ))
+            .apply_over(
+                cx,
+                live! {
+                    draw_bg: {
+                        dark_mode: (self.dark_mode)
+                        active: (if self.player_segment_menu_open { 1.0 } else { 0.0 })
+                    }
+                    draw_icon: { dark_mode: (self.dark_mode) }
+                },
+            );
         self.view
             .button(ids!(
                 content_wrapper
@@ -19086,7 +19947,7 @@ impl TTSScreen {
             .apply_over(
                 cx,
                 live! {
-                    draw_bg: { active: (if self.player_action_menu_open { 1.0 } else { 0.0 }) }
+                    draw_bg: { dark_mode: (self.dark_mode) active: 1.0 }
                 },
             );
         self.view.redraw(cx);
@@ -19405,6 +20266,8 @@ impl TTSScreen {
                 self.stored_audio_samples = samples;
                 self.processed_audio_samples.clear();
                 self.stored_audio_sample_rate = entry.sample_rate.max(1);
+                self.tts_audio_segments = None;
+                self.player_segment_menu_open = false;
                 self.audio_playing_time = 0.0;
                 self.tts_status = TTSStatus::Ready;
                 self.has_generated_audio = true;
@@ -19581,6 +20444,39 @@ impl TTSScreen {
         Some(requested_secs.clamp(0.0, max_start))
     }
 
+    fn stop_main_playback_for_preview(&mut self, cx: &mut Cx) {
+        if let Some(player) = &self.audio_player {
+            player.stop();
+        }
+        if self.tts_status == TTSStatus::Playing {
+            self.tts_status = TTSStatus::Ready;
+            self.update_playback_progress(cx);
+        }
+    }
+
+    fn stop_preview_playback(&mut self, cx: &mut Cx) {
+        if let Some(player) = &self.preview_player {
+            player.stop();
+        }
+        self.segment_preview_playing = false;
+        if self.preview_playing_voice_id.take().is_some() {
+            let voice_selector = self.view.voice_selector(ids!(
+                content_wrapper
+                    .main_content
+                    .left_column
+                    .content_area
+                    .tts_page
+                    .cards_container
+                    .controls_panel
+                    .settings_panel
+                    .voice_section
+                    .voice_selector
+            ));
+            voice_selector.set_preview_playing(cx, None);
+            self.update_voice_picker_controls(cx);
+        }
+    }
+
     fn start_playback_from_time(&mut self, cx: &mut Cx, start_time_secs: f64) -> bool {
         let playback_samples = self.effective_audio_samples().to_vec();
         let effective_rate = self.effective_audio_sample_rate();
@@ -19598,6 +20494,7 @@ impl TTSScreen {
         let prepared_samples =
             Self::time_stretch_preserve_pitch(remaining_samples, self.player_playback_rate);
 
+        self.stop_preview_playback(cx);
         if let Some(player) = &self.audio_player {
             player.stop();
             self.apply_player_audio_settings();
@@ -22639,6 +23536,18 @@ impl TTSScreen {
     }
 
     fn generate_speech(&mut self, cx: &mut Cx) {
+        if self.tts_status == TTSStatus::Generating {
+            self.add_log(
+                cx,
+                "[INFO] [tts] Generation is already in progress; ignoring new request",
+            );
+            self.show_toast(
+                cx,
+                self.tr("生成中，请稍候", "Generation already in progress"),
+            );
+            return;
+        }
+
         // Qwen backend currently does not support VOICE:TRAINED prompt format.
         let selected_voice_is_trained = self
             .selected_voice_id
@@ -22850,12 +23759,10 @@ impl TTSScreen {
         }
         self.add_log(cx, "========== VOICE DEBUG END ==========");
 
-        // Clear previous audio
-        self.stored_audio_samples.clear();
-        self.processed_audio_samples.clear();
-        self.stored_audio_sample_rate = 32000;
+        // Keep the published result intact until every new segment completes.
         if let Some(dora) = &self.dora {
             let _ = dora.shared_dora_state().audio.drain();
+            dora.shared_dora_state().tts_segment_events.clear();
         }
 
         self.tts_status = TTSStatus::Generating;
@@ -22879,6 +23786,11 @@ impl TTSScreen {
         let expected_segments = text_segments.len();
         self.pending_generation_expected_segments = expected_segments;
         self.pending_generation_received_segments = 0;
+        self.pending_tts_segments = text_segments
+            .iter()
+            .map(|text| TtsAudioSegment::pending(text, ""))
+            .collect();
+        self.active_tts_segment = None;
         self.pending_generation_dispatch = TtsSegmentDispatch::new(text_segments);
         self.update_generation_status(cx);
         if expected_segments > 1 {
@@ -23024,6 +23936,27 @@ impl TTSScreen {
                         cx,
                         self.tr("暂无可下载音频", "No audio available to download"),
                     );
+                    return;
+                }
+            }
+            DownloadSource::Segment(index) => {
+                if self.tts_status == TTSStatus::Generating {
+                    self.show_toast(
+                        cx,
+                        self.tr(
+                            "生成中，暂不可下载",
+                            "Downloading is disabled while generating",
+                        ),
+                    );
+                    return;
+                }
+                if self
+                    .tts_audio_segments
+                    .as_ref()
+                    .and_then(|segments| segments.segment(*index))
+                    .is_none()
+                {
+                    self.show_toast(cx, self.tr("找不到音频分段", "Audio segment not found"));
                     return;
                 }
             }
@@ -23238,6 +24171,7 @@ impl TTSScreen {
 
         let saved_path = match source {
             DownloadSource::CurrentAudio => self.export_current_audio(cx, format),
+            DownloadSource::Segment(index) => self.export_tts_segment_audio(cx, index, format),
             DownloadSource::History(entry_id) => self.export_history_audio(cx, &entry_id, format),
         };
 
@@ -23382,6 +24316,50 @@ impl TTSScreen {
                         "[ERROR] [download] Failed to export current audio: {}",
                         error
                     ),
+                );
+                self.show_toast(cx, self.tr("下载失败", "Download failed"));
+                None
+            }
+        }
+    }
+
+    fn export_tts_segment_audio(
+        &mut self,
+        cx: &mut Cx,
+        segment_index: usize,
+        format: DownloadFormat,
+    ) -> Option<PathBuf> {
+        let (samples, sample_rate) = self
+            .tts_audio_segments
+            .as_ref()
+            .and_then(|segments| segments.segment(segment_index))
+            .map(|segment| (segment.samples.clone(), segment.sample_rate))?;
+        if samples.is_empty() || sample_rate == 0 {
+            self.show_toast(cx, self.tr("暂无可下载音频", "No audio available to download"));
+            return None;
+        }
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        let filename = format!(
+            "tts_segment_{}_{}.{}",
+            segment_index + 1,
+            timestamp,
+            Self::download_format_extension(format)
+        );
+        let target = Self::export_path_for_filename(&filename);
+        let export_result = match format {
+            DownloadFormat::Wav => Self::write_wav_file_with_sample_rate(&target, &samples, sample_rate)
+                .map_err(|error| error.to_string()),
+            DownloadFormat::Mp3 => Self::write_mp3_file_from_samples(&target, &samples, sample_rate),
+        };
+        match export_result {
+            Ok(()) => Some(target),
+            Err(error) => {
+                self.add_log(
+                    cx,
+                    &format!("[ERROR] [download] Failed to export segment audio: {error}"),
                 );
                 self.show_toast(cx, self.tr("下载失败", "Download failed"));
                 None
@@ -25244,6 +26222,15 @@ impl TTSScreen {
         self.view
             .view(ids!(player_action_menu))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(player_segment_menu))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(player_segment_menu.segment_header.segment_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(player_segment_menu.segment_header.segment_summary))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         for path in [
             ids!(player_speed_menu.speed_075_btn),
             ids!(player_speed_menu.speed_100_btn),
@@ -28958,8 +29945,8 @@ mod tests {
             "PlayerSpeedBtn = <Button>",
             "speed_menu_btn = <PlayerSpeedBtn>",
             "player_speed_menu = <PlayerFloatingMenu>",
-            "PlayerMoreBtn = <Button>",
-            "action_menu_btn = <PlayerMoreBtn>",
+            "PlayerActionMenuTriggerBtn = <PlayerSegmentBtn>",
+            "action_menu_btn = <PlayerActionMenuTriggerBtn>",
             "player_action_menu = <PlayerFloatingMenu>",
         ] {
             assert!(
@@ -28967,6 +29954,518 @@ mod tests {
                 "bottom player should expose {marker}"
             );
         }
+    }
+
+    #[test]
+    fn player_bar_exposes_segment_popover_and_actions() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+
+        for marker in [
+            "segment_menu_btn = <PlayerSegmentBtn>",
+            "player_segment_menu = <PlayerFloatingMenu>",
+            "segment_portal_list = <PortalList>",
+            "self.retry_tts_segment(cx, item_idx)",
+            "self.preview_tts_segment(cx, item_idx)",
+            "DownloadSource::Segment(item_idx)",
+        ] {
+            assert!(source.contains(marker), "missing segment player UI: {marker}");
+        }
+    }
+
+    #[test]
+    fn switching_pages_closes_player_floating_menus_before_hiding_their_anchors() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let switch_page = source
+            .split("fn switch_page(&mut self, cx: &mut Cx, page: AppPage)")
+            .nth(1)
+            .expect("page switch handler should exist")
+            .split("fn update_audio_player_visibility")
+            .next()
+            .unwrap();
+
+        for marker in [
+            "self.player_speed_menu_open = false",
+            "self.player_action_menu_open = false",
+            "self.player_segment_menu_open = false",
+            "self.update_player_menu_visibility(cx)",
+        ] {
+            assert!(switch_page.contains(marker), "page switch should run {marker}");
+        }
+        assert!(
+            switch_page.find("self.update_player_menu_visibility(cx)").unwrap()
+                < switch_page.find("self.current_page = page").unwrap(),
+            "floating menus must close before their page anchors are hidden"
+        );
+    }
+
+    #[test]
+    fn segment_popover_is_refreshed_for_language_and_theme_changes() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let player_bar = source
+            .split("fn update_player_bar(&mut self, cx: &mut Cx)")
+            .nth(1)
+            .expect("player bar updater should exist")
+            .split("fn update_player_progress")
+            .next()
+            .unwrap();
+        assert!(player_bar.contains("self.tr(\"音频分段\", \"Audio Segments\")"));
+        assert!(player_bar.contains("format!(\"{} 段\", segments.len())"));
+        assert!(player_bar.contains("format!(\"{} segments\", segments.len())"));
+
+        let dark_mode = source
+            .split("fn apply_dark_mode(&mut self, cx: &mut Cx)")
+            .nth(1)
+            .expect("dark mode updater should exist")
+            .split("fn get_voice_picker_voices")
+            .next()
+            .unwrap();
+        for marker in [
+            "ids!(player_segment_menu)",
+            "ids!(player_segment_menu.segment_header.segment_title)",
+            "ids!(player_segment_menu.segment_header.segment_summary)",
+        ] {
+            assert!(dark_mode.contains(marker), "theme refresh should update {marker}");
+        }
+    }
+
+    #[test]
+    fn player_bar_uses_distinct_segment_icons_and_readable_text() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+
+        assert!(source.contains("PlayerSegmentBtn = <Button>"));
+        assert!(!source.contains("PlayerSegmentBtn = <PlayerMoreBtn>"));
+        assert!(source.contains("PlayerSegmentActionBtn = <Button>"));
+        assert!(source.contains("SegmentPrimaryLabel = <Label>"));
+        assert!(source.contains("SegmentTextPreview = <Label>"));
+        let segment_menu = source
+            .split("player_segment_menu = <PlayerFloatingMenu>")
+            .nth(1)
+            .expect("segment menu should exist")
+            .split("// Voice clone modal")
+            .next()
+            .unwrap();
+        for text_button in [
+            "text: \"Play\"",
+            "text: \"Download\"",
+            "text: \"Text\"",
+            "text: \"Retry\"",
+        ] {
+            assert!(
+                !segment_menu.contains(text_button),
+                "segment actions should use icons instead of {text_button}"
+            );
+        }
+        assert!(!segment_menu.contains("expand_btn"));
+    }
+
+    #[test]
+    fn clicking_a_segment_card_toggles_its_text_without_an_expand_button() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let handler = source
+            .split("if self.player_segment_menu_open {")
+            .nth(1)
+            .expect("segment menu event handler should exist")
+            .split("// Handle clear logs")
+            .next()
+            .unwrap();
+
+        assert!(handler.contains("items_with_actions(&actions)"));
+        assert!(handler.contains("item\n                    .as_view()"));
+        assert!(handler.contains(".finger_up(&actions)"));
+        assert!(!handler.contains("event.hits(cx"));
+        assert!(handler.contains("segment.text_expanded = !segment.text_expanded"));
+        assert!(!handler.contains("expand_area"));
+        assert!(!handler.contains("start_playback_from_time"));
+
+        let card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("row = <View>")
+            .next()
+            .unwrap();
+        assert!(card.contains("cursor: Hand"));
+    }
+
+    #[test]
+    fn segment_popover_uses_svg_icons_bordered_cards_and_settings_shadow() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+
+        for asset in [
+            "resources/icons/segments.svg",
+            "resources/icons/segment-play.svg",
+            "resources/icons/segment-pause.svg",
+            "resources/icons/segment-download.svg",
+            "resources/icons/segment-retry.svg",
+        ] {
+            assert!(source.contains(asset), "missing segment SVG asset: {asset}");
+        }
+
+        let segment_card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("row = <View>")
+            .next()
+            .unwrap();
+        assert!(segment_card.contains("let border ="));
+        assert!(segment_card.contains("sdf.stroke(border, 1.0)"));
+
+        let menu = source
+            .split("PlayerFloatingMenu = <View>")
+            .nth(1)
+            .expect("floating menu should exist")
+            .split("PlayerMenuItemBtn = <Button>")
+            .next()
+            .unwrap();
+        assert!(menu.contains("sdf.box(1., 1., self.rect_size.x - 2., self.rect_size.y - 2."));
+        assert!(menu.contains("vec4(0.05, 0.10, 0.20, 0.07)"));
+    }
+
+    #[test]
+    fn segment_popover_matches_the_settings_flyout_shadow() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let segment_card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("row = <View>")
+            .next()
+            .unwrap();
+        let menu = source
+            .split("PlayerFloatingMenu = <View>")
+            .nth(1)
+            .expect("floating menu should exist")
+            .split("PlayerMenuItemBtn = <Button>")
+            .next()
+            .unwrap();
+
+        assert!(segment_card.contains("show_bg: true"));
+        assert!(menu.contains("sdf.box(1., 1., self.rect_size.x - 2., self.rect_size.y - 2."));
+        assert!(menu.contains("sdf.box(3., 3., self.rect_size.x - 6., self.rect_size.y - 6."));
+        assert!(menu.contains("sdf.box(4.5, 4.5, self.rect_size.x - 9., self.rect_size.y - 9."));
+        assert!(menu.contains("vec4(0.05, 0.10, 0.20, 0.07)"));
+        assert!(!menu.contains("shadow_distance"));
+        assert!(menu.contains("padding: {left: 16, right: 16, top: 16, bottom: 18}"));
+        assert!(source.contains("icon_walk: {width: 20, height: 20}"));
+    }
+
+    #[test]
+    fn segment_card_uses_a_filled_border_ring_for_contrast() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let segment_card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("row = <View>")
+            .next()
+            .unwrap();
+
+        assert!(segment_card.contains("sdf.fill(border);"));
+        assert!(segment_card.contains("sdf.box(1.5, 1.5"));
+    }
+
+    #[test]
+    fn segment_icon_assets_use_makepad_compatible_lucide_fill_paths() {
+        for asset in [
+            include_str!("../resources/icons/segments.svg"),
+            include_str!("../resources/icons/segment-play.svg"),
+            include_str!("../resources/icons/segment-pause.svg"),
+            include_str!("../resources/icons/segment-download.svg"),
+            include_str!("../resources/icons/segment-retry.svg"),
+        ] {
+            assert!(asset.contains("fill=\"currentColor\""));
+            assert!(!asset.contains("stroke="));
+            assert!(asset.contains('Q'));
+            assert!(asset.contains("lucide-1-5px"));
+        }
+    }
+
+    #[test]
+    fn segment_preview_button_toggles_pause_and_resume_state() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let preview = source
+            .split("fn preview_tts_segment")
+            .nth(1)
+            .expect("segment preview function should exist")
+            .split("fn fail_pending_tts_generation")
+            .next()
+            .unwrap();
+        assert!(preview.contains("player.pause()"));
+        assert!(preview.contains("player.resume()"));
+        assert!(preview.contains("preview_playing_voice_id.as_deref() == Some(preview_id.as_str())"));
+
+        let card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("text_preview = <SegmentTextPreview>")
+            .next()
+            .unwrap();
+        assert!(card.contains("preview_btn = <PlayerSegmentPreviewBtn>"));
+        assert!(card.contains("download_btn = <PlayerSegmentDownloadBtn>"));
+        assert!(!card.contains("preview_pause_btn"));
+        assert_eq!(card.matches("padding: {left: 1, right: 0, top: 0, bottom: 0}").count(), 0);
+        assert!(source.contains("segment_preview_playing: bool"));
+        assert!(preview.contains("self.segment_preview_playing = false"));
+        assert!(preview.contains("self.segment_preview_playing = true"));
+        assert!(preview.matches("self.view.redraw(cx);").count() >= 2);
+        assert!(source.contains("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>"));
+        assert!(source.contains("instance previewing: 0.0"));
+        assert!(source.contains("previewing: (if *is_preview_playing { 1.0 } else { 0.0 })"));
+    }
+
+    #[test]
+    fn segment_actions_stay_right_aligned_after_the_flexible_row_spacer() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let row = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("text_preview = <SegmentTextPreview>")
+            .next()
+            .unwrap();
+
+        let spacer = row
+            .find("<View> { width: Fill, height: 1 }")
+            .expect("segment row should retain a flexible trailing spacer");
+        for button in ["preview_btn = <PlayerSegmentPreviewBtn>", "download_btn = <PlayerSegmentDownloadBtn>"] {
+            assert!(
+                row.find(button).expect("segment action should exist") > spacer,
+                "{button} should be placed after the flexible spacer"
+            );
+        }
+        assert!(!row.contains("padding: {left: 1, right: 0, top: 0, bottom: 0}"));
+    }
+
+    #[test]
+    fn segment_icon_buttons_center_thin_neutral_icons() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        for button_name in ["PlayerSegmentBtn = <Button>", "PlayerSegmentActionBtn = <Button>"] {
+            let button = source
+                .split(button_name)
+                .nth(1)
+                .expect("segment icon button should exist")
+                .split("draw_text:")
+                .next()
+                .unwrap();
+            assert!(button.contains("align: {x: 0.5, y: 0.5}"));
+            assert!(button.contains("label_walk: {width: 0, height: 0}"));
+            assert!(button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
+        }
+        let preview_button = source
+            .split("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>")
+            .nth(1)
+            .expect("segment preview button should exist")
+            .split("SegmentPrimaryLabel = <Label>")
+            .next()
+            .unwrap();
+        assert!(preview_button.contains("sdf.box(10.5, 9.0, 4.0, 14.0, 1.0)"));
+        assert!(preview_button.contains("sdf.box(17.5, 9.0, 4.0, 14.0, 1.0)"));
+        assert!(preview_button.contains("sdf.move_to(12.0, 8.5)"));
+        let download_button = source
+            .split("PlayerSegmentDownloadBtn = <PlayerSegmentActionBtn>")
+            .nth(1)
+            .expect("segment download button should exist")
+            .split("SegmentPrimaryLabel = <Label>")
+            .next()
+            .unwrap();
+        assert!(download_button.contains("svg_file: (ICO_TTS_SEGMENT_DOWNLOAD)"));
+        assert!(download_button.contains("margin: {left: 6, right: 6, top: 6, bottom: 6}"));
+        let action_button = source
+            .split("PlayerSegmentActionBtn = <Button>")
+            .nth(1)
+            .expect("segment action button should exist")
+            .split("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>")
+            .next()
+            .unwrap();
+        assert!(action_button.contains("margin: {left: 6, right: 6, top: 6, bottom: 6}"));
+    }
+
+    #[test]
+    fn download_share_menu_trigger_uses_the_open_segment_button_color() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let more_button = source
+            .split("PlayerActionMenuTriggerBtn = <PlayerSegmentBtn>")
+            .nth(1)
+            .expect("download/share menu trigger should exist")
+            .split("SegmentPrimaryLabel = <Label>")
+            .next()
+            .unwrap();
+        assert!(more_button.contains("draw_icon: { svg_file: (ICO_TTS_ACTION_MENU) }"));
+
+        let segment_button = source
+            .split("PlayerSegmentBtn = <Button>")
+            .nth(1)
+            .expect("segment menu trigger should exist")
+            .split("PlayerSegmentActionBtn = <Button>")
+            .next()
+            .unwrap();
+        assert!(segment_button.contains("icon_walk: {width: 16, height: 16, margin: {left: 9, right: 9, top: 9, bottom: 9}}"));
+        for marker in [
+            "let base = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);",
+            "let hover_color = mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);",
+            "let pressed_color = mix((PRIMARY_700), (PRIMARY_500), self.dark_mode);",
+            "return (WHITE);",
+        ] {
+            assert!(segment_button.contains(marker), "missing primary player style: {marker}");
+        }
+    }
+
+    #[test]
+    fn download_share_menu_is_positioned_using_its_full_rendered_height() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(source.contains("const PLAYER_ACTION_MENU_HEIGHT: f64 = 96.0;"));
+        assert!(source.contains("padding: {left: 16, right: 16, top: 16, bottom: 18}"));
+    }
+
+    #[test]
+    fn segment_popover_has_a_readable_title() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let header = source
+            .split("segment_header = <View>")
+            .nth(1)
+            .expect("segment header should exist")
+            .split("segment_portal_list = <PortalList>")
+            .next()
+            .unwrap();
+        assert!(header.contains("text: \"Audio Segments\""));
+        assert!(header.contains("return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode)"));
+    }
+
+    #[test]
+    fn segment_preview_and_main_playback_stop_each_other() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let preview = source
+            .split("fn preview_tts_segment")
+            .nth(1)
+            .expect("segment preview handler should exist")
+            .split("fn fail_pending_tts_generation")
+            .next()
+            .unwrap();
+        let main_playback = source
+            .split("fn start_playback_from_time")
+            .nth(1)
+            .expect("main playback handler should exist")
+            .split("fn seek_playback_to_ratio")
+            .next()
+            .unwrap();
+
+        assert!(preview.contains("self.stop_main_playback_for_preview(cx)"));
+        assert!(main_playback.contains("self.stop_preview_playback(cx)"));
+    }
+
+    #[test]
+    fn segment_highlight_requires_active_main_playback() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let segment_list_render = source
+            .split("} else if list_id == segment_list_uid")
+            .nth(1)
+            .expect("segment list rendering should exist")
+            .split("} else if list_id == history_list_uid")
+            .next()
+            .unwrap();
+
+        assert!(segment_list_render.contains("self.tts_status == TTSStatus::Playing"));
+    }
+
+    #[test]
+    fn tts_generation_cannot_replace_an_active_segment_retry() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let generate = source
+            .split("fn generate_speech")
+            .nth(1)
+            .expect("generation handler should exist")
+            .split("fn toggle_playback")
+            .next()
+            .unwrap();
+        let retry = source
+            .split("fn retry_tts_segment")
+            .nth(1)
+            .expect("segment retry handler should exist")
+            .split("fn preview_tts_segment")
+            .next()
+            .unwrap();
+        let retry_failure = source
+            .split("fn fail_active_tts_retry")
+            .nth(1)
+            .expect("retry failure handler should exist")
+            .split("fn finalize_active_tts_retry")
+            .next()
+            .unwrap();
+
+        assert!(generate.contains("if self.tts_status == TTSStatus::Generating"));
+        assert!(retry.contains("self.set_generate_button_loading(cx, true)"));
+        assert!(retry_failure.contains("self.set_generate_button_loading(cx, false)"));
+    }
+
+    #[test]
+    fn loading_history_clears_the_current_segment_actions() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let history_load = source
+            .split("fn load_history_entry_into_player")
+            .nth(1)
+            .expect("history load handler should exist")
+            .split("fn open_download_modal")
+            .next()
+            .unwrap();
+
+        assert!(history_load.contains("self.tts_audio_segments = None"));
+        assert!(history_load.contains("self.player_segment_menu_open = false"));
     }
 
     #[test]
@@ -29001,7 +30500,10 @@ mod tests {
         let bar = live_design
             .split("audio_player_bar = <View>")
             .nth(1)
-            .expect("audio player bar should exist");
+            .expect("audio player bar should exist")
+            .split("} // End audio_player_bar")
+            .next()
+            .expect("audio player bar should have an end marker");
         let playback_controls = bar
             .split("playback_controls = <View>")
             .nth(1)
@@ -29051,7 +30553,7 @@ mod tests {
             "playback rate should use a visible speed button"
         );
         assert!(
-            bar.contains("action_menu_btn = <PlayerMoreBtn>"),
+            bar.contains("action_menu_btn = <PlayerActionMenuTriggerBtn>"),
             "download/share should be collected behind the right menu"
         );
         assert!(
@@ -29061,11 +30563,12 @@ mod tests {
             "speed and more buttons should render with circle geometry instead of oversized box radius"
         );
         assert!(
-            live_design.contains("sdf.box(3.0, 4.0, self.rect_size.x, self.rect_size.y, 5.0)"),
-            "floating menus should render a visible shadow"
+            live_design.contains("sdf.box(1., 1., self.rect_size.x - 2., self.rect_size.y - 2.")
+                && live_design.contains("vec4(0.05, 0.10, 0.20, 0.07)"),
+            "floating menus should match the settings flyout shadow"
         );
         assert!(
-            live_design.contains("sdf.stroke(border, 1.0)"),
+            live_design.contains("sdf.stroke(mix(vec4(0.74, 0.80, 0.90, 1.0)"),
             "floating menus should render a visible border"
         );
         assert!(
