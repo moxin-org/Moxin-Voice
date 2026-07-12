@@ -551,6 +551,7 @@ live_design! {
 
     ICO_TTS_SEGMENTS = dep("crate://self/resources/icons/segments.svg")
     ICO_TTS_SEGMENT_PLAY = dep("crate://self/resources/icons/segment-play.svg")
+    ICO_TTS_SEGMENT_PAUSE = dep("crate://self/resources/icons/segment-pause.svg")
     ICO_TTS_SEGMENT_DOWNLOAD = dep("crate://self/resources/icons/segment-download.svg")
     ICO_TTS_SEGMENT_RETRY = dep("crate://self/resources/icons/segment-retry.svg")
     use crate::voice_selector::VoiceSelector;
@@ -7947,8 +7948,19 @@ live_design! {
                         range_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "00:00–00:00" }
                         playing_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "" }
                         <View> { width: Fill, height: 1 }
-                        preview_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_PLAY) } }
-                        download_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) } }
+                        preview_btn = <PlayerSegmentActionBtn> {
+                            padding: {left: 1, right: 0, top: 0, bottom: 0}
+                            draw_icon: { svg_file: (ICO_TTS_SEGMENT_PLAY) }
+                        }
+                        preview_pause_btn = <PlayerSegmentActionBtn> {
+                            visible: false
+                            padding: {left: 1, right: 0, top: 0, bottom: 0}
+                            draw_icon: { svg_file: (ICO_TTS_SEGMENT_PAUSE) }
+                        }
+                        download_btn = <PlayerSegmentActionBtn> {
+                            padding: {left: 1, right: 0, top: 0, bottom: 0}
+                            draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) }
+                        }
                         retry_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_RETRY) } }
                     }
 
@@ -10499,6 +10511,7 @@ impl Widget for TTSScreen {
                         ));
                         voice_selector.set_preview_playing(cx, None);
                         self.update_voice_picker_controls(cx);
+                        self.update_player_bar(cx);
                         self.add_log(cx, "[INFO] [tts] Preview playback finished");
                     }
                 }
@@ -13873,7 +13886,9 @@ impl Widget for TTSScreen {
                 if item_idx >= segments.len() {
                     continue;
                 }
-                if item.button(ids!(row.preview_btn)).clicked(&actions) {
+                if item.button(ids!(row.preview_btn)).clicked(&actions)
+                    || item.button(ids!(row.preview_pause_btn)).clicked(&actions)
+                {
                     self.preview_tts_segment(cx, item_idx);
                 } else if item.button(ids!(row.download_btn)).clicked(&actions) {
                     self.open_download_modal(cx, DownloadSource::Segment(item_idx));
@@ -14347,6 +14362,18 @@ impl Widget for TTSScreen {
                     } else {
                         None
                     };
+                    let previewing_segment_index = if self
+                        .preview_player
+                        .as_ref()
+                        .is_some_and(|player| player.is_playing())
+                    {
+                        self.preview_playing_voice_id
+                            .as_deref()
+                            .and_then(|id| id.strip_prefix("tts-segment-"))
+                            .and_then(|index| index.parse::<usize>().ok())
+                    } else {
+                        None
+                    };
                     let rows: Vec<_> = self
                         .tts_audio_segments
                         .as_ref()
@@ -14373,6 +14400,7 @@ impl Widget for TTSScreen {
                                         current_sample
                                             .and_then(|sample| segments.index_at_sample(sample))
                                             == Some(index),
+                                        previewing_segment_index == Some(index),
                                     )
                                 })
                                 .collect()
@@ -14385,7 +14413,15 @@ impl Widget for TTSScreen {
                     };
                     list.set_item_range(cx, 0, rows.len());
                     while let Some(item_id) = list.next_visible_item(cx) {
-                        if let Some((ordinal, range, text, expanded, is_playing)) = rows.get(item_id) {
+                        if let Some((
+                            ordinal,
+                            range,
+                            text,
+                            expanded,
+                            is_playing,
+                            is_preview_playing,
+                        )) = rows.get(item_id)
+                        {
                             let card = list.item(cx, item_id, live_id!(SegmentCard));
                             card.label(ids!(row.index_label)).set_text(cx, ordinal);
                             card.label(ids!(row.range_label)).set_text(cx, range);
@@ -14421,6 +14457,7 @@ impl Widget for TTSScreen {
                             }
                             for button_path in [
                                 ids!(row.preview_btn),
+                                ids!(row.preview_pause_btn),
                                 ids!(row.download_btn),
                                 ids!(row.retry_btn),
                             ] {
@@ -14441,6 +14478,14 @@ impl Widget for TTSScreen {
                                         active: (if retrying_index == Some(item_id) { 1.0 } else { 0.0 })
                                     }
                                 },
+                            );
+                            card.button(ids!(row.preview_btn))
+                                .set_visible(cx, !*is_preview_playing);
+                            card.button(ids!(row.preview_pause_btn))
+                                .set_visible(cx, *is_preview_playing);
+                            card.button(ids!(row.preview_pause_btn)).apply_over(
+                                cx,
+                                live! { draw_bg: { active: 1.0 } },
                             );
                             card.apply_over(
                                 cx,
@@ -19188,6 +19233,34 @@ impl TTSScreen {
         if self.tts_status == TTSStatus::Generating {
             return;
         }
+        let preview_id = format!("tts-segment-{}", segment_index);
+        if self.preview_playing_voice_id.as_deref() == Some(preview_id.as_str()) {
+            let is_playing = self
+                .preview_player
+                .as_ref()
+                .is_some_and(|player| player.is_playing());
+            if is_playing {
+                if let Some(player) = &self.preview_player {
+                    player.pause();
+                }
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [tts] Paused segment {}", segment_index + 1),
+                );
+            } else {
+                self.stop_main_playback_for_preview(cx);
+                if let Some(player) = &self.preview_player {
+                    player.resume();
+                }
+                self.add_log(
+                    cx,
+                    &format!("[INFO] [tts] Resumed segment {}", segment_index + 1),
+                );
+            }
+            self.update_player_bar(cx);
+            self.view.redraw(cx);
+            return;
+        }
         let Some((samples, sample_rate)) = self
             .tts_audio_segments
             .as_ref()
@@ -19212,7 +19285,7 @@ impl TTSScreen {
         player.write_audio(&samples);
         player.resume();
         self.preview_player = Some(player);
-        self.preview_playing_voice_id = Some(format!("tts-segment-{}", segment_index));
+        self.preview_playing_voice_id = Some(preview_id);
         self.add_log(
             cx,
             &format!("[INFO] [tts] Previewing segment {}", segment_index + 1),
@@ -29917,6 +29990,7 @@ mod tests {
         for asset in [
             "resources/icons/segments.svg",
             "resources/icons/segment-play.svg",
+            "resources/icons/segment-pause.svg",
             "resources/icons/segment-download.svg",
             "resources/icons/segment-retry.svg",
         ] {
@@ -29998,6 +30072,7 @@ mod tests {
         for asset in [
             include_str!("../resources/icons/segments.svg"),
             include_str!("../resources/icons/segment-play.svg"),
+            include_str!("../resources/icons/segment-pause.svg"),
             include_str!("../resources/icons/segment-download.svg"),
             include_str!("../resources/icons/segment-retry.svg"),
         ] {
@@ -30006,6 +30081,38 @@ mod tests {
             assert!(asset.contains('Q'));
             assert!(asset.contains("lucide-1-5px"));
         }
+    }
+
+    #[test]
+    fn segment_preview_button_toggles_pause_and_resume_state() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let preview = source
+            .split("fn preview_tts_segment")
+            .nth(1)
+            .expect("segment preview function should exist")
+            .split("fn fail_pending_tts_generation")
+            .next()
+            .unwrap();
+        assert!(preview.contains("player.pause()"));
+        assert!(preview.contains("player.resume()"));
+        assert!(preview.contains("preview_playing_voice_id.as_deref() == Some(preview_id.as_str())"));
+
+        let card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("text_preview = <SegmentTextPreview>")
+            .next()
+            .unwrap();
+        assert!(card.contains("preview_btn = <PlayerSegmentActionBtn>"));
+        assert!(card.contains("download_btn = <PlayerSegmentActionBtn>"));
+        assert_eq!(card.matches("padding: {left: 1, right: 0, top: 0, bottom: 0}").count(), 3);
+        assert!(source.contains("ICO_TTS_SEGMENT_PAUSE"));
+        assert!(source.contains("resources/icons/segment-pause.svg"));
+        assert!(source.contains("svg_file: (ICO_TTS_SEGMENT_PAUSE)"));
     }
 
     #[test]
