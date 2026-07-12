@@ -75,7 +75,7 @@ const PLAYER_PLAYBACK_RATES: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
 const PLAYER_SPEED_MENU_WIDTH: f64 = 96.0;
 const PLAYER_SPEED_MENU_HEIGHT: f64 = 170.0;
 const PLAYER_ACTION_MENU_WIDTH: f64 = 132.0;
-const PLAYER_ACTION_MENU_HEIGHT: f64 = 74.0;
+const PLAYER_ACTION_MENU_HEIGHT: f64 = 96.0;
 const PLAYER_SEGMENT_MENU_WIDTH: f64 = 560.0;
 const PLAYER_SEGMENT_MENU_HEIGHT: f64 = 360.0;
 const PLAYER_MENU_ANCHOR_GAP: f64 = 8.0;
@@ -554,6 +554,7 @@ live_design! {
     ICO_TTS_SEGMENT_PAUSE = dep("crate://self/resources/icons/segment-pause.svg")
     ICO_TTS_SEGMENT_DOWNLOAD = dep("crate://self/resources/icons/segment-download.svg")
     ICO_TTS_SEGMENT_RETRY = dep("crate://self/resources/icons/segment-retry.svg")
+    ICO_TTS_ACTION_MENU = dep("crate://self/resources/icons/action-menu.svg")
     use crate::voice_selector::VoiceSelector;
     use crate::voice_clone_modal::VoiceCloneModal;
 
@@ -1785,9 +1786,9 @@ live_design! {
             instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
-                let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
-                let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
+                let bg = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.74, 0.82, 1.0, 1.0), vec4(0.34, 0.40, 0.54, 1.0), self.dark_mode);
                 let active = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
                 let color = mix(mix(mix(bg, hover, self.hover), pressed, self.pressed), active, self.active);
                 let radius = min(self.rect_size.x, self.rect_size.y) * 0.5;
@@ -1825,11 +1826,11 @@ live_design! {
             instance active: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                let bg = mix(vec4(0.92, 0.94, 1.0, 1.0), vec4(0.18, 0.21, 0.30, 1.0), self.dark_mode);
-                let hover = mix(vec4(0.86, 0.90, 1.0, 1.0), vec4(0.24, 0.28, 0.38, 1.0), self.dark_mode);
-                let pressed = mix(vec4(0.80, 0.86, 1.0, 1.0), vec4(0.30, 0.34, 0.45, 1.0), self.dark_mode);
-                let active = mix(vec4(0.84, 0.88, 1.0, 1.0), vec4(0.27, 0.32, 0.44, 1.0), self.dark_mode);
-                let color = mix(mix(mix(bg, hover, self.hover), pressed, self.pressed), active, self.active);
+                let base = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);
+                let hover_color = mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);
+                let pressed_color = mix((PRIMARY_700), (PRIMARY_500), self.dark_mode);
+                let color = mix(base, hover_color, self.hover);
+                let color = mix(color, pressed_color, self.pressed);
                 let radius = min(self.rect_size.x, self.rect_size.y) * 0.5;
                 sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, radius);
                 sdf.fill(color);
@@ -1841,10 +1842,10 @@ live_design! {
             instance dark_mode: 0.0
             svg_file: (ICO_TTS_SEGMENTS)
             fn get_color(self) -> vec4 {
-                return mix((SLATE_600), (SLATE_300), self.dark_mode);
+                return (WHITE);
             }
         }
-        icon_walk: {width: 20, height: 20}
+        icon_walk: {width: 16, height: 16, margin: {left: 9, right: 9, top: 9, bottom: 9}}
         draw_text: {
             text_style: { font_size: 0.0 }
             fn get_color(self) -> vec4 {
@@ -1885,13 +1886,59 @@ live_design! {
                 return mix((SLATE_600), (SLATE_300), self.dark_mode);
             }
         }
-        icon_walk: {width: 20, height: 20}
+        icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}
         draw_text: {
             text_style: { font_size: 0.0 }
             fn get_color(self) -> vec4 {
                 return vec4(0.0, 0.0, 0.0, 0.0);
             }
         }
+    }
+
+    PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn> {
+        icon_walk: {width: 0, height: 0}
+        draw_bg: {
+            instance dark_mode: 0.0
+            instance hover: 0.0
+            instance pressed: 0.0
+            instance active: 0.0
+            instance previewing: 0.0
+            fn pixel(self) -> vec4 {
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 6.0);
+                let base = mix(vec4(0.92, 0.95, 1.0, 1.0), vec4(0.16, 0.20, 0.29, 1.0), self.dark_mode);
+                let hover = mix(vec4(0.86, 0.91, 1.0, 1.0), vec4(0.24, 0.30, 0.42, 1.0), self.dark_mode);
+                let pressed = mix(vec4(0.78, 0.86, 1.0, 1.0), vec4(0.31, 0.38, 0.52, 1.0), self.dark_mode);
+                let active = mix(vec4(0.80, 0.87, 1.0, 1.0), vec4(0.29, 0.37, 0.52, 1.0), self.dark_mode);
+                sdf.fill(mix(mix(mix(base, hover, self.hover), pressed, self.pressed), active, self.active));
+                let border = mix(vec4(0.66, 0.73, 0.85, 1.0), vec4(0.34, 0.41, 0.55, 1.0), self.dark_mode);
+                sdf.stroke(border, 1.0);
+
+                let icon = mix((SLATE_600), (SLATE_300), self.dark_mode);
+                if self.previewing > 0.5 {
+                    sdf.box(10.5, 9.0, 4.0, 14.0, 1.0);
+                    sdf.fill(icon);
+                    sdf.box(17.5, 9.0, 4.0, 14.0, 1.0);
+                    sdf.fill(icon);
+                } else {
+                    sdf.move_to(12.0, 8.5);
+                    sdf.line_to(23.0, 16.0);
+                    sdf.line_to(12.0, 23.5);
+                    sdf.close_path();
+                    sdf.fill(icon);
+                }
+                return sdf.result;
+            }
+        }
+    }
+
+    PlayerSegmentDownloadBtn = <PlayerSegmentActionBtn> {
+        icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}
+        draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) }
+    }
+
+    PlayerActionMenuTriggerBtn = <PlayerSegmentBtn> {
+        draw_icon: { svg_file: (ICO_TTS_ACTION_MENU) }
     }
 
     SegmentPrimaryLabel = <Label> {
@@ -7845,8 +7892,7 @@ live_design! {
 
                     segment_menu_btn = <PlayerSegmentBtn> {}
 
-                    action_menu_btn = <PlayerMoreBtn> {
-                    }
+                    action_menu_btn = <PlayerActionMenuTriggerBtn> {}
                 }
             }
             } // End audio_player_bar
@@ -7947,18 +7993,10 @@ live_design! {
                         index_label = <SegmentPrimaryLabel> { width: 28, height: Fit text: "01" }
                         range_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "00:00–00:00" }
                         playing_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "" }
-                        preview_btn = <PlayerSegmentActionBtn> {
-                            draw_icon: { svg_file: (ICO_TTS_SEGMENT_PLAY) }
-                        }
-                        preview_pause_btn = <PlayerSegmentActionBtn> {
-                            visible: false
-                            draw_icon: { svg_file: (ICO_TTS_SEGMENT_PAUSE) }
-                        }
-                        download_btn = <PlayerSegmentActionBtn> {
-                            draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) }
-                        }
-                        retry_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_RETRY) } }
                         <View> { width: Fill, height: 1 }
+                        preview_btn = <PlayerSegmentPreviewBtn> {}
+                        download_btn = <PlayerSegmentDownloadBtn> {}
+                        retry_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_RETRY) } }
                     }
 
                     text_preview = <SegmentTextPreview> {
@@ -13887,9 +13925,7 @@ impl Widget for TTSScreen {
                 if item_idx >= segments.len() {
                     continue;
                 }
-                if item.button(ids!(row.preview_btn)).clicked(&actions)
-                    || item.button(ids!(row.preview_pause_btn)).clicked(&actions)
-                {
+                if item.button(ids!(row.preview_btn)).clicked(&actions) {
                     self.preview_tts_segment(cx, item_idx);
                 } else if item.button(ids!(row.download_btn)).clicked(&actions) {
                     self.open_download_modal(cx, DownloadSource::Segment(item_idx));
@@ -14453,8 +14489,6 @@ impl Widget for TTSScreen {
                                 );
                             }
                             for button_path in [
-                                ids!(row.preview_btn),
-                                ids!(row.preview_pause_btn),
                                 ids!(row.download_btn),
                                 ids!(row.retry_btn),
                             ] {
@@ -14468,6 +14502,16 @@ impl Widget for TTSScreen {
                                     },
                                 );
                             }
+                            card.button(ids!(row.preview_btn)).apply_over(
+                                cx,
+                                live! {
+                                    draw_bg: {
+                                        dark_mode: (self.dark_mode)
+                                        active: (if *is_preview_playing { 1.0 } else { 0.0 })
+                                        previewing: (if *is_preview_playing { 1.0 } else { 0.0 })
+                                    }
+                                },
+                            );
                             card.button(ids!(row.retry_btn)).apply_over(
                                 cx,
                                 live! {
@@ -14475,14 +14519,6 @@ impl Widget for TTSScreen {
                                         active: (if retrying_index == Some(item_id) { 1.0 } else { 0.0 })
                                     }
                                 },
-                            );
-                            card.button(ids!(row.preview_btn))
-                                .set_visible(cx, !*is_preview_playing);
-                            card.button(ids!(row.preview_pause_btn))
-                                .set_visible(cx, *is_preview_playing);
-                            card.button(ids!(row.preview_pause_btn)).apply_over(
-                                cx,
-                                live! { draw_bg: { active: 1.0 } },
                             );
                             card.apply_over(
                                 cx,
@@ -19749,7 +19785,7 @@ impl TTSScreen {
             .apply_over(
                 cx,
                 live! {
-                    draw_bg: { active: (if self.player_action_menu_open { 1.0 } else { 0.0 }) }
+                    draw_bg: { dark_mode: (self.dark_mode) active: 1.0 }
                 },
             );
         for (idx, path) in [
@@ -19911,7 +19947,7 @@ impl TTSScreen {
             .apply_over(
                 cx,
                 live! {
-                    draw_bg: { active: (if self.player_action_menu_open { 1.0 } else { 0.0 }) }
+                    draw_bg: { dark_mode: (self.dark_mode) active: 1.0 }
                 },
             );
         self.view.redraw(cx);
@@ -29909,8 +29945,8 @@ mod tests {
             "PlayerSpeedBtn = <Button>",
             "speed_menu_btn = <PlayerSpeedBtn>",
             "player_speed_menu = <PlayerFloatingMenu>",
-            "PlayerMoreBtn = <Button>",
-            "action_menu_btn = <PlayerMoreBtn>",
+            "PlayerActionMenuTriggerBtn = <PlayerSegmentBtn>",
+            "action_menu_btn = <PlayerActionMenuTriggerBtn>",
             "player_action_menu = <PlayerFloatingMenu>",
         ] {
             assert!(
@@ -30193,20 +30229,21 @@ mod tests {
             .split("text_preview = <SegmentTextPreview>")
             .next()
             .unwrap();
-        assert!(card.contains("preview_btn = <PlayerSegmentActionBtn>"));
-        assert!(card.contains("download_btn = <PlayerSegmentActionBtn>"));
+        assert!(card.contains("preview_btn = <PlayerSegmentPreviewBtn>"));
+        assert!(card.contains("download_btn = <PlayerSegmentDownloadBtn>"));
+        assert!(!card.contains("preview_pause_btn"));
         assert_eq!(card.matches("padding: {left: 1, right: 0, top: 0, bottom: 0}").count(), 0);
-        assert!(source.contains("ICO_TTS_SEGMENT_PAUSE"));
-        assert!(source.contains("resources/icons/segment-pause.svg"));
-        assert!(source.contains("svg_file: (ICO_TTS_SEGMENT_PAUSE)"));
         assert!(source.contains("segment_preview_playing: bool"));
         assert!(preview.contains("self.segment_preview_playing = false"));
         assert!(preview.contains("self.segment_preview_playing = true"));
         assert!(preview.matches("self.view.redraw(cx);").count() >= 2);
+        assert!(source.contains("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>"));
+        assert!(source.contains("instance previewing: 0.0"));
+        assert!(source.contains("previewing: (if *is_preview_playing { 1.0 } else { 0.0 })"));
     }
 
     #[test]
-    fn segment_actions_stay_left_aligned_before_the_flexible_row_spacer() {
+    fn segment_actions_stay_right_aligned_after_the_flexible_row_spacer() {
         let source = include_str!("screen.rs")
             .split("#[cfg(test)]")
             .next()
@@ -30220,12 +30257,12 @@ mod tests {
             .unwrap();
 
         let spacer = row
-            .rfind("<View> { width: Fill, height: 1 }")
+            .find("<View> { width: Fill, height: 1 }")
             .expect("segment row should retain a flexible trailing spacer");
-        for button in ["preview_btn = <PlayerSegmentActionBtn>", "download_btn = <PlayerSegmentActionBtn>"] {
+        for button in ["preview_btn = <PlayerSegmentPreviewBtn>", "download_btn = <PlayerSegmentDownloadBtn>"] {
             assert!(
-                row.find(button).expect("segment action should exist") < spacer,
-                "{button} should be placed before the flexible spacer"
+                row.find(button).expect("segment action should exist") > spacer,
+                "{button} should be placed after the flexible spacer"
             );
         }
         assert!(!row.contains("padding: {left: 1, right: 0, top: 0, bottom: 0}"));
@@ -30249,6 +30286,76 @@ mod tests {
             assert!(button.contains("label_walk: {width: 0, height: 0}"));
             assert!(button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
         }
+        let preview_button = source
+            .split("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>")
+            .nth(1)
+            .expect("segment preview button should exist")
+            .split("SegmentPrimaryLabel = <Label>")
+            .next()
+            .unwrap();
+        assert!(preview_button.contains("sdf.box(10.5, 9.0, 4.0, 14.0, 1.0)"));
+        assert!(preview_button.contains("sdf.box(17.5, 9.0, 4.0, 14.0, 1.0)"));
+        assert!(preview_button.contains("sdf.move_to(12.0, 8.5)"));
+        let download_button = source
+            .split("PlayerSegmentDownloadBtn = <PlayerSegmentActionBtn>")
+            .nth(1)
+            .expect("segment download button should exist")
+            .split("SegmentPrimaryLabel = <Label>")
+            .next()
+            .unwrap();
+        assert!(download_button.contains("svg_file: (ICO_TTS_SEGMENT_DOWNLOAD)"));
+        assert!(download_button.contains("margin: {left: 6, right: 6, top: 6, bottom: 6}"));
+        let action_button = source
+            .split("PlayerSegmentActionBtn = <Button>")
+            .nth(1)
+            .expect("segment action button should exist")
+            .split("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>")
+            .next()
+            .unwrap();
+        assert!(action_button.contains("margin: {left: 6, right: 6, top: 6, bottom: 6}"));
+    }
+
+    #[test]
+    fn download_share_menu_trigger_uses_the_open_segment_button_color() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let more_button = source
+            .split("PlayerActionMenuTriggerBtn = <PlayerSegmentBtn>")
+            .nth(1)
+            .expect("download/share menu trigger should exist")
+            .split("SegmentPrimaryLabel = <Label>")
+            .next()
+            .unwrap();
+        assert!(more_button.contains("draw_icon: { svg_file: (ICO_TTS_ACTION_MENU) }"));
+
+        let segment_button = source
+            .split("PlayerSegmentBtn = <Button>")
+            .nth(1)
+            .expect("segment menu trigger should exist")
+            .split("PlayerSegmentActionBtn = <Button>")
+            .next()
+            .unwrap();
+        assert!(segment_button.contains("icon_walk: {width: 16, height: 16, margin: {left: 9, right: 9, top: 9, bottom: 9}}"));
+        for marker in [
+            "let base = mix((PRIMARY_500), (PRIMARY_400), self.dark_mode);",
+            "let hover_color = mix((PRIMARY_600), (PRIMARY_300), self.dark_mode);",
+            "let pressed_color = mix((PRIMARY_700), (PRIMARY_500), self.dark_mode);",
+            "return (WHITE);",
+        ] {
+            assert!(segment_button.contains(marker), "missing primary player style: {marker}");
+        }
+    }
+
+    #[test]
+    fn download_share_menu_is_positioned_using_its_full_rendered_height() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(source.contains("const PLAYER_ACTION_MENU_HEIGHT: f64 = 96.0;"));
+        assert!(source.contains("padding: {left: 16, right: 16, top: 16, bottom: 18}"));
     }
 
     #[test]
@@ -30446,7 +30553,7 @@ mod tests {
             "playback rate should use a visible speed button"
         );
         assert!(
-            bar.contains("action_menu_btn = <PlayerMoreBtn>"),
+            bar.contains("action_menu_btn = <PlayerActionMenuTriggerBtn>"),
             "download/share should be collected behind the right menu"
         );
         assert!(
