@@ -1816,6 +1816,8 @@ live_design! {
         width: 34, height: 34
         padding: {left: 0, right: 0, top: 0, bottom: 0}
         align: {x: 0.5, y: 0.5}
+        spacing: 0
+        label_walk: {width: 0, height: 0}
         draw_bg: {
             instance dark_mode: 0.0
             instance hover: 0.0
@@ -1855,6 +1857,8 @@ live_design! {
         width: 32, height: 32
         padding: {left: 0, right: 0, top: 0, bottom: 0}
         align: {x: 0.5, y: 0.5}
+        spacing: 0
+        label_walk: {width: 0, height: 0}
         draw_bg: {
             instance dark_mode: 0.0
             instance hover: 0.0
@@ -1924,37 +1928,18 @@ live_design! {
         show_bg: true
         draw_bg: {
             instance dark_mode: 0.0
+            instance border_radius: 9.0
             fn pixel(self) -> vec4 {
-                let p = self.pos * self.rect_size;
-                let panel_inset = 8.0;
-                let panel_top = 8.0;
-                let panel_bottom = 10.0;
-                let panel_size = vec2(
-                    self.rect_size.x - panel_inset * 2.0,
-                    self.rect_size.y - panel_top - panel_bottom
-                );
-                let panel_center = vec2(panel_inset, panel_top) + panel_size * 0.5;
-                let panel_radius = 9.0;
-                let panel_q = abs(p - panel_center) - panel_size * 0.5 + vec2(panel_radius);
-                let panel_distance = length(max(panel_q, vec2(0.0)))
-                    + min(max(panel_q.x, panel_q.y), 0.0) - panel_radius;
-
-                let shadow_offset = vec2(0.0, 3.0);
-                let shadow_q = abs((p - shadow_offset) - panel_center)
-                    - panel_size * 0.5 + vec2(panel_radius);
-                let shadow_distance = length(max(shadow_q, vec2(0.0)))
-                    + min(max(shadow_q.x, shadow_q.y), 0.0) - panel_radius;
-                let shadow_alpha = (1.0 - smoothstep(0.0, 12.0, shadow_distance))
-                    * mix(0.18, 0.34, self.dark_mode);
-                let shadow_rgb = mix(vec3(0.20, 0.20, 0.20), vec3(0.0, 0.0, 0.0), self.dark_mode);
-
-                let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                let border = mix(vec4(0.76, 0.81, 0.89, 1.0), vec4(0.42, 0.49, 0.63, 1.0), self.dark_mode);
-                let panel_mask = 1.0 - smoothstep(-0.5, 0.5, panel_distance);
-                let inner_mask = 1.0 - smoothstep(-1.5, -0.5, panel_distance);
-                let panel_color = mix(border, bg, inner_mask);
-                let shadow_color = vec4(shadow_rgb, shadow_alpha);
-                return mix(shadow_color, panel_color, panel_mask);
+                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
+                sdf.box(1., 1., self.rect_size.x - 2., self.rect_size.y - 2., self.border_radius + 3.0);
+                sdf.fill(mix(vec4(0.05, 0.10, 0.20, 0.07), vec4(0.0, 0.0, 0.0, 0.18), self.dark_mode));
+                sdf.box(3., 3., self.rect_size.x - 6., self.rect_size.y - 6., self.border_radius + 1.5);
+                sdf.fill(mix(vec4(0.05, 0.10, 0.20, 0.05), vec4(0.0, 0.0, 0.0, 0.12), self.dark_mode));
+                sdf.box(4.5, 4.5, self.rect_size.x - 9., self.rect_size.y - 9., self.border_radius);
+                let bg = mix(vec4(1.0, 1.0, 1.0, 0.98), vec4(0.12, 0.16, 0.24, 0.98), self.dark_mode);
+                sdf.fill(bg);
+                sdf.stroke(mix(vec4(0.74, 0.80, 0.90, 1.0), vec4(0.37, 0.45, 0.60, 1.0), self.dark_mode), 1.25);
+                return sdf.result;
             }
         }
     }
@@ -7899,12 +7884,24 @@ live_design! {
 
                 segment_title = <Label> {
                     width: Fill, height: Fit
-                    draw_text: { text_style: <FONT_SEMIBOLD>{ font_size: 13.0 } }
-                    text: "Segments"
+                    draw_text: {
+                        instance dark_mode: 0.0
+                        text_style: <FONT_SEMIBOLD>{ font_size: 13.0 }
+                        fn get_color(self) -> vec4 {
+                            return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+                        }
+                    }
+                    text: "Audio Segments"
                 }
                 segment_summary = <Label> {
                     width: Fit, height: Fit
-                    draw_text: { text_style: { font_size: 11.0 } }
+                    draw_text: {
+                        instance dark_mode: 0.0
+                        text_style: { font_size: 11.0 }
+                        fn get_color(self) -> vec4 {
+                            return mix((TEXT_SECONDARY), (TEXT_SECONDARY_DARK), self.dark_mode);
+                        }
+                    }
                     text: ""
                 }
             }
@@ -29922,7 +29919,7 @@ mod tests {
     }
 
     #[test]
-    fn segment_popover_uses_svg_icons_bordered_cards_and_layered_shadow() {
+    fn segment_popover_uses_svg_icons_bordered_cards_and_settings_shadow() {
         let source = include_str!("screen.rs")
             .split("#[cfg(test)]")
             .next()
@@ -29955,12 +29952,12 @@ mod tests {
             .split("PlayerMenuItemBtn = <Button>")
             .next()
             .unwrap();
-        assert!(menu.contains("let shadow_offset = vec2(0.0, 3.0)"));
-        assert!(menu.contains("smoothstep(0.0, 12.0, shadow_distance)"));
+        assert!(menu.contains("sdf.box(1., 1., self.rect_size.x - 2., self.rect_size.y - 2."));
+        assert!(menu.contains("vec4(0.05, 0.10, 0.20, 0.07)"));
     }
 
     #[test]
-    fn segment_popover_uses_soft_analytic_outer_shadow() {
+    fn segment_popover_matches_the_settings_flyout_shadow() {
         let source = include_str!("screen.rs")
             .split("#[cfg(test)]")
             .next()
@@ -29981,12 +29978,11 @@ mod tests {
             .unwrap();
 
         assert!(segment_card.contains("show_bg: true"));
-        assert!(menu.contains("panel_inset"));
-        assert!(menu.contains("let shadow_offset = vec2(0.0, 3.0)"));
-        assert!(menu.contains("smoothstep(0.0, 12.0, shadow_distance)"));
-        assert!(menu.contains("vec3(0.20, 0.20, 0.20)"));
-        assert!(!menu.contains("shadow_far"));
-        assert!(!menu.contains("shadow_near"));
+        assert!(menu.contains("sdf.box(1., 1., self.rect_size.x - 2., self.rect_size.y - 2."));
+        assert!(menu.contains("sdf.box(3., 3., self.rect_size.x - 6., self.rect_size.y - 6."));
+        assert!(menu.contains("sdf.box(4.5, 4.5, self.rect_size.x - 9., self.rect_size.y - 9."));
+        assert!(menu.contains("vec4(0.05, 0.10, 0.20, 0.07)"));
+        assert!(!menu.contains("shadow_distance"));
         assert!(menu.contains("padding: {left: 16, right: 16, top: 16, bottom: 18}"));
         assert!(source.contains("icon_walk: {width: 20, height: 20}"));
     }
@@ -30040,8 +30036,26 @@ mod tests {
                 .next()
                 .unwrap();
             assert!(button.contains("align: {x: 0.5, y: 0.5}"));
+            assert!(button.contains("label_walk: {width: 0, height: 0}"));
             assert!(button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
         }
+    }
+
+    #[test]
+    fn segment_popover_has_a_readable_title() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let header = source
+            .split("segment_header = <View>")
+            .nth(1)
+            .expect("segment header should exist")
+            .split("segment_portal_list = <PortalList>")
+            .next()
+            .unwrap();
+        assert!(header.contains("text: \"Audio Segments\""));
+        assert!(header.contains("return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode)"));
     }
 
     #[test]
@@ -30232,12 +30246,12 @@ mod tests {
             "speed and more buttons should render with circle geometry instead of oversized box radius"
         );
         assert!(
-            live_design.contains("let shadow_offset = vec2(0.0, 3.0)")
-                && live_design.contains("smoothstep(0.0, 12.0, shadow_distance)"),
-            "floating menus should render a soft analytic shadow"
+            live_design.contains("sdf.box(1., 1., self.rect_size.x - 2., self.rect_size.y - 2.")
+                && live_design.contains("vec4(0.05, 0.10, 0.20, 0.07)"),
+            "floating menus should match the settings flyout shadow"
         );
         assert!(
-            live_design.contains("let panel_color = mix(border, bg, inner_mask)"),
+            live_design.contains("sdf.stroke(mix(vec4(0.74, 0.80, 0.90, 1.0)"),
             "floating menus should render a visible border"
         );
         assert!(
