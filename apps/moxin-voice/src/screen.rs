@@ -548,6 +548,12 @@ live_design! {
     use link::widgets::*;
 
     use moxin_widgets::theme::*;
+
+    ICO_TTS_SEGMENTS = dep("crate://self/resources/icons/segments.svg")
+    ICO_TTS_SEGMENT_PLAY = dep("crate://self/resources/icons/segment-play.svg")
+    ICO_TTS_SEGMENT_DOWNLOAD = dep("crate://self/resources/icons/segment-download.svg")
+    ICO_TTS_SEGMENT_EXPAND = dep("crate://self/resources/icons/segment-expand.svg")
+    ICO_TTS_SEGMENT_RETRY = dep("crate://self/resources/icons/segment-retry.svg")
     use crate::voice_selector::VoiceSelector;
     use crate::voice_clone_modal::VoiceCloneModal;
 
@@ -1825,18 +1831,17 @@ live_design! {
                 sdf.circle(self.rect_size.x * 0.5, self.rect_size.y * 0.5, radius);
                 sdf.fill(color);
 
-                let icon = mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                sdf.box(9.0, 9.0, 16.0, 5.5, 1.3);
-                sdf.stroke(icon, 1.4);
-                sdf.box(9.0, 19.0, 16.0, 5.5, 1.3);
-                sdf.stroke(icon, 1.4);
-                sdf.rect(12.0, 11.0, 10.0, 1.1);
-                sdf.fill(icon);
-                sdf.rect(12.0, 21.0, 10.0, 1.1);
-                sdf.fill(icon);
                 return sdf.result;
             }
         }
+        draw_icon: {
+            instance dark_mode: 0.0
+            svg_file: (ICO_TTS_SEGMENTS)
+            fn get_color(self) -> vec4 {
+                return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+            }
+        }
+        icon_walk: {width: 19, height: 19}
         draw_text: {
             text_style: { font_size: 0.0 }
             fn get_color(self) -> vec4 {
@@ -1853,7 +1858,6 @@ live_design! {
             instance hover: 0.0
             instance pressed: 0.0
             instance active: 0.0
-            instance icon_kind: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
                 sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 6.0);
@@ -1863,38 +1867,17 @@ live_design! {
                 let active = mix(vec4(0.80, 0.87, 1.0, 1.0), vec4(0.29, 0.37, 0.52, 1.0), self.dark_mode);
                 sdf.fill(mix(mix(mix(base, hover, self.hover), pressed, self.pressed), active, self.active));
 
-                let icon = mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
-                if self.icon_kind < 0.5 {
-                    sdf.move_to(10.5, 7.5);
-                    sdf.line_to(20.5, 14.0);
-                    sdf.line_to(10.5, 20.5);
-                    sdf.close_path();
-                    sdf.fill(icon);
-                } else if self.icon_kind < 1.5 {
-                    sdf.rect(13.3, 6.5, 1.5, 9.0);
-                    sdf.fill(icon);
-                    sdf.move_to(9.8, 12.5);
-                    sdf.line_to(14.0, 16.7);
-                    sdf.line_to(18.2, 12.5);
-                    sdf.stroke(icon, 1.6);
-                    sdf.rect(8.0, 20.0, 12.0, 1.5);
-                    sdf.fill(icon);
-                } else if self.icon_kind < 2.5 {
-                    sdf.move_to(8.5, 11.0);
-                    sdf.line_to(14.0, 16.5);
-                    sdf.line_to(19.5, 11.0);
-                    sdf.stroke(icon, 1.8);
-                } else {
-                    sdf.arc_round_caps(14.0, 14.0, 7.0, 0.6, 5.3, 1.7);
-                    sdf.stroke(icon, 1.5);
-                    sdf.move_to(18.2, 6.4);
-                    sdf.line_to(21.0, 7.0);
-                    sdf.line_to(19.7, 9.6);
-                    sdf.stroke(icon, 1.5);
-                }
                 return sdf.result;
             }
         }
+        draw_icon: {
+            instance dark_mode: 0.0
+            svg_file: (ICO_TTS_SEGMENT_PLAY)
+            fn get_color(self) -> vec4 {
+                return mix((MOXIN_TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
+            }
+        }
+        icon_walk: {width: 18, height: 18}
         draw_text: {
             text_style: { font_size: 0.0 }
             fn get_color(self) -> vec4 {
@@ -1939,8 +1922,12 @@ live_design! {
             instance dark_mode: 0.0
             fn pixel(self) -> vec4 {
                 let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                sdf.box(3.0, 4.0, self.rect_size.x, self.rect_size.y, 5.0);
-                sdf.fill(mix(vec4(0.10, 0.12, 0.18, 0.16), vec4(0.0, 0.0, 0.0, 0.26), self.dark_mode));
+                let shadow_far = mix(vec4(0.08, 0.12, 0.22, 0.14), vec4(0.0, 0.0, 0.0, 0.42), self.dark_mode);
+                let shadow_near = mix(vec4(0.08, 0.12, 0.22, 0.24), vec4(0.0, 0.0, 0.0, 0.52), self.dark_mode);
+                sdf.box(7.0, 13.0, self.rect_size.x - 14.0, self.rect_size.y - 7.0, 8.0);
+                sdf.fill(shadow_far);
+                sdf.box(3.0, 6.0, self.rect_size.x - 6.0, self.rect_size.y - 3.0, 6.0);
+                sdf.fill(shadow_near);
                 sdf.box(0.0, 0.0, self.rect_size.x, self.rect_size.y, 5.0);
                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
                 let border = mix(vec4(0.76, 0.80, 0.88, 1.0), vec4(0.38, 0.43, 0.54, 1.0), self.dark_mode);
@@ -7920,7 +7907,11 @@ live_design! {
                             sdf.box(0., 0., self.rect_size.x, self.rect_size.y, self.border_radius);
                             let base = mix((WHITE), (SLATE_800), self.dark_mode);
                             let playing = mix(vec4(0.16, 0.49, 0.92, 0.13), vec4(0.25, 0.55, 1.0, 0.20), self.dark_mode);
+                            let inactive_border = mix(vec4(0.73, 0.79, 0.89, 1.0), vec4(0.34, 0.40, 0.52, 1.0), self.dark_mode);
+                            let active_border = mix(vec4(0.22, 0.50, 0.92, 0.88), vec4(0.40, 0.66, 1.0, 0.92), self.dark_mode);
+                            let border = mix(inactive_border, active_border, self.active);
                             sdf.fill(mix(base, playing, self.active));
+                            sdf.stroke(border, 1.0);
                             return sdf.result;
                         }
                     }
@@ -7935,10 +7926,10 @@ live_design! {
                         range_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "00:00–00:00" }
                         playing_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "" }
                         <View> { width: Fill, height: 1 }
-                        preview_btn = <PlayerSegmentActionBtn> { draw_bg: { icon_kind: 0.0 } }
-                        download_btn = <PlayerSegmentActionBtn> { draw_bg: { icon_kind: 1.0 } }
-                        expand_btn = <PlayerSegmentActionBtn> { draw_bg: { icon_kind: 2.0 } }
-                        retry_btn = <PlayerSegmentActionBtn> { draw_bg: { icon_kind: 3.0 } }
+                        preview_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_PLAY) } }
+                        download_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) } }
+                        expand_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_EXPAND) } }
+                        retry_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_RETRY) } }
                     }
 
                     text_preview = <SegmentTextPreview> {
@@ -14454,6 +14445,7 @@ impl Widget for TTSScreen {
                                         draw_bg: {
                                             dark_mode: (self.dark_mode)
                                         }
+                                        draw_icon: { dark_mode: (self.dark_mode) }
                                     },
                                 );
                             }
@@ -19823,7 +19815,11 @@ impl TTSScreen {
             .apply_over(
                 cx,
                 live! {
-                    draw_bg: { active: (if self.player_segment_menu_open { 1.0 } else { 0.0 }) }
+                    draw_bg: {
+                        dark_mode: (self.dark_mode)
+                        active: (if self.player_segment_menu_open { 1.0 } else { 0.0 })
+                    }
+                    draw_icon: { dark_mode: (self.dark_mode) }
                 },
             );
         self.view
@@ -29902,6 +29898,44 @@ mod tests {
     }
 
     #[test]
+    fn segment_popover_uses_svg_icons_bordered_cards_and_layered_shadow() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+
+        for asset in [
+            "resources/icons/segments.svg",
+            "resources/icons/segment-play.svg",
+            "resources/icons/segment-download.svg",
+            "resources/icons/segment-expand.svg",
+            "resources/icons/segment-retry.svg",
+        ] {
+            assert!(source.contains(asset), "missing segment SVG asset: {asset}");
+        }
+
+        let segment_card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("row = <View>")
+            .next()
+            .unwrap();
+        assert!(segment_card.contains("let border ="));
+        assert!(segment_card.contains("sdf.stroke(border, 1.0)"));
+
+        let menu = source
+            .split("PlayerFloatingMenu = <View>")
+            .nth(1)
+            .expect("floating menu should exist")
+            .split("PlayerMenuItemBtn = <Button>")
+            .next()
+            .unwrap();
+        assert!(menu.contains("let shadow_far ="));
+        assert!(menu.contains("let shadow_near ="));
+    }
+
+    #[test]
     fn segment_preview_and_main_playback_stop_each_other() {
         let source = include_str!("screen.rs")
             .split("#[cfg(test)]")
@@ -30089,8 +30123,9 @@ mod tests {
             "speed and more buttons should render with circle geometry instead of oversized box radius"
         );
         assert!(
-            live_design.contains("sdf.box(3.0, 4.0, self.rect_size.x, self.rect_size.y, 5.0)"),
-            "floating menus should render a visible shadow"
+            live_design.contains("let shadow_far =")
+                && live_design.contains("let shadow_near ="),
+            "floating menus should render layered shadows"
         );
         assert!(
             live_design.contains("sdf.stroke(border, 1.0)"),
