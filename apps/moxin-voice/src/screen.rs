@@ -7913,6 +7913,7 @@ live_design! {
                 SegmentCard = <RoundedView> {
                     width: Fill, height: Fit
                     show_bg: true
+                    cursor: Hand
                     flow: Down
                     padding: {left: 10, right: 10, top: 8, bottom: 8}
                     spacing: 6
@@ -9950,8 +9951,6 @@ pub struct TTSScreen {
     #[rust]
     history_item_areas: Vec<(usize, Area, Area, Area, Area, Area, Area)>, // (idx, card, play, use, download, share, delete)
     #[rust]
-    segment_item_areas: Vec<(usize, Area, Area, Area, Area, Area)>, // (idx, row, text, preview, download, retry)
-    #[rust]
     currently_playing_history_id: Option<String>,
     #[rust]
     share_modal_visible: bool,
@@ -10054,7 +10053,6 @@ impl Widget for TTSScreen {
 
             self.tts_history = tts_history::load_history();
             self.history_item_areas = Vec::new();
-            self.segment_item_areas = Vec::new();
             self.share_modal_visible = false;
             self.pending_share_source = None;
             self.download_modal_visible = false;
@@ -13860,61 +13858,40 @@ impl Widget for TTSScreen {
         }
 
         if self.player_segment_menu_open {
-            for (item_idx, row_area, text_area, preview_area, download_area, retry_area) in
-                self.segment_item_areas.clone()
-            {
+            let segment_list = self
+                .view
+                .portal_list(ids!(player_segment_menu.segment_portal_list));
+            let mut processed_items = Vec::new();
+            for (item_idx, item) in segment_list.items_with_actions(&actions) {
+                if processed_items.contains(&item_idx) {
+                    continue;
+                }
+                processed_items.push(item_idx);
                 let Some(segments) = self.tts_audio_segments.as_ref() else {
                     continue;
                 };
                 if item_idx >= segments.len() {
                     continue;
                 }
-                let mut handled = false;
-                if let Hit::FingerUp(fe) = event.hits(cx, preview_area) {
-                    if fe.was_tap() {
-                        self.preview_tts_segment(cx, item_idx);
-                        handled = true;
-                    }
-                }
-                if !handled {
-                    if let Hit::FingerUp(fe) = event.hits(cx, download_area) {
-                        if fe.was_tap() {
-                            self.open_download_modal(cx, DownloadSource::Segment(item_idx));
-                            handled = true;
-                        }
-                    }
-                }
-                if !handled {
-                    if let Hit::FingerUp(fe) = event.hits(cx, retry_area) {
-                        if fe.was_tap() {
-                            self.retry_tts_segment(cx, item_idx);
-                            handled = true;
-                        }
-                    }
-                }
-                if !handled {
-                    let row_tapped = if let Hit::FingerUp(fe) = event.hits(cx, row_area) {
-                        fe.was_tap()
-                            && !preview_area.rect(cx).contains(fe.abs)
-                            && !download_area.rect(cx).contains(fe.abs)
-                            && !retry_area.rect(cx).contains(fe.abs)
-                    } else {
-                        false
-                    };
-                    let text_tapped = if let Hit::FingerUp(fe) = event.hits(cx, text_area) {
-                        fe.was_tap()
-                    } else {
-                        false
-                    };
-                    if row_tapped || text_tapped {
-                        if let Some(segment) = self
-                            .tts_audio_segments
-                            .as_mut()
-                            .and_then(|segments| segments.segment_mut(item_idx))
-                        {
-                            segment.text_expanded = !segment.text_expanded;
-                            self.view.redraw(cx);
-                        }
+                if item.button(ids!(row.preview_btn)).clicked(&actions) {
+                    self.preview_tts_segment(cx, item_idx);
+                } else if item.button(ids!(row.download_btn)).clicked(&actions) {
+                    self.open_download_modal(cx, DownloadSource::Segment(item_idx));
+                } else if item.button(ids!(row.retry_btn)).clicked(&actions) {
+                    self.retry_tts_segment(cx, item_idx);
+                } else if item
+                    .as_view()
+                    .finger_up(&actions)
+                    .map(|fe| fe.was_tap())
+                    .unwrap_or(false)
+                {
+                    if let Some(segment) = self
+                        .tts_audio_segments
+                        .as_mut()
+                        .and_then(|segments| segments.segment_mut(item_idx))
+                    {
+                        segment.text_expanded = !segment.text_expanded;
+                        self.view.redraw(cx);
                     }
                 }
             }
@@ -13977,8 +13954,6 @@ impl Widget for TTSScreen {
         self.model_picker_card_areas.clear();
         self.voice_picker_item_areas.clear();
         self.history_item_areas.clear();
-        self.segment_item_areas.clear();
-
         // Get UIDs of our PortalLists using full paths to avoid name collisions
         let voice_list_uid = self
             .view
@@ -14472,14 +14447,6 @@ impl Widget for TTSScreen {
                                 live! { draw_bg: { dark_mode: (self.dark_mode), active: (if *is_playing { 1.0 } else { 0.0 }) } },
                             );
                             card.draw_all(cx, &mut Scope::empty());
-                            self.segment_item_areas.push((
-                                item_id,
-                                card.view(ids!(row)).area(),
-                                card.label(ids!(text_preview)).area(),
-                                card.button(ids!(row.preview_btn)).area(),
-                                card.button(ids!(row.download_btn)).area(),
-                                card.button(ids!(row.retry_btn)).area(),
-                            ));
                         }
                     }
                 } else if list_id == history_list_uid {
@@ -29922,12 +29889,22 @@ mod tests {
             .next()
             .unwrap();
 
-        assert!(handler.contains("event.hits(cx, row_area)"));
-        assert!(handler.contains("event.hits(cx, text_area)"));
-        assert!(!handler.contains("event.hits(cx, card_area)"));
+        assert!(handler.contains("items_with_actions(&actions)"));
+        assert!(handler.contains("item\n                    .as_view()"));
+        assert!(handler.contains(".finger_up(&actions)"));
+        assert!(!handler.contains("event.hits(cx"));
         assert!(handler.contains("segment.text_expanded = !segment.text_expanded"));
         assert!(!handler.contains("expand_area"));
         assert!(!handler.contains("start_playback_from_time"));
+
+        let card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("row = <View>")
+            .next()
+            .unwrap();
+        assert!(card.contains("cursor: Hand"));
     }
 
     #[test]
