@@ -692,6 +692,10 @@ fn main() -> Result<()> {
                     }
                     Err(e) => {
                         tracing::error!("Qwen synthesis failed: {:#}", e);
+                        send_segment_complete(
+                            &mut node,
+                            &SegmentResult::from_attempts(1, true, 0),
+                        )?;
                         send_status(&mut node, &format!("error: {}", e))?;
                         send_log(&mut node, &format!("{{\"error\": \"{}\"}}", e))?;
                     }

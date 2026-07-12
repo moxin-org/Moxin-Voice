@@ -9,6 +9,15 @@ pub enum SegmentAudioError {
 }
 
 #[derive(Clone, Debug)]
+pub enum RetryCommit {
+    Replace {
+        samples: Vec<f32>,
+        sample_rate: u32,
+    },
+    KeepExisting,
+}
+
+#[derive(Clone, Debug)]
 pub struct TtsAudioSegment {
     pub text: String,
     pub request_payload: String,
@@ -92,6 +101,10 @@ impl TtsAudioSegments {
         self.segments.get_mut(index)
     }
 
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &TtsAudioSegment> {
+        self.segments.iter()
+    }
+
     pub fn merged_samples(&self) -> Vec<f32> {
         self.segments
             .iter()
@@ -109,6 +122,11 @@ impl TtsAudioSegments {
                 .map(|segment| segment.samples.len())
                 .sum(),
         )
+    }
+
+    pub fn start_time_secs(&self, index: usize) -> Option<f64> {
+        let start_sample = self.start_sample(index)?;
+        (self.sample_rate != 0).then_some(start_sample as f64 / self.sample_rate as f64)
     }
 
     pub fn index_at_sample(&self, sample: usize) -> Option<usize> {
@@ -141,6 +159,23 @@ impl TtsAudioSegments {
         segment.samples = samples;
         segment.sample_rate = sample_rate;
         Ok(())
+    }
+
+    pub fn apply_retry(
+        &mut self,
+        index: usize,
+        commit: RetryCommit,
+    ) -> Result<bool, SegmentAudioError> {
+        match commit {
+            RetryCommit::Replace {
+                samples,
+                sample_rate,
+            } => {
+                self.replace_samples(index, samples, sample_rate)?;
+                Ok(true)
+            }
+            RetryCommit::KeepExisting => Ok(false),
+        }
     }
 }
 
@@ -273,5 +308,34 @@ mod tests {
 
         assert!(assembly.is_ready());
         assert_eq!(assembly.into_samples().unwrap(), (vec![0.1, 0.2, 0.3], 24_000));
+    }
+
+    #[test]
+    fn retry_commit_replaces_only_the_target_and_exposes_its_start_time() {
+        let mut segments = two_completed_segments();
+
+        assert!(segments
+            .apply_retry(
+                1,
+                RetryCommit::Replace {
+                    samples: vec![0.9],
+                    sample_rate: 24_000,
+                },
+            )
+            .unwrap());
+
+        assert_eq!(segments.segment(0).unwrap().samples, vec![0.1, 0.2]);
+        assert_eq!(segments.merged_samples(), vec![0.1, 0.2, 0.9]);
+        assert_eq!(segments.start_time_secs(1), Some(2.0 / 24_000.0));
+    }
+
+    #[test]
+    fn discarded_retry_keeps_the_existing_segment_audio() {
+        let mut segments = two_completed_segments();
+        let before = segments.merged_samples();
+
+        assert!(!segments.apply_retry(1, RetryCommit::KeepExisting).unwrap());
+
+        assert_eq!(segments.merged_samples(), before);
     }
 }

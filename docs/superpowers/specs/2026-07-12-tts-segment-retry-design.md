@@ -10,7 +10,8 @@ around, rather than attempt to fix, upstream prosody defects.
 
 ## Scope
 
-- Add an upward-opening segment-list popover to the current audio player.
+- Add an upward-opening segment-list popover, opened by a distinct segment-stack
+  icon beside the current audio player's action menu.
 - Store generated segments independently in memory for the current result.
 - Preserve the exact original synthesis request for each segment and reuse it
   on retry.
@@ -88,13 +89,16 @@ The player gets a `Segments` button beside its existing action controls. It
 toggles a floating popover anchored directly above the player:
 
 - Header: segment count and current merged duration.
-- One row per segment: ordinal, duration range, play, download, text-expand,
-  and retry controls.
-- Expanded text appears below its own row.
+- One row per segment: ordinal, duration range, and icon-only play, download,
+  text-expand, and retry controls.
+- Expanded text appears below its own row with an explicit high-contrast text
+  color in both normal and active-row states.
 - The row containing `audio_playing_time` has a translucent primary-blue
-  background and a visible “playing” label.
+  background and a visible, high-contrast “playing” label.
 - Clicking a row, excluding an action button, calls the existing seek/play
   helper at that row's derived `start_sample` time.
+- Segment preview and main playback are mutually exclusive: starting either
+  stops the other before audio is written to its player.
 
 Individual play starts a separate preview player from the segment's source
 PCM. Individual download writes only that segment using the selected current
@@ -145,3 +149,13 @@ until that request finishes.
 - Run focused TTS bridge/node/app test suites and the applicable format/check
   commands. Document the already-known upstream `main` baseline test failure
   separately if it remains.
+
+## Verification record
+
+On 2026-07-12, the TTS segment model, player-popover contract, bridge package,
+and Qwen node package tests passed. `cargo test -p moxin-voice --lib` ran 84
+tests: 83 passed and the sole failure was
+`voice_persistence::tests::test_voice_id_with_chinese`. That assertion also
+fails on unchanged `moxin/main`; it is not caused by this feature. Repository-
+wide `cargo fmt --check` reports pre-existing formatting differences in many
+unrelated files, so this change intentionally does not run a bulk formatter.
