@@ -1885,7 +1885,7 @@ live_design! {
                 return mix((SLATE_600), (SLATE_300), self.dark_mode);
             }
         }
-        icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}
+        icon_walk: {width: 20, height: 20}
         draw_text: {
             text_style: { font_size: 0.0 }
             fn get_color(self) -> vec4 {
@@ -7947,19 +7947,12 @@ live_design! {
                         index_label = <SegmentPrimaryLabel> { width: 28, height: Fit text: "01" }
                         range_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "00:00–00:00" }
                         playing_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "" }
-                        preview_control = <View> {
-                            width: 32, height: 32
-                            flow: Overlay
-
-                            preview_btn = <PlayerSegmentActionBtn> {
-                                width: Fill, height: Fill
-                                draw_icon: { svg_file: (ICO_TTS_SEGMENT_PLAY) }
-                            }
-                            preview_pause_btn = <PlayerSegmentActionBtn> {
-                                width: Fill, height: Fill
-                                visible: false
-                                draw_icon: { svg_file: (ICO_TTS_SEGMENT_PAUSE) }
-                            }
+                        preview_btn = <PlayerSegmentActionBtn> {
+                            draw_icon: { svg_file: (ICO_TTS_SEGMENT_PLAY) }
+                        }
+                        preview_pause_btn = <PlayerSegmentActionBtn> {
+                            visible: false
+                            draw_icon: { svg_file: (ICO_TTS_SEGMENT_PAUSE) }
                         }
                         download_btn = <PlayerSegmentActionBtn> {
                             draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) }
@@ -13894,12 +13887,8 @@ impl Widget for TTSScreen {
                 if item_idx >= segments.len() {
                     continue;
                 }
-                if item
-                    .button(ids!(row.preview_control.preview_btn))
-                    .clicked(&actions)
-                    || item
-                        .button(ids!(row.preview_control.preview_pause_btn))
-                        .clicked(&actions)
+                if item.button(ids!(row.preview_btn)).clicked(&actions)
+                    || item.button(ids!(row.preview_pause_btn)).clicked(&actions)
                 {
                     self.preview_tts_segment(cx, item_idx);
                 } else if item.button(ids!(row.download_btn)).clicked(&actions) {
@@ -14464,6 +14453,8 @@ impl Widget for TTSScreen {
                                 );
                             }
                             for button_path in [
+                                ids!(row.preview_btn),
+                                ids!(row.preview_pause_btn),
                                 ids!(row.download_btn),
                                 ids!(row.retry_btn),
                             ] {
@@ -14477,18 +14468,6 @@ impl Widget for TTSScreen {
                                     },
                                 );
                             }
-                            for preview_button_path in [
-                                ids!(row.preview_control.preview_btn),
-                                ids!(row.preview_control.preview_pause_btn),
-                            ] {
-                                card.button(preview_button_path).apply_over(
-                                    cx,
-                                    live! {
-                                        draw_bg: { dark_mode: (self.dark_mode) }
-                                        draw_icon: { dark_mode: (self.dark_mode) }
-                                    },
-                                );
-                            }
                             card.button(ids!(row.retry_btn)).apply_over(
                                 cx,
                                 live! {
@@ -14497,11 +14476,11 @@ impl Widget for TTSScreen {
                                     }
                                 },
                             );
-                            card.button(ids!(row.preview_control.preview_btn))
+                            card.button(ids!(row.preview_btn))
                                 .set_visible(cx, !*is_preview_playing);
-                            card.button(ids!(row.preview_control.preview_pause_btn))
+                            card.button(ids!(row.preview_pause_btn))
                                 .set_visible(cx, *is_preview_playing);
-                            card.button(ids!(row.preview_control.preview_pause_btn)).apply_over(
+                            card.button(ids!(row.preview_pause_btn)).apply_over(
                                 cx,
                                 live! { draw_bg: { active: 1.0 } },
                             );
@@ -30215,7 +30194,6 @@ mod tests {
             .next()
             .unwrap();
         assert!(card.contains("preview_btn = <PlayerSegmentActionBtn>"));
-        assert!(card.contains("preview_pause_btn = <PlayerSegmentActionBtn>"));
         assert!(card.contains("download_btn = <PlayerSegmentActionBtn>"));
         assert_eq!(card.matches("padding: {left: 1, right: 0, top: 0, bottom: 0}").count(), 0);
         assert!(source.contains("ICO_TTS_SEGMENT_PAUSE"));
@@ -30225,12 +30203,6 @@ mod tests {
         assert!(preview.contains("self.segment_preview_playing = false"));
         assert!(preview.contains("self.segment_preview_playing = true"));
         assert!(preview.matches("self.view.redraw(cx);").count() >= 2);
-
-        assert!(card.contains("preview_control = <View>"));
-        assert!(card.contains("flow: Overlay"));
-        assert!(card.contains("preview_pause_btn = <PlayerSegmentActionBtn>"));
-        assert!(source.contains("ids!(row.preview_control.preview_btn)"));
-        assert!(source.contains("ids!(row.preview_control.preview_pause_btn)"));
     }
 
     #[test]
@@ -30277,14 +30249,6 @@ mod tests {
             assert!(button.contains("label_walk: {width: 0, height: 0}"));
             assert!(button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
         }
-        let action_button = source
-            .split("PlayerSegmentActionBtn = <Button>")
-            .nth(1)
-            .expect("segment action button should exist")
-            .split("SegmentPrimaryLabel = <Label>")
-            .next()
-            .unwrap();
-        assert!(action_button.contains("margin: {left: 6, right: 6, top: 6, bottom: 6}"));
     }
 
     #[test]
