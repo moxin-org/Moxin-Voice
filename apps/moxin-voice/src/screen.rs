@@ -14,6 +14,9 @@ use crate::task_persistence;
 use crate::training_executor::TrainingExecutor;
 use crate::tts_emotion::{self, TtsInstructSelection, TtsInstructState, NEUTRAL_EMOTION_ID};
 use crate::tts_history::{self, TtsHistoryEntry};
+use crate::tts_segments::{
+    ActiveSegmentAssembly, TtsAudioSegment, TtsAudioSegments,
+};
 use crate::voice_clone_modal::{CloneMode, VoiceCloneModalAction, VoiceCloneModalWidgetExt};
 use crate::voice_data::{LanguageFilter, TTSStatus, Voice, VoiceFilter, VoiceSource};
 use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
@@ -9441,6 +9444,12 @@ pub struct TTSScreen {
     #[rust]
     pending_generation_dispatch: TtsSegmentDispatch,
     #[rust]
+    pending_tts_segments: Vec<TtsAudioSegment>,
+    #[rust]
+    active_tts_segment: Option<ActiveSegmentAssembly>,
+    #[rust]
+    tts_audio_segments: Option<TtsAudioSegments>,
+    #[rust]
     has_generated_audio: bool,
 
     // Preview player for reference audio
@@ -9785,6 +9794,9 @@ impl Widget for TTSScreen {
             self.pending_generation_expected_segments = 0;
             self.pending_generation_received_segments = 0;
             self.pending_generation_dispatch.clear();
+            self.pending_tts_segments.clear();
+            self.active_tts_segment = None;
+            self.tts_audio_segments = None;
             self.has_generated_audio = false;
             // Initialize current page — Live Translation is the primary feature
             self.current_page = AppPage::Translation;
@@ -10154,68 +10166,54 @@ impl Widget for TTSScreen {
                 .as_ref()
                 .map(|dora| dora.shared_dora_state().tts_segment_events.drain())
                 .unwrap_or_default();
-            for event in segment_events {
-                if self.tts_status != TTSStatus::Generating {
-                    continue;
-                }
-                if !event.complete {
-                    self.fail_pending_tts_generation(
-                        cx,
-                        "[ERROR] [tts] Segment generation ended before all text was synthesized",
-                    );
-                    break;
-                }
-                self.pending_generation_dispatch.mark_received();
-                self.pending_generation_received_segments = self.pending_generation_dispatch.received;
-                self.update_generation_status(cx);
-                if !self.pending_generation_dispatch.is_complete()
-                    && !self.send_next_pending_tts_segment(cx)
-                {
-                    self.fail_pending_tts_generation(
-                        cx,
-                        "[ERROR] [tts] Failed to send next prompt segment to Dora",
-                    );
-                    break;
-                }
-            }
-            {
+            if self.tts_status == TTSStatus::Generating {
+                let mut generation_error = None;
                 for audio in chunks {
-                    self.stored_audio_samples.extend(&audio.samples);
-                    self.stored_audio_sample_rate = audio.sample_rate;
-                }
-                self.rebuild_processed_audio_samples();
-                // Transition to Ready state - user must click Play
-                if self.tts_status == TTSStatus::Generating
-                    && self.pending_generation_dispatch.is_complete()
-                {
-                    let sample_count = self.effective_audio_samples().len();
-                    let effective_rate = self.effective_audio_sample_rate();
-                    let duration_secs = if effective_rate > 0 {
-                        sample_count as f32 / effective_rate as f32
-                    } else {
-                        0.0
+                    let Some(active) = self.active_tts_segment.as_mut() else {
+                        generation_error = Some(
+                            "[ERROR] [tts] Received audio without an active segment".to_string(),
+                        );
+                        break;
                     };
-                    self.add_log(
-                        cx,
-                        &format!(
-                            "[INFO] [tts] Audio generated: {} samples, {:.1}s duration",
-                            sample_count, duration_secs
-                        ),
-                    );
-                    self.tts_status = TTSStatus::Ready;
-                    self.audio_playing_time = 0.0;
-                    self.has_generated_audio = true;
-                    let generated_voice_id = self
-                        .pending_generation_voice_id
-                        .clone()
-                        .or_else(|| self.selected_voice_id.clone());
-                    if let Some(voice_id) = generated_voice_id {
-                        self.apply_generated_voice_to_player_bar(cx, &voice_id, None);
+                    if let Err(error) = active.push_audio(&audio.samples, audio.sample_rate) {
+                        generation_error = Some(format!(
+                            "[ERROR] [tts] Invalid audio for active segment: {error:?}"
+                        ));
+                        break;
                     }
-                    self.append_current_generation_to_history(cx);
-                    self.clear_pending_generation_snapshot();
-                    self.set_generate_button_loading(cx, false);
-                    self.update_player_bar(cx);
+                }
+                if generation_error.is_none() {
+                    for event in segment_events {
+                        if !event.complete {
+                            generation_error = Some(
+                                "[ERROR] [tts] Segment generation ended before all text was synthesized"
+                                    .to_string(),
+                            );
+                            break;
+                        }
+                        let Some(active) = self.active_tts_segment.as_mut() else {
+                            generation_error = Some(
+                                "[ERROR] [tts] Received completion without an active segment"
+                                    .to_string(),
+                            );
+                            break;
+                        };
+                        if let Err(error) = active.mark_complete(event.sample_count) {
+                            generation_error = Some(format!(
+                                "[ERROR] [tts] Invalid active segment completion: {error:?}"
+                            ));
+                            break;
+                        }
+                    }
+                }
+                if let Some(message) = generation_error {
+                    self.fail_pending_tts_generation(cx, &message);
+                } else if self
+                    .active_tts_segment
+                    .as_ref()
+                    .is_some_and(ActiveSegmentAssembly::is_ready)
+                {
+                    self.finalize_active_initial_tts_segment(cx);
                 }
             }
 
@@ -18535,6 +18533,19 @@ impl TTSScreen {
             "instruct": self.pending_generation_instruct.clone(),
         });
         let payload_text = payload.to_string();
+        let segment_index = segment_number.saturating_sub(1);
+        let Some(pending_segment) = self.pending_tts_segments.get_mut(segment_index) else {
+            self.add_log(
+                cx,
+                &format!(
+                    "[ERROR] [tts] Missing pending audio segment {}/{}",
+                    segment_number, total_segments
+                ),
+            );
+            return false;
+        };
+        pending_segment.request_payload = payload_text.clone();
+        self.active_tts_segment = Some(ActiveSegmentAssembly::new(segment_index));
         let sent = self
             .dora
             .as_ref()
@@ -18548,8 +18559,114 @@ impl TTSScreen {
                     segment_number, total_segments
                 ),
             );
+            self.active_tts_segment = None;
         }
         sent
+    }
+
+    fn rebuild_audio_from_tts_segments(&mut self) {
+        let Some(segments) = self.tts_audio_segments.as_ref() else {
+            return;
+        };
+        self.stored_audio_samples = segments.merged_samples();
+        self.stored_audio_sample_rate = segments.sample_rate();
+        self.rebuild_processed_audio_samples();
+    }
+
+    fn finalize_active_initial_tts_segment(&mut self, cx: &mut Cx) {
+        let Some(active) = self.active_tts_segment.take() else {
+            self.fail_pending_tts_generation(cx, "[ERROR] [tts] Missing active TTS segment");
+            return;
+        };
+        let segment_index = active.index;
+        let (samples, sample_rate) = match active.into_samples() {
+            Ok(audio) => audio,
+            Err(error) => {
+                self.fail_pending_tts_generation(
+                    cx,
+                    &format!("[ERROR] [tts] Invalid segment audio: {error:?}"),
+                );
+                return;
+            }
+        };
+        let expected_rate = self
+            .pending_tts_segments
+            .iter()
+            .find(|segment| segment.sample_rate != 0)
+            .map(|segment| segment.sample_rate);
+        if let Some(expected_rate) = expected_rate {
+            if expected_rate != sample_rate {
+                self.fail_pending_tts_generation(
+                    cx,
+                    &format!(
+                        "[ERROR] [tts] Segment sample rate mismatch: expected {}, got {}",
+                        expected_rate, sample_rate
+                    ),
+                );
+                return;
+            }
+        }
+        let Some(segment) = self.pending_tts_segments.get_mut(segment_index) else {
+            self.fail_pending_tts_generation(cx, "[ERROR] [tts] Missing pending TTS segment");
+            return;
+        };
+        segment.samples = samples;
+        segment.sample_rate = sample_rate;
+
+        self.pending_generation_dispatch.mark_received();
+        self.pending_generation_received_segments = self.pending_generation_dispatch.received;
+        self.update_generation_status(cx);
+        if !self.pending_generation_dispatch.is_complete() {
+            if !self.send_next_pending_tts_segment(cx) {
+                self.fail_pending_tts_generation(
+                    cx,
+                    "[ERROR] [tts] Failed to send next prompt segment to Dora",
+                );
+            }
+            return;
+        }
+
+        let completed_segments = std::mem::take(&mut self.pending_tts_segments);
+        let segments = match TtsAudioSegments::new(completed_segments) {
+            Ok(segments) => segments,
+            Err(error) => {
+                self.fail_pending_tts_generation(
+                    cx,
+                    &format!("[ERROR] [tts] Failed to publish audio segments: {error:?}"),
+                );
+                return;
+            }
+        };
+        self.tts_audio_segments = Some(segments);
+        self.rebuild_audio_from_tts_segments();
+        let sample_count = self.effective_audio_samples().len();
+        let effective_rate = self.effective_audio_sample_rate();
+        let duration_secs = if effective_rate > 0 {
+            sample_count as f32 / effective_rate as f32
+        } else {
+            0.0
+        };
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] [tts] Audio generated: {} samples, {:.1}s duration",
+                sample_count, duration_secs
+            ),
+        );
+        self.tts_status = TTSStatus::Ready;
+        self.audio_playing_time = 0.0;
+        self.has_generated_audio = true;
+        let generated_voice_id = self
+            .pending_generation_voice_id
+            .clone()
+            .or_else(|| self.selected_voice_id.clone());
+        if let Some(voice_id) = generated_voice_id {
+            self.apply_generated_voice_to_player_bar(cx, &voice_id, None);
+        }
+        self.append_current_generation_to_history(cx);
+        self.clear_pending_generation_snapshot();
+        self.set_generate_button_loading(cx, false);
+        self.update_player_bar(cx);
     }
 
     fn fail_pending_tts_generation(&mut self, cx: &mut Cx, message: &str) {
@@ -18685,6 +18802,8 @@ impl TTSScreen {
         self.pending_generation_expected_segments = 0;
         self.pending_generation_received_segments = 0;
         self.pending_generation_dispatch.clear();
+        self.pending_tts_segments.clear();
+        self.active_tts_segment = None;
     }
 
     fn update_audio_player_visibility(&mut self, cx: &mut Cx) {
@@ -22850,12 +22969,10 @@ impl TTSScreen {
         }
         self.add_log(cx, "========== VOICE DEBUG END ==========");
 
-        // Clear previous audio
-        self.stored_audio_samples.clear();
-        self.processed_audio_samples.clear();
-        self.stored_audio_sample_rate = 32000;
+        // Keep the published result intact until every new segment completes.
         if let Some(dora) = &self.dora {
             let _ = dora.shared_dora_state().audio.drain();
+            dora.shared_dora_state().tts_segment_events.clear();
         }
 
         self.tts_status = TTSStatus::Generating;
@@ -22879,6 +22996,11 @@ impl TTSScreen {
         let expected_segments = text_segments.len();
         self.pending_generation_expected_segments = expected_segments;
         self.pending_generation_received_segments = 0;
+        self.pending_tts_segments = text_segments
+            .iter()
+            .map(|text| TtsAudioSegment::pending(text, ""))
+            .collect();
+        self.active_tts_segment = None;
         self.pending_generation_dispatch = TtsSegmentDispatch::new(text_segments);
         self.update_generation_status(cx);
         if expected_segments > 1 {
