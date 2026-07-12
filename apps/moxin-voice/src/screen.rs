@@ -29987,7 +29987,7 @@ mod tests {
     }
 
     #[test]
-    fn segment_icon_assets_use_lucide_stroke_style() {
+    fn segment_icon_assets_use_makepad_compatible_lucide_fill_paths() {
         for asset in [
             include_str!("../resources/icons/segments.svg"),
             include_str!("../resources/icons/segment-play.svg"),
@@ -29995,10 +29995,8 @@ mod tests {
             include_str!("../resources/icons/segment-expand.svg"),
             include_str!("../resources/icons/segment-retry.svg"),
         ] {
-            assert!(asset.contains("stroke=\"currentColor\""));
-            assert!(asset.contains("stroke-linecap=\"round\""));
-            assert!(asset.contains("stroke-linejoin=\"round\""));
-            assert!(asset.contains("stroke-width=\"2\""));
+            assert!(asset.contains("fill=\"currentColor\""));
+            assert!(!asset.contains("stroke="));
         }
     }
 
