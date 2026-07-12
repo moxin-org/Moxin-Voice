@@ -1918,25 +1918,41 @@ live_design! {
         width: Fit, height: Fit
         flow: Down
         spacing: 2
-        padding: {left: 12, right: 12, top: 12, bottom: 16}
+        padding: {left: 16, right: 16, top: 16, bottom: 18}
         show_bg: true
         draw_bg: {
             instance dark_mode: 0.0
             fn pixel(self) -> vec4 {
-                let sdf = Sdf2d::viewport(self.pos * self.rect_size);
-                let shadow_far = mix(vec4(0.08, 0.12, 0.22, 0.14), vec4(0.0, 0.0, 0.0, 0.42), self.dark_mode);
-                let shadow_near = mix(vec4(0.08, 0.12, 0.22, 0.24), vec4(0.0, 0.0, 0.0, 0.52), self.dark_mode);
-                let panel_inset = 4.0;
-                sdf.box(10.0, 16.0, self.rect_size.x - 20.0, self.rect_size.y - 16.0, 9.0);
-                sdf.fill(shadow_far);
-                sdf.box(6.0, 10.0, self.rect_size.x - 12.0, self.rect_size.y - 12.0, 7.0);
-                sdf.fill(shadow_near);
-                sdf.box(panel_inset, panel_inset, self.rect_size.x - panel_inset * 2.0, self.rect_size.y - 14.0, 7.0);
+                let p = self.pos * self.rect_size;
+                let panel_inset = 8.0;
+                let panel_top = 8.0;
+                let panel_bottom = 10.0;
+                let panel_size = vec2(
+                    self.rect_size.x - panel_inset * 2.0,
+                    self.rect_size.y - panel_top - panel_bottom
+                );
+                let panel_center = vec2(panel_inset, panel_top) + panel_size * 0.5;
+                let panel_radius = 9.0;
+                let panel_q = abs(p - panel_center) - panel_size * 0.5 + vec2(panel_radius);
+                let panel_distance = length(max(panel_q, vec2(0.0)))
+                    + min(max(panel_q.x, panel_q.y), 0.0) - panel_radius;
+
+                let shadow_offset = vec2(0.0, 3.0);
+                let shadow_q = abs((p - shadow_offset) - panel_center)
+                    - panel_size * 0.5 + vec2(panel_radius);
+                let shadow_distance = length(max(shadow_q, vec2(0.0)))
+                    + min(max(shadow_q.x, shadow_q.y), 0.0) - panel_radius;
+                let shadow_alpha = (1.0 - smoothstep(0.0, 12.0, shadow_distance))
+                    * mix(0.18, 0.34, self.dark_mode);
+                let shadow_rgb = mix(vec3(0.08, 0.12, 0.22), vec3(0.0, 0.0, 0.0), self.dark_mode);
+
                 let bg = mix((WHITE), (SLATE_800), self.dark_mode);
-                let border = mix(vec4(0.58, 0.66, 0.79, 1.0), vec4(0.42, 0.49, 0.63, 1.0), self.dark_mode);
-                sdf.fill(bg);
-                sdf.stroke(border, 1.0);
-                return sdf.result;
+                let border = mix(vec4(0.76, 0.81, 0.89, 1.0), vec4(0.42, 0.49, 0.63, 1.0), self.dark_mode);
+                let panel_mask = 1.0 - smoothstep(-0.5, 0.5, panel_distance);
+                let inner_mask = 1.0 - smoothstep(-1.5, -0.5, panel_distance);
+                let panel_color = mix(border, bg, inner_mask);
+                let shadow_color = vec4(shadow_rgb, shadow_alpha);
+                return mix(shadow_color, panel_color, panel_mask);
             }
         }
     }
@@ -29937,12 +29953,12 @@ mod tests {
             .split("PlayerMenuItemBtn = <Button>")
             .next()
             .unwrap();
-        assert!(menu.contains("let shadow_far ="));
-        assert!(menu.contains("let shadow_near ="));
+        assert!(menu.contains("let shadow_offset = vec2(0.0, 3.0)"));
+        assert!(menu.contains("smoothstep(0.0, 12.0, shadow_distance)"));
     }
 
     #[test]
-    fn segment_popover_renders_card_surfaces_and_reserved_shadow_gutter() {
+    fn segment_popover_uses_soft_analytic_outer_shadow() {
         let source = include_str!("screen.rs")
             .split("#[cfg(test)]")
             .next()
@@ -29964,7 +29980,11 @@ mod tests {
 
         assert!(segment_card.contains("show_bg: true"));
         assert!(menu.contains("panel_inset"));
-        assert!(menu.contains("padding: {left: 12, right: 12, top: 12, bottom: 16}"));
+        assert!(menu.contains("let shadow_offset = vec2(0.0, 3.0)"));
+        assert!(menu.contains("smoothstep(0.0, 12.0, shadow_distance)"));
+        assert!(!menu.contains("shadow_far"));
+        assert!(!menu.contains("shadow_near"));
+        assert!(menu.contains("padding: {left: 16, right: 16, top: 16, bottom: 18}"));
         assert!(source.contains("icon_walk: {width: 20, height: 20}"));
     }
 
@@ -29997,6 +30017,7 @@ mod tests {
         ] {
             assert!(asset.contains("fill=\"currentColor\""));
             assert!(!asset.contains("stroke="));
+            assert!(asset.contains('Q'));
         }
     }
 
@@ -30188,12 +30209,12 @@ mod tests {
             "speed and more buttons should render with circle geometry instead of oversized box radius"
         );
         assert!(
-            live_design.contains("let shadow_far =")
-                && live_design.contains("let shadow_near ="),
-            "floating menus should render layered shadows"
+            live_design.contains("let shadow_offset = vec2(0.0, 3.0)")
+                && live_design.contains("smoothstep(0.0, 12.0, shadow_distance)"),
+            "floating menus should render a soft analytic shadow"
         );
         assert!(
-            live_design.contains("sdf.stroke(border, 1.0)"),
+            live_design.contains("let panel_color = mix(border, bg, inner_mask)"),
             "floating menus should render a visible border"
         );
         assert!(
