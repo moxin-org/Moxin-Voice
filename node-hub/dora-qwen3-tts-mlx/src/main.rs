@@ -36,6 +36,7 @@ struct SegmentResult {
     complete: bool,
     attempts: u8,
     generation_frames: usize,
+    sample_count: Option<usize>,
 }
 
 impl SegmentResult {
@@ -44,7 +45,13 @@ impl SegmentResult {
             complete: !incomplete_clone,
             attempts,
             generation_frames,
+            sample_count: None,
         }
+    }
+
+    fn with_sample_count(mut self, sample_count: usize) -> Self {
+        self.sample_count = Some(sample_count);
+        self
     }
 }
 
@@ -671,15 +678,16 @@ fn main() -> Result<()> {
                         }
 
                         let samples = apply_runtime_audio_params(segment.samples, &params);
+                        let result = segment.result.with_sample_count(samples.len());
                         send_audio(&mut node, &samples, segment.sample_rate)?;
-                        send_segment_complete(&mut node, &segment.result)?;
+                        send_segment_complete(&mut node, &result)?;
                         send_status(&mut node, "done")?;
                         tracing::info!(
                             "Qwen synthesis complete: {} samples ({:.1}s @ {}Hz, attempts={})",
                             samples.len(),
                             samples.len() as f32 / segment.sample_rate as f32,
                             segment.sample_rate,
-                            segment.result.attempts
+                            result.attempts
                         );
                     }
                     Err(e) => {
@@ -754,5 +762,13 @@ mod tests {
 
         assert!(!result.complete);
         assert_eq!(result.attempts, 2);
+    }
+
+    #[test]
+    fn segment_result_serializes_post_processed_audio_sample_count() {
+        let result = SegmentResult::from_attempts(1, false, 44).with_sample_count(2_400);
+        let value = serde_json::to_value(result).unwrap();
+
+        assert_eq!(value["sample_count"], 2_400);
     }
 }
