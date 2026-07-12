@@ -7947,21 +7947,18 @@ live_design! {
                         index_label = <SegmentPrimaryLabel> { width: 28, height: Fit text: "01" }
                         range_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "00:00–00:00" }
                         playing_label = <SegmentPrimaryLabel> { width: Fit, height: Fit text: "" }
-                        <View> { width: Fill, height: 1 }
                         preview_btn = <PlayerSegmentActionBtn> {
-                            padding: {left: 1, right: 0, top: 0, bottom: 0}
                             draw_icon: { svg_file: (ICO_TTS_SEGMENT_PLAY) }
                         }
                         preview_pause_btn = <PlayerSegmentActionBtn> {
                             visible: false
-                            padding: {left: 1, right: 0, top: 0, bottom: 0}
                             draw_icon: { svg_file: (ICO_TTS_SEGMENT_PAUSE) }
                         }
                         download_btn = <PlayerSegmentActionBtn> {
-                            padding: {left: 1, right: 0, top: 0, bottom: 0}
                             draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) }
                         }
                         retry_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_RETRY) } }
+                        <View> { width: Fill, height: 1 }
                     }
 
                     text_preview = <SegmentTextPreview> {
@@ -9689,6 +9686,8 @@ pub struct TTSScreen {
     preview_player: Option<TTSPlayer>,
     #[rust]
     preview_playing_voice_id: Option<String>,
+    #[rust]
+    segment_preview_playing: bool,
 
     // Toast notification state
     #[rust]
@@ -10496,6 +10495,7 @@ impl Widget for TTSScreen {
                 if let Some(player) = &self.preview_player {
                     if player.check_playback_finished() {
                         // Preview finished - reset preview state
+                        self.segment_preview_playing = false;
                         self.preview_playing_voice_id = None;
                         let voice_selector = self.view.voice_selector(ids!(
                             content_wrapper
@@ -10512,6 +10512,7 @@ impl Widget for TTSScreen {
                         voice_selector.set_preview_playing(cx, None);
                         self.update_voice_picker_controls(cx);
                         self.update_player_bar(cx);
+                        self.view.redraw(cx);
                         self.add_log(cx, "[INFO] [tts] Preview playback finished");
                     }
                 }
@@ -14362,11 +14363,7 @@ impl Widget for TTSScreen {
                     } else {
                         None
                     };
-                    let previewing_segment_index = if self
-                        .preview_player
-                        .as_ref()
-                        .is_some_and(|player| player.is_playing())
-                    {
+                    let previewing_segment_index = if self.segment_preview_playing {
                         self.preview_playing_voice_id
                             .as_deref()
                             .and_then(|id| id.strip_prefix("tts-segment-"))
@@ -19242,14 +19239,11 @@ impl TTSScreen {
         }
         let preview_id = format!("tts-segment-{}", segment_index);
         if self.preview_playing_voice_id.as_deref() == Some(preview_id.as_str()) {
-            let is_playing = self
-                .preview_player
-                .as_ref()
-                .is_some_and(|player| player.is_playing());
-            if is_playing {
+            if self.segment_preview_playing {
                 if let Some(player) = &self.preview_player {
                     player.pause();
                 }
+                self.segment_preview_playing = false;
                 self.add_log(
                     cx,
                     &format!("[INFO] [tts] Paused segment {}", segment_index + 1),
@@ -19259,6 +19253,7 @@ impl TTSScreen {
                 if let Some(player) = &self.preview_player {
                     player.resume();
                 }
+                self.segment_preview_playing = true;
                 self.add_log(
                     cx,
                     &format!("[INFO] [tts] Resumed segment {}", segment_index + 1),
@@ -19293,11 +19288,13 @@ impl TTSScreen {
         player.resume();
         self.preview_player = Some(player);
         self.preview_playing_voice_id = Some(preview_id);
+        self.segment_preview_playing = true;
         self.add_log(
             cx,
             &format!("[INFO] [tts] Previewing segment {}", segment_index + 1),
         );
         self.update_player_bar(cx);
+        self.view.redraw(cx);
     }
 
     fn fail_pending_tts_generation(&mut self, cx: &mut Cx, message: &str) {
@@ -20425,6 +20422,7 @@ impl TTSScreen {
         if let Some(player) = &self.preview_player {
             player.stop();
         }
+        self.segment_preview_playing = false;
         if self.preview_playing_voice_id.take().is_some() {
             let voice_selector = self.view.voice_selector(ids!(
                 content_wrapper
@@ -30197,10 +30195,40 @@ mod tests {
             .unwrap();
         assert!(card.contains("preview_btn = <PlayerSegmentActionBtn>"));
         assert!(card.contains("download_btn = <PlayerSegmentActionBtn>"));
-        assert_eq!(card.matches("padding: {left: 1, right: 0, top: 0, bottom: 0}").count(), 3);
+        assert_eq!(card.matches("padding: {left: 1, right: 0, top: 0, bottom: 0}").count(), 0);
         assert!(source.contains("ICO_TTS_SEGMENT_PAUSE"));
         assert!(source.contains("resources/icons/segment-pause.svg"));
         assert!(source.contains("svg_file: (ICO_TTS_SEGMENT_PAUSE)"));
+        assert!(source.contains("segment_preview_playing: bool"));
+        assert!(preview.contains("self.segment_preview_playing = false"));
+        assert!(preview.contains("self.segment_preview_playing = true"));
+        assert!(preview.matches("self.view.redraw(cx);").count() >= 2);
+    }
+
+    #[test]
+    fn segment_actions_stay_left_aligned_before_the_flexible_row_spacer() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let row = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("text_preview = <SegmentTextPreview>")
+            .next()
+            .unwrap();
+
+        let spacer = row
+            .rfind("<View> { width: Fill, height: 1 }")
+            .expect("segment row should retain a flexible trailing spacer");
+        for button in ["preview_btn = <PlayerSegmentActionBtn>", "download_btn = <PlayerSegmentActionBtn>"] {
+            assert!(
+                row.find(button).expect("segment action should exist") < spacer,
+                "{button} should be placed before the flexible spacer"
+            );
+        }
+        assert!(!row.contains("padding: {left: 1, right: 0, top: 0, bottom: 0}"));
     }
 
     #[test]
