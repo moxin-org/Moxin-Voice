@@ -18644,6 +18644,13 @@ impl TTSScreen {
             return; // Already on this page
         }
 
+        // Floating player menus are root overlays. Close them while their player-bar
+        // anchors are still laid out, before switching away from the TTS page.
+        self.player_speed_menu_open = false;
+        self.player_action_menu_open = false;
+        self.player_segment_menu_open = false;
+        self.update_player_menu_visibility(cx);
+
         self.current_page = page;
         self.add_log(cx, &format!("[INFO] [ui] Switching to {:?} page", page));
         self.update_sidebar_nav_states(cx);
@@ -19495,6 +19502,10 @@ impl TTSScreen {
     fn update_player_bar(&mut self, cx: &mut Cx) {
         self.update_audio_player_visibility(cx);
 
+        self.view
+            .label(ids!(player_segment_menu.segment_header.segment_title))
+            .set_text(cx, self.tr("音频分段", "Audio Segments"));
+
         // Update status label
         let status_text = match self.tts_status {
             TTSStatus::Idle => self.tr("就绪", "Ready"),
@@ -19516,6 +19527,7 @@ impl TTSScreen {
         let audio_len = self.effective_audio_samples().len();
         let effective_rate = self.effective_audio_sample_rate();
         let has_playable_audio = self.has_generated_audio && audio_len > 0 && effective_rate > 0;
+        let is_english = self.is_english();
         let segment_summary = self
             .tts_audio_segments
             .as_ref()
@@ -19525,7 +19537,12 @@ impl TTSScreen {
                 } else {
                     0.0
                 };
-                format!("{} · {}", segments.len(), Self::format_duration(duration))
+                let count = if is_english {
+                    format!("{} segments", segments.len())
+                } else {
+                    format!("{} 段", segments.len())
+                };
+                format!("{} · {}", count, Self::format_duration(duration))
             })
             .unwrap_or_default();
         self.view
@@ -26171,6 +26188,15 @@ impl TTSScreen {
         self.view
             .view(ids!(player_action_menu))
             .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .view(ids!(player_segment_menu))
+            .apply_over(cx, live! { draw_bg: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(player_segment_menu.segment_header.segment_title))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
+        self.view
+            .label(ids!(player_segment_menu.segment_header.segment_summary))
+            .apply_over(cx, live! { draw_text: { dark_mode: (dark_mode) } });
         for path in [
             ids!(player_speed_menu.speed_075_btn),
             ids!(player_speed_menu.speed_100_btn),
@@ -29912,6 +29938,68 @@ mod tests {
             "DownloadSource::Segment(item_idx)",
         ] {
             assert!(source.contains(marker), "missing segment player UI: {marker}");
+        }
+    }
+
+    #[test]
+    fn switching_pages_closes_player_floating_menus_before_hiding_their_anchors() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let switch_page = source
+            .split("fn switch_page(&mut self, cx: &mut Cx, page: AppPage)")
+            .nth(1)
+            .expect("page switch handler should exist")
+            .split("fn update_audio_player_visibility")
+            .next()
+            .unwrap();
+
+        for marker in [
+            "self.player_speed_menu_open = false",
+            "self.player_action_menu_open = false",
+            "self.player_segment_menu_open = false",
+            "self.update_player_menu_visibility(cx)",
+        ] {
+            assert!(switch_page.contains(marker), "page switch should run {marker}");
+        }
+        assert!(
+            switch_page.find("self.update_player_menu_visibility(cx)").unwrap()
+                < switch_page.find("self.current_page = page").unwrap(),
+            "floating menus must close before their page anchors are hidden"
+        );
+    }
+
+    #[test]
+    fn segment_popover_is_refreshed_for_language_and_theme_changes() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let player_bar = source
+            .split("fn update_player_bar(&mut self, cx: &mut Cx)")
+            .nth(1)
+            .expect("player bar updater should exist")
+            .split("fn update_player_progress")
+            .next()
+            .unwrap();
+        assert!(player_bar.contains("self.tr(\"音频分段\", \"Audio Segments\")"));
+        assert!(player_bar.contains("format!(\"{} 段\", segments.len())"));
+        assert!(player_bar.contains("format!(\"{} segments\", segments.len())"));
+
+        let dark_mode = source
+            .split("fn apply_dark_mode(&mut self, cx: &mut Cx)")
+            .nth(1)
+            .expect("dark mode updater should exist")
+            .split("fn get_voice_picker_voices")
+            .next()
+            .unwrap();
+        for marker in [
+            "ids!(player_segment_menu)",
+            "ids!(player_segment_menu.segment_header.segment_title)",
+            "ids!(player_segment_menu.segment_header.segment_summary)",
+        ] {
+            assert!(dark_mode.contains(marker), "theme refresh should update {marker}");
         }
     }
 
