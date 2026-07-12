@@ -552,7 +552,6 @@ live_design! {
     ICO_TTS_SEGMENTS = dep("crate://self/resources/icons/segments.svg")
     ICO_TTS_SEGMENT_PLAY = dep("crate://self/resources/icons/segment-play.svg")
     ICO_TTS_SEGMENT_DOWNLOAD = dep("crate://self/resources/icons/segment-download.svg")
-    ICO_TTS_SEGMENT_EXPAND = dep("crate://self/resources/icons/segment-expand.svg")
     ICO_TTS_SEGMENT_RETRY = dep("crate://self/resources/icons/segment-retry.svg")
     use crate::voice_selector::VoiceSelector;
     use crate::voice_clone_modal::VoiceCloneModal;
@@ -7949,7 +7948,6 @@ live_design! {
                         <View> { width: Fill, height: 1 }
                         preview_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_PLAY) } }
                         download_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) } }
-                        expand_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_EXPAND) } }
                         retry_btn = <PlayerSegmentActionBtn> { draw_icon: { svg_file: (ICO_TTS_SEGMENT_RETRY) } }
                     }
 
@@ -9952,7 +9950,7 @@ pub struct TTSScreen {
     #[rust]
     history_item_areas: Vec<(usize, Area, Area, Area, Area, Area, Area)>, // (idx, card, play, use, download, share, delete)
     #[rust]
-    segment_item_areas: Vec<(usize, Area, Area, Area, Area, Area)>, // (idx, row, preview, download, expand, retry)
+    segment_item_areas: Vec<(usize, Area, Area, Area, Area)>, // (idx, card, preview, download, retry)
     #[rust]
     currently_playing_history_id: Option<String>,
     #[rust]
@@ -13862,7 +13860,7 @@ impl Widget for TTSScreen {
         }
 
         if self.player_segment_menu_open {
-            for (item_idx, row_area, preview_area, download_area, expand_area, retry_area) in
+            for (item_idx, card_area, preview_area, download_area, retry_area) in
                 self.segment_item_areas.clone()
             {
                 let Some(segments) = self.tts_audio_segments.as_ref() else {
@@ -13887,21 +13885,6 @@ impl Widget for TTSScreen {
                     }
                 }
                 if !handled {
-                    if let Hit::FingerUp(fe) = event.hits(cx, expand_area) {
-                        if fe.was_tap() {
-                            if let Some(segment) = self
-                                .tts_audio_segments
-                                .as_mut()
-                                .and_then(|segments| segments.segment_mut(item_idx))
-                            {
-                                segment.text_expanded = !segment.text_expanded;
-                                self.view.redraw(cx);
-                            }
-                            handled = true;
-                        }
-                    }
-                }
-                if !handled {
                     if let Hit::FingerUp(fe) = event.hits(cx, retry_area) {
                         if fe.was_tap() {
                             self.retry_tts_segment(cx, item_idx);
@@ -13910,19 +13893,19 @@ impl Widget for TTSScreen {
                     }
                 }
                 if !handled {
-                    if let Hit::FingerUp(fe) = event.hits(cx, row_area) {
+                    if let Hit::FingerUp(fe) = event.hits(cx, card_area) {
                         if fe.was_tap()
                             && !preview_area.rect(cx).contains(fe.abs)
                             && !download_area.rect(cx).contains(fe.abs)
-                            && !expand_area.rect(cx).contains(fe.abs)
                             && !retry_area.rect(cx).contains(fe.abs)
                         {
-                            if let Some(start_time) = self
+                            if let Some(segment) = self
                                 .tts_audio_segments
-                                .as_ref()
-                                .and_then(|segments| segments.start_time_secs(item_idx))
+                                .as_mut()
+                                .and_then(|segments| segments.segment_mut(item_idx))
                             {
-                                self.start_playback_from_time(cx, start_time);
+                                segment.text_expanded = !segment.text_expanded;
+                                self.view.redraw(cx);
                             }
                         }
                     }
@@ -14457,7 +14440,6 @@ impl Widget for TTSScreen {
                             for button_path in [
                                 ids!(row.preview_btn),
                                 ids!(row.download_btn),
-                                ids!(row.expand_btn),
                                 ids!(row.retry_btn),
                             ] {
                                 card.button(button_path).apply_over(
@@ -14485,10 +14467,9 @@ impl Widget for TTSScreen {
                             card.draw_all(cx, &mut Scope::empty());
                             self.segment_item_areas.push((
                                 item_id,
-                                card.view(ids!(row)).area(),
+                                card.area(),
                                 card.button(ids!(row.preview_btn)).area(),
                                 card.button(ids!(row.download_btn)).area(),
-                                card.button(ids!(row.expand_btn)).area(),
                                 card.button(ids!(row.retry_btn)).area(),
                             ));
                         }
@@ -29916,6 +29897,27 @@ mod tests {
                 "segment actions should use icons instead of {text_button}"
             );
         }
+        assert!(!segment_menu.contains("expand_btn"));
+    }
+
+    #[test]
+    fn clicking_a_segment_card_toggles_its_text_without_an_expand_button() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let handler = source
+            .split("if self.player_segment_menu_open {")
+            .nth(1)
+            .expect("segment menu event handler should exist")
+            .split("// Handle clear logs")
+            .next()
+            .unwrap();
+
+        assert!(handler.contains("event.hits(cx, card_area)"));
+        assert!(handler.contains("segment.text_expanded = !segment.text_expanded"));
+        assert!(!handler.contains("expand_area"));
+        assert!(!handler.contains("start_playback_from_time"));
     }
 
     #[test]
@@ -29929,7 +29931,6 @@ mod tests {
             "resources/icons/segments.svg",
             "resources/icons/segment-play.svg",
             "resources/icons/segment-download.svg",
-            "resources/icons/segment-expand.svg",
             "resources/icons/segment-retry.svg",
         ] {
             assert!(source.contains(asset), "missing segment SVG asset: {asset}");
@@ -30011,7 +30012,6 @@ mod tests {
             include_str!("../resources/icons/segments.svg"),
             include_str!("../resources/icons/segment-play.svg"),
             include_str!("../resources/icons/segment-download.svg"),
-            include_str!("../resources/icons/segment-expand.svg"),
             include_str!("../resources/icons/segment-retry.svg"),
         ] {
             assert!(asset.contains("fill=\"currentColor\""));
