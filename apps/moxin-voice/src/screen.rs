@@ -7914,6 +7914,8 @@ live_design! {
                             let inactive_border = mix(vec4(0.45, 0.55, 0.70, 1.0), vec4(0.42, 0.51, 0.67, 1.0), self.dark_mode);
                             let active_border = mix(vec4(0.22, 0.50, 0.92, 0.88), vec4(0.40, 0.66, 1.0, 0.92), self.dark_mode);
                             let border = mix(inactive_border, active_border, self.active);
+                            sdf.fill(border);
+                            sdf.box(1.5, 1.5, self.rect_size.x - 3.0, self.rect_size.y - 3.0, self.border_radius - 1.5);
                             sdf.fill(mix(base, playing, self.active));
                             sdf.stroke(border, 1.0);
                             return sdf.result;
@@ -29964,6 +29966,40 @@ mod tests {
         assert!(menu.contains("panel_inset"));
         assert!(menu.contains("padding: {left: 12, right: 12, top: 12, bottom: 16}"));
         assert!(source.contains("icon_walk: {width: 20, height: 20}"));
+    }
+
+    #[test]
+    fn segment_card_uses_a_filled_border_ring_for_contrast() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let segment_card = source
+            .split("SegmentCard = <RoundedView>")
+            .nth(1)
+            .expect("segment card should exist")
+            .split("row = <View>")
+            .next()
+            .unwrap();
+
+        assert!(segment_card.contains("sdf.fill(border);"));
+        assert!(segment_card.contains("sdf.box(1.5, 1.5"));
+    }
+
+    #[test]
+    fn segment_icon_assets_use_lucide_stroke_style() {
+        for asset in [
+            include_str!("../resources/icons/segments.svg"),
+            include_str!("../resources/icons/segment-play.svg"),
+            include_str!("../resources/icons/segment-download.svg"),
+            include_str!("../resources/icons/segment-expand.svg"),
+            include_str!("../resources/icons/segment-retry.svg"),
+        ] {
+            assert!(asset.contains("stroke=\"currentColor\""));
+            assert!(asset.contains("stroke-linecap=\"round\""));
+            assert!(asset.contains("stroke-linejoin=\"round\""));
+            assert!(asset.contains("stroke-width=\"2\""));
+        }
     }
 
     #[test]
