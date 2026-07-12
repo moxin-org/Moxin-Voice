@@ -96,6 +96,32 @@ pub struct GenerationTiming {
     pub prefill_ms: f64,
     pub generation_ms: f64,
     pub generation_frames: usize,
+    pub ended_by_eos: bool,
+    pub streamed_text_tokens: Option<usize>,
+}
+
+impl GenerationTiming {
+    #[cfg(test)]
+    fn from_termination(
+        generation_frames: usize,
+        streamed_text_tokens: Option<usize>,
+        ended_by_eos: bool,
+    ) -> Self {
+        Self {
+            prefill_ms: 0.0,
+            generation_ms: 0.0,
+            generation_frames,
+            ended_by_eos,
+            streamed_text_tokens,
+        }
+    }
+
+    pub fn is_incomplete_clone(&self) -> bool {
+        self.ended_by_eos
+            && self
+                .streamed_text_tokens
+                .is_some_and(|tokens| self.generation_frames < tokens)
+    }
 }
 
 /// Build the codec prefix for CustomVoice mode with specified language.
@@ -315,6 +341,7 @@ pub fn generate(
     // ====================================================================
     let gen_start = Instant::now();
     let mut all_codes: Vec<[u32; 16]> = Vec::new();
+    let mut ended_by_eos = false;
 
     let min_new_tokens: usize = 2;
 
@@ -355,6 +382,7 @@ pub fn generate(
         // Check EOS
         if token0 == eos_token {
             info!("EOS at step {}", step);
+            ended_by_eos = true;
             break;
         }
 
@@ -408,6 +436,8 @@ pub fn generate(
         prefill_ms: prefill_time.as_secs_f64() * 1000.0,
         generation_ms: gen_time.as_secs_f64() * 1000.0,
         generation_frames: all_codes.len(),
+        ended_by_eos,
+        streamed_text_tokens: Some(trailing_len),
     };
 
     Ok((all_codes, timing))
@@ -465,6 +495,7 @@ pub fn generate_custom_voice(
 
     let gen_start = Instant::now();
     let mut all_codes: Vec<[u32; 16]> = Vec::new();
+    let mut ended_by_eos = false;
 
     let min_new_tokens: usize = 2;
     let vocab_size = tts_config.talker_config.vocab_size as usize;
@@ -496,6 +527,7 @@ pub fn generate_custom_voice(
 
         if token0 == eos_token {
             info!("EOS at step {}", step);
+            ended_by_eos = true;
             break;
         }
 
@@ -541,6 +573,8 @@ pub fn generate_custom_voice(
         prefill_ms: prefill_time.as_secs_f64() * 1000.0,
         generation_ms: gen_time.as_secs_f64() * 1000.0,
         generation_frames: all_codes.len(),
+        ended_by_eos,
+        streamed_text_tokens: None,
     };
 
     Ok((all_codes, timing))
@@ -609,6 +643,7 @@ pub fn generate_voice_design(
     // Generation loop (identical to CustomVoice)
     let gen_start = Instant::now();
     let mut all_codes: Vec<[u32; 16]> = Vec::new();
+    let mut ended_by_eos = false;
 
     let min_new_tokens: usize = 2;
     let vocab_size = tts_config.talker_config.vocab_size as usize;
@@ -640,6 +675,7 @@ pub fn generate_voice_design(
 
         if token0 == eos_token {
             info!("EOS at step {}", step);
+            ended_by_eos = true;
             break;
         }
 
@@ -692,6 +728,8 @@ pub fn generate_voice_design(
         prefill_ms: prefill_time.as_secs_f64() * 1000.0,
         generation_ms: gen_time.as_secs_f64() * 1000.0,
         generation_frames: all_codes.len(),
+        ended_by_eos,
+        streamed_text_tokens: Some(trailing_len),
     };
 
     Ok((all_codes, timing))
@@ -754,6 +792,7 @@ pub fn generate_voice_clone(
     // Generation loop (identical to CustomVoice)
     let gen_start = Instant::now();
     let mut all_codes: Vec<[u32; 16]> = Vec::new();
+    let mut ended_by_eos = false;
 
     let min_new_tokens: usize = 2;
     let vocab_size = tts_config.talker_config.vocab_size as usize;
@@ -785,6 +824,7 @@ pub fn generate_voice_clone(
 
         if token0 == eos_token {
             info!("EOS at step {}", step);
+            ended_by_eos = true;
             break;
         }
 
@@ -834,6 +874,8 @@ pub fn generate_voice_clone(
         prefill_ms: prefill_time.as_secs_f64() * 1000.0,
         generation_ms: gen_time.as_secs_f64() * 1000.0,
         generation_frames: all_codes.len(),
+        ended_by_eos,
+        streamed_text_tokens: Some(trailing_len),
     };
 
     Ok((all_codes, timing))
@@ -922,6 +964,7 @@ pub fn generate_voice_clone_icl(
     // Phase 3: Autoregressive generation
     let gen_start = Instant::now();
     let mut all_codes: Vec<[u32; 16]> = Vec::new();
+    let mut ended_by_eos = false;
 
     // Python reference uses min_new_tokens=2
     let min_new_tokens: usize = 2;
@@ -954,6 +997,7 @@ pub fn generate_voice_clone_icl(
 
         if token0 == eos_token {
             info!("EOS at step {}", step);
+            ended_by_eos = true;
             break;
         }
 
@@ -1008,6 +1052,8 @@ pub fn generate_voice_clone_icl(
         prefill_ms: prefill_time.as_secs_f64() * 1000.0,
         generation_ms: gen_time.as_secs_f64() * 1000.0,
         generation_frames: all_codes.len(),
+        ended_by_eos,
+        streamed_text_tokens: (trailing_len > 0).then_some(trailing_len),
     };
 
     Ok((all_codes, ref_codes.to_vec(), ref_text_ids.len(), timing))
@@ -1246,5 +1292,12 @@ mod tests {
         let target = assistant_target_ids_with_eos(&[1, 2, 3], 999);
 
         assert_eq!(target, vec![999]);
+    }
+
+    #[test]
+    fn clone_result_is_incomplete_when_eos_precedes_remaining_text() {
+        assert!(GenerationTiming::from_termination(8, Some(16), true).is_incomplete_clone());
+        assert!(!GenerationTiming::from_termination(16, Some(16), true).is_incomplete_clone());
+        assert!(!GenerationTiming::from_termination(8, None, true).is_incomplete_clone());
     }
 }

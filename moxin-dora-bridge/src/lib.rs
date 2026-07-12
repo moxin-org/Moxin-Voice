@@ -118,10 +118,10 @@ pub mod widgets;
 // Re-exports
 pub use bridge::{BridgeState, DoraBridge};
 pub use controller::{DataflowController, DataflowState};
-pub use data::{AudioData, ChatMessage, ControlCommand, DoraData, LogEntry, TranslationUpdate};
+pub use data::{AudioData, ChatMessage, ControlCommand, DoraData, LogEntry, TranslationUpdate, TtsSegmentEvent};
 pub use dispatcher::{DynamicNodeDispatcher, WidgetBinding};
 pub use error::{BridgeError, BridgeResult};
-pub use shared_state::{SharedDoraState, DoraStatus, ChatState, AudioState, DirtyVec, DirtyValue, MicState};
+pub use shared_state::{SharedDoraState, DoraStatus, ChatState, AudioState, TtsSegmentEventState, DirtyVec, DirtyValue, MicState};
 pub use widgets::{AecControlCommand, AudioSource, TranslationListenerBridge};
 pub use parser::{DataflowParser, EnvRequirement, LogSource, ParsedDataflow, ParsedNode};
 

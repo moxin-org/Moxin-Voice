@@ -373,6 +373,20 @@ impl AudioPlayerBridge {
                     return; // Don't process reset as audio
                 }
 
+                if input_id == "segment_complete" {
+                    let event = data
+                        .as_any()
+                        .downcast_ref::<arrow::array::StringArray>()
+                        .and_then(|values| values.iter().flatten().next())
+                        .and_then(|value| serde_json::from_str(value).ok());
+                    match (shared_state, event) {
+                        (Some(state), Some(event)) => state.tts_segment_events.push(event),
+                        (_, None) => warn!("Ignoring malformed TTS segment completion event"),
+                        _ => {}
+                    }
+                    return;
+                }
+
                 // Handle audio inputs
                 if input_id.contains("audio") {
                     if let Some(audio_data) = Self::extract_audio(&data, &event_meta) {
@@ -824,6 +838,7 @@ impl DoraBridge for AudioPlayerBridge {
     fn expected_inputs(&self) -> Vec<String> {
         vec![
             "audio".to_string(),
+            "segment_complete".to_string(),
             "audio_student1".to_string(),
             "audio_student2".to_string(),
             "audio_tutor".to_string(),
@@ -844,5 +859,19 @@ impl DoraBridge for AudioPlayerBridge {
 impl Drop for AudioPlayerBridge {
     fn drop(&mut self) {
         let _ = self.disconnect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_tts_segment_completion_input() {
+        let bridge = AudioPlayerBridge::new("moxin-audio-player");
+
+        assert!(bridge
+            .expected_inputs()
+            .contains(&"segment_complete".to_string()));
     }
 }

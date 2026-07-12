@@ -400,7 +400,7 @@ fn get_project_tts_models() -> Vec<TtsModelOption> {
     ]
 }
 
-const TTS_INPUT_MAX_CHARS: usize = 1000;
+const TTS_INPUT_MAX_CHARS: usize = 120;
 
 #[derive(Clone, Debug, Default)]
 struct TtsSegmentDispatch {
@@ -10149,38 +10149,39 @@ impl Widget for TTSScreen {
             } else {
                 Vec::new()
             };
-            if !chunks.is_empty() {
+            let segment_events = self
+                .dora
+                .as_ref()
+                .map(|dora| dora.shared_dora_state().tts_segment_events.drain())
+                .unwrap_or_default();
+            for event in segment_events {
+                if self.tts_status != TTSStatus::Generating {
+                    continue;
+                }
+                if !event.complete {
+                    self.fail_pending_tts_generation(
+                        cx,
+                        "[ERROR] [tts] Segment generation ended before all text was synthesized",
+                    );
+                    break;
+                }
+                self.pending_generation_dispatch.mark_received();
+                self.pending_generation_received_segments = self.pending_generation_dispatch.received;
+                self.update_generation_status(cx);
+                if !self.pending_generation_dispatch.is_complete()
+                    && !self.send_next_pending_tts_segment(cx)
+                {
+                    self.fail_pending_tts_generation(
+                        cx,
+                        "[ERROR] [tts] Failed to send next prompt segment to Dora",
+                    );
+                    break;
+                }
+            }
+            {
                 for audio in chunks {
                     self.stored_audio_samples.extend(&audio.samples);
                     self.stored_audio_sample_rate = audio.sample_rate;
-                    if self.tts_status == TTSStatus::Generating
-                        && self.pending_generation_expected_segments > 0
-                    {
-                        self.pending_generation_dispatch.mark_received();
-                        self.pending_generation_received_segments =
-                            self.pending_generation_dispatch.received;
-                        self.update_generation_status(cx);
-                        if self.pending_generation_expected_segments > 1 {
-                            self.add_log(
-                                cx,
-                                &format!(
-                                    "[INFO] [tts] Received audio segment {}/{}",
-                                    self.pending_generation_received_segments,
-                                    self.pending_generation_expected_segments
-                                ),
-                            );
-                        }
-
-                        if !self.pending_generation_dispatch.is_complete()
-                            && !self.send_next_pending_tts_segment(cx)
-                        {
-                            self.fail_pending_tts_generation(
-                                cx,
-                                "[ERROR] [tts] Failed to send next prompt segment to Dora",
-                            );
-                            break;
-                        }
-                    }
                 }
                 self.rebuild_processed_audio_samples();
                 // Transition to Ready state - user must click Play
@@ -29297,13 +29298,36 @@ mod tests {
     fn long_tts_text_is_split_into_1000_character_segments() {
         let text = "a".repeat(5_500);
 
-        let segments = split_tts_text_segments(&text, TTS_INPUT_MAX_CHARS);
+        let segments = split_tts_text_segments(&text, 1_000);
 
         assert_eq!(segments.len(), 6);
         assert!(segments
             .iter()
-            .all(|segment| segment.chars().count() <= TTS_INPUT_MAX_CHARS));
+            .all(|segment| segment.chars().count() <= 1_000));
         assert_eq!(segments.concat(), text);
+    }
+
+    #[test]
+    fn long_tts_text_is_split_into_120_character_sentence_groups() {
+        let text = "甲。".repeat(100);
+
+        let segments = split_tts_text_segments(&text, TTS_INPUT_MAX_CHARS);
+
+        assert!(segments
+            .iter()
+            .all(|segment| segment.chars().count() <= 120));
+        assert_eq!(segments.concat(), text);
+    }
+
+    #[test]
+    fn tts_text_split_keeps_complete_sentences_when_they_fit() {
+        let first = format!("{}。", "甲".repeat(70));
+        let second = format!("{}。", "乙".repeat(50));
+
+        assert_eq!(
+            split_tts_text_segments(&format!("{first}{second}"), 120),
+            vec![first, second]
+        );
     }
 
     #[test]
@@ -29312,7 +29336,7 @@ mod tests {
         let second_sentence = "b".repeat(500);
         let text = format!("{} {}", first_sentence, second_sentence);
 
-        let segments = split_tts_text_segments(&text, TTS_INPUT_MAX_CHARS);
+        let segments = split_tts_text_segments(&text, 1_000);
 
         assert_eq!(segments, vec![first_sentence, second_sentence]);
     }
@@ -29321,12 +29345,12 @@ mod tests {
     fn tts_text_split_preserves_multibyte_text_order() {
         let text = format!("{}。{}", "你好".repeat(450), "世界".repeat(150));
 
-        let segments = split_tts_text_segments(&text, TTS_INPUT_MAX_CHARS);
+        let segments = split_tts_text_segments(&text, 1_000);
 
         assert_eq!(segments.len(), 2);
         assert!(segments
             .iter()
-            .all(|segment| segment.chars().count() <= TTS_INPUT_MAX_CHARS));
+            .all(|segment| segment.chars().count() <= 1_000));
         assert_eq!(segments.concat(), text);
     }
 

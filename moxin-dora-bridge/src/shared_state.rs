@@ -56,7 +56,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use crate::data::{AudioData, ChatMessage, LogEntry, TranslationUpdate};
+use crate::data::{AudioData, ChatMessage, LogEntry, TranslationUpdate, TtsSegmentEvent};
 use crate::widgets::AudioSource;
 
 /// Thread-safe vector with dirty tracking and maximum size enforcement.
@@ -373,6 +373,26 @@ pub struct AudioState {
     force_mute_flag: RwLock<Option<Arc<AtomicBool>>>,
 }
 
+pub struct TtsSegmentEventState {
+    events: RwLock<VecDeque<TtsSegmentEvent>>,
+    max_events: usize,
+}
+
+impl TtsSegmentEventState {
+    pub fn new(max_events: usize) -> Self {
+        Self { events: RwLock::new(VecDeque::new()), max_events }
+    }
+    pub fn push(&self, event: TtsSegmentEvent) {
+        let mut events = self.events.write();
+        events.push_back(event);
+        while events.len() > self.max_events { events.pop_front(); }
+    }
+    pub fn drain(&self) -> Vec<TtsSegmentEvent> {
+        self.events.write().drain(..).collect()
+    }
+    pub fn clear(&self) { self.events.write().clear(); }
+}
+
 impl AudioState {
     pub fn new(max_chunks: usize) -> Self {
         Self {
@@ -645,6 +665,7 @@ pub struct SharedDoraState {
 
     /// Audio chunks (ring buffer, consumed by audio player)
     pub audio: AudioState,
+    pub tts_segment_events: TtsSegmentEventState,
 
     /// Log entries
     pub logs: DirtyVec<LogEntry>,
@@ -715,6 +736,7 @@ impl SharedDoraState {
                 Arc::new(Self {
                     chat: ChatState::new(500),
                     audio: AudioState::new(100),
+                    tts_segment_events: TtsSegmentEventState::new(100),
                     logs: DirtyVec::new(1000),
                     status: DirtyValue::default(),
                     mic: MicState::new(),
@@ -742,6 +764,7 @@ impl SharedDoraState {
         Arc::new(Self {
             chat: ChatState::new(max_chat),
             audio: AudioState::new(max_audio_chunks),
+            tts_segment_events: TtsSegmentEventState::new(max_audio_chunks),
             logs: DirtyVec::new(max_logs),
             status: DirtyValue::default(),
             mic: MicState::new(),
@@ -766,6 +789,7 @@ impl SharedDoraState {
     pub fn clear_all(&self) {
         self.chat.clear();
         self.audio.clear();
+        self.tts_segment_events.clear();
         self.logs.clear();
         self.status.set(DoraStatus::default());
         self.mic.clear();
@@ -804,6 +828,7 @@ impl Default for SharedDoraState {
         Self {
             chat: ChatState::new(500),
             audio: AudioState::new(100),
+            tts_segment_events: TtsSegmentEventState::new(100),
             logs: DirtyVec::new(1000),
             status: DirtyValue::default(),
             mic: MicState::new(),

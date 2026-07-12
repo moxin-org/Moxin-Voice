@@ -107,6 +107,7 @@ pub struct SynthesisTiming {
     pub prefill_ms: f64,
     pub generation_ms: f64,
     pub generation_frames: usize,
+    pub incomplete_clone: bool,
     pub decode_ms: f64,
     pub total_ms: f64,
 }
@@ -362,6 +363,7 @@ impl Synthesizer {
                 prefill_ms: gen_timing.prefill_ms,
                 generation_ms: gen_timing.generation_ms,
                 generation_frames: 0,
+                incomplete_clone: gen_timing.is_incomplete_clone(),
                 decode_ms: 0.0,
                 total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
             };
@@ -389,6 +391,7 @@ impl Synthesizer {
             prefill_ms: gen_timing.prefill_ms,
             generation_ms: gen_timing.generation_ms,
             generation_frames: gen_timing.generation_frames,
+            incomplete_clone: gen_timing.is_incomplete_clone(),
             decode_ms,
             total_ms,
         };
@@ -480,6 +483,7 @@ impl Synthesizer {
                 prefill_ms: gen_timing.prefill_ms,
                 generation_ms: gen_timing.generation_ms,
                 generation_frames: 0,
+                incomplete_clone: gen_timing.is_incomplete_clone(),
                 decode_ms: 0.0,
                 total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
             };
@@ -506,6 +510,7 @@ impl Synthesizer {
             prefill_ms: gen_timing.prefill_ms,
             generation_ms: gen_timing.generation_ms,
             generation_frames: gen_timing.generation_frames,
+            incomplete_clone: gen_timing.is_incomplete_clone(),
             decode_ms,
             total_ms,
         };
@@ -640,6 +645,7 @@ impl Synthesizer {
                 prefill_ms: gen_timing.prefill_ms,
                 generation_ms: gen_timing.generation_ms,
                 generation_frames: 0,
+                incomplete_clone: gen_timing.is_incomplete_clone(),
                 decode_ms: 0.0,
                 total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
             };
@@ -666,6 +672,7 @@ impl Synthesizer {
             prefill_ms: gen_timing.prefill_ms,
             generation_ms: gen_timing.generation_ms,
             generation_frames: gen_timing.generation_frames,
+            incomplete_clone: gen_timing.is_incomplete_clone(),
             decode_ms,
             total_ms,
         };
@@ -849,6 +856,7 @@ impl Synthesizer {
                 prefill_ms: gen_timing.prefill_ms,
                 generation_ms: gen_timing.generation_ms,
                 generation_frames: 0,
+                incomplete_clone: gen_timing.is_incomplete_clone(),
                 decode_ms: 0.0,
                 total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
             };
@@ -915,6 +923,7 @@ impl Synthesizer {
             prefill_ms: gen_timing.prefill_ms,
             generation_ms: gen_timing.generation_ms,
             generation_frames: gen_timing.generation_frames,
+            incomplete_clone: gen_timing.is_incomplete_clone(),
             decode_ms,
             total_ms,
         };
