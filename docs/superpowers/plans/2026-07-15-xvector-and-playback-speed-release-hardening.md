@@ -114,7 +114,7 @@ cargo test -p qwen3-tts-mlx clone_result_is_incomplete_when_eos_precedes_remaini
 - 修改：`apps/moxin-voice/src/screen.rs`
 - 测试：上述文件中的 `#[cfg(test)]` 模块
 
-- [ ] **Step 1：先补充请求构造回归测试**
+- [x] **Step 1：先补充请求构造回归测试**
 
 为自定义音色请求构造增加测试，至少覆盖：
 
@@ -126,7 +126,7 @@ cargo test -p qwen3-tts-mlx clone_result_is_incomplete_when_eos_precedes_remaini
 
 运行聚焦测试，确认修改实现前至少前两项失败。
 
-- [ ] **Step 2：自定义音色请求不再依赖 `prompt_text`**
+- [x] **Step 2：自定义音色请求不再依赖 `prompt_text`**
 
 在 `build_tts_prompt_for_segment` 中：
 
@@ -141,7 +141,7 @@ VOICE:CUSTOM|<absolute-ref-path>||<language>|<text>
 
 这样 UI 和后端同时表达 x-vector-only，且旧客户端即使仍发送非空 prompt，Task 1 的后端也会忽略它。
 
-- [ ] **Step 3：简化新音色的数据模型入口**
+- [x] **Step 3：简化新音色的数据模型入口**
 
 修改 `Voice::new_custom`：
 
@@ -151,7 +151,7 @@ VOICE:CUSTOM|<absolute-ref-path>||<language>|<text>
 
 增加序列化兼容测试：旧 JSON 中包含 `prompt_text` 的音色仍能加载。
 
-- [ ] **Step 4：移除 Qwen Express 创建流程对参考文本的要求**
+- [x] **Step 4：移除 Qwen Express 创建流程对参考文本的要求**
 
 在 Qwen zero-shot/Express 路径中：
 
@@ -163,13 +163,13 @@ VOICE:CUSTOM|<absolute-ref-path>||<language>|<text>
 
 若 dormant PrimeSpeech/Pro 分支仍需要参考文本，保留其 UI 和校验，但条件必须与 Qwen Express 分开，避免未来恢复时丢失能力。
 
-- [ ] **Step 5：让 UI 参考音频限制与 x-vector 后端一致**
+- [x] **Step 5：让 UI 参考音频限制与 x-vector 后端一致**
 
 Qwen x-vector 后端默认使用最多 6 秒参考音频。将 Qwen Express 的上传和录音提示/校验统一为 3–6 秒，替换当前为 ICL 设置的 3–8 秒说明，避免 UI 接受 8 秒后后端静默裁到 6 秒。
 
 不要修改 PrimeSpeech 的独立限制。
 
-- [ ] **Step 6：清理误导性的 Bundled ICL 命名**
+- [x] **Step 6：清理误导性的 Bundled ICL 命名**
 
 将产品数据层的 `VoiceSource::BundledIcl` 重命名为 `VoiceSource::BundledClone`，并使用 serde alias 兼容旧值：
 
@@ -187,7 +187,7 @@ BundledClone,
 
 增加 serde 测试，证明旧的 `"BundledIcl"` 仍能反序列化为新 variant。
 
-- [ ] **Step 7：运行音色相关测试**
+- [x] **Step 7：运行音色相关测试**
 
 运行：
 
@@ -199,6 +199,8 @@ cargo check -p moxin-voice
 ```
 
 预期：新旧自定义音色都走 `VOICE:CUSTOM|...||...`；没有数据迁移错误。
+
+验证记录：新增的 4 个 `voice_data` 回归测试和 `cargo check -p moxin-voice` 通过；`custom_clone` 过滤集无测试。既有 `voice_persistence::tests::test_voice_id_with_chinese` 仍失败，其断言期待中文被替换为下划线，但当前 `generate_voice_id` 会保留 Unicode 字母；该失败与本任务改动无关，留待最终 release gate 统一处理。
 
 ---
 
