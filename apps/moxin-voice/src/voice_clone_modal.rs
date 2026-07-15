@@ -7,16 +7,15 @@
 use crate::audio_player::TTSPlayer;
 use crate::task_persistence;
 use crate::voice_data::{CloningStatus, Voice};
-use crate::voice_persistence;
+use crate::voice_persistence::{
+    self, EXPRESS_REFERENCE_MAX_SECS, EXPRESS_REFERENCE_MIN_SECS,
+};
 use makepad_widgets::*;
 use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-
-const EXPRESS_REFERENCE_MIN_SECS: f32 = 3.0;
-const EXPRESS_REFERENCE_MAX_SECS: f32 = 6.0;
 
 /// Clone mode - Express (zero-shot x-vector) or Pro (few-shot training).
 ///
@@ -2589,8 +2588,10 @@ impl VoiceCloneModal {
                 self.show_error(
                     cx,
                     &format!(
-                        "Audio too short ({:.1}s). Required: 3-{:.0} seconds",
-                        info.duration_secs, EXPRESS_REFERENCE_MAX_SECS
+                        "Audio too short ({:.1}s). Required: {:.0}-{:.0} seconds",
+                        info.duration_secs,
+                        EXPRESS_REFERENCE_MIN_SECS,
+                        EXPRESS_REFERENCE_MAX_SECS
                     ),
                 );
                 return;
@@ -2599,8 +2600,10 @@ impl VoiceCloneModal {
                 self.show_error(
                     cx,
                     &format!(
-                        "Audio too long ({:.1}s). Required: 3-{:.0} seconds",
-                        info.duration_secs, EXPRESS_REFERENCE_MAX_SECS
+                        "Audio too long ({:.1}s). Required: {:.0}-{:.0} seconds",
+                        info.duration_secs,
+                        EXPRESS_REFERENCE_MIN_SECS,
+                        EXPRESS_REFERENCE_MAX_SECS
                     ),
                 );
                 return;
@@ -2960,7 +2963,9 @@ impl VoiceCloneModal {
             eprintln!("[VoiceClone] Recording started at {}Hz", sample_rate);
 
             // Keep the stream alive slightly beyond the supported capture window.
-            let max_duration = std::time::Duration::from_secs(7);
+            let max_duration = std::time::Duration::from_secs(
+                EXPRESS_REFERENCE_MAX_SECS as u64 + 1,
+            );
             let start = std::time::Instant::now();
 
             while is_recording.load(Ordering::Relaxed) && start.elapsed() < max_duration {
@@ -3046,11 +3051,10 @@ impl VoiceCloneModal {
 
             // Validate duration in processing thread (defensive check)
             // This prevents race conditions or edge cases where short recordings slip through
-            const MIN_DURATION: f32 = 3.0;
-            if duration < MIN_DURATION {
+            if duration < EXPRESS_REFERENCE_MIN_SECS {
                 eprintln!(
                     "[VoiceClone] ERROR: Recording too short ({:.1}s < {}s), aborting processing",
-                    duration, MIN_DURATION
+                    duration, EXPRESS_REFERENCE_MIN_SECS
                 );
                 return;
             }
