@@ -160,6 +160,14 @@ fn player_effective_volume(volume: f64, muted: bool) -> f64 {
     }
 }
 
+fn player_queue_can_accept(
+    queued_samples: usize,
+    additional_samples: usize,
+    capacity_samples: usize,
+) -> bool {
+    additional_samples <= capacity_samples.saturating_sub(queued_samples)
+}
+
 fn player_playback_rate_index(current_rate: f64) -> usize {
     PLAYER_PLAYBACK_RATES
         .iter()
@@ -26236,7 +26244,11 @@ impl TTSScreen {
         }
     }
 
-    fn queue_next_playback_block(&mut self) -> Option<usize> {
+    fn queue_next_playback_block(
+        &mut self,
+        queued_samples: usize,
+        queue_capacity_samples: usize,
+    ) -> Option<usize> {
         let Some(source) = self.playback_audio_source.clone() else {
             self.playback_feed_finished = true;
             return None;
@@ -26256,8 +26268,15 @@ impl TTSScreen {
             }
             let source_samples = source_block.len();
             let player = self.audio_player.as_ref()?;
-            if source_samples > player.queue_capacity_samples() {
+            if source_samples > queue_capacity_samples {
                 self.playback_feed_finished = true;
+                return None;
+            }
+            if !player_queue_can_accept(
+                queued_samples,
+                source_samples,
+                queue_capacity_samples,
+            ) {
                 return None;
             }
             player.write_audio_owned(source_block);
@@ -26305,8 +26324,15 @@ impl TTSScreen {
             return Some(0);
         }
         let player = self.audio_player.as_ref()?;
-        if prepared.len() > player.queue_capacity_samples() {
+        if prepared.len() > queue_capacity_samples {
             self.playback_feed_finished = true;
+            return None;
+        }
+        if !player_queue_can_accept(
+            queued_samples,
+            prepared.len(),
+            queue_capacity_samples,
+        ) {
             return None;
         }
         let queued_samples = prepared.len();
@@ -26322,8 +26348,15 @@ impl TTSScreen {
     fn fill_playback_queue(&mut self, mut queued_samples: usize) {
         let sample_rate = self.playback_audio_sample_rate();
         let high_water = (PLAYBACK_HIGH_WATER_SECONDS * sample_rate as f64) as usize;
+        let queue_capacity_samples = self
+            .audio_player
+            .as_ref()
+            .map(TTSPlayer::queue_capacity_samples)
+            .unwrap_or_default();
         while queued_samples < high_water && !self.playback_feed_finished {
-            let Some(written) = self.queue_next_playback_block() else {
+            let Some(written) =
+                self.queue_next_playback_block(queued_samples, queue_capacity_samples)
+            else {
                 break;
             };
             queued_samples = queued_samples.saturating_add(written);
@@ -29983,10 +30016,11 @@ mod tests {
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
         player_effective_volume, player_menu_abs_pos, player_playback_position_after_tick,
-        player_playback_rate_index, should_probe_translation_permission_on_page_entry,
-        should_show_runtime_download_ui, split_tts_text_segments, tts_input_click_disposition,
-        tts_input_drag_scroll_delta, AppPage, DownloadFormat, Event, RuntimeInitState,
-        TtsInputClickDisposition, TtsSegmentDispatch, TTSScreen, TTS_INPUT_MAX_CHARS,
+        player_playback_rate_index, player_queue_can_accept,
+        should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
+        split_tts_text_segments, tts_input_click_disposition, tts_input_drag_scroll_delta, AppPage,
+        DownloadFormat, Event, RuntimeInitState, TtsInputClickDisposition, TtsSegmentDispatch,
+        TTSScreen, TTS_INPUT_MAX_CHARS,
     };
     use makepad_widgets::{
         dvec2, Area, DVec2, KeyModifiers, MouseButton, MouseDownEvent, MouseUpEvent, Rect,
@@ -30119,6 +30153,25 @@ mod tests {
             10.0
         );
         assert_eq!(player_playback_position_after_tick(1.0, 10.0, 0.1, 0.0), 1.0);
+    }
+
+    #[test]
+    fn slow_playback_refill_stops_before_the_player_queue_overflows() {
+        let sample_rate = 24_000usize;
+        let capacity = 30 * sample_rate;
+        let stretched_block = (10.0 / 0.75 * sample_rate as f64).round() as usize;
+        let queued_at_refill = 5 * sample_rate;
+
+        assert!(player_queue_can_accept(
+            queued_at_refill,
+            stretched_block,
+            capacity
+        ));
+        assert!(!player_queue_can_accept(
+            queued_at_refill + stretched_block,
+            stretched_block,
+            capacity
+        ));
     }
 
     #[test]
