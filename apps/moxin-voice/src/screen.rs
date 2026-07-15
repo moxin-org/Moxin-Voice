@@ -19462,6 +19462,10 @@ impl TTSScreen {
         self.clear_pending_generation_snapshot();
         self.tts_status = TTSStatus::Error(message.to_string());
         self.set_generate_button_loading(cx, false);
+        self.show_toast(
+            cx,
+            self.tr("音频生成失败，请重试", "Audio generation failed; please try again"),
+        );
         self.update_player_bar(cx);
     }
 
@@ -30749,6 +30753,25 @@ mod tests {
         assert!(source.contains("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>"));
         assert!(source.contains("instance previewing: 0.0"));
         assert!(source.contains("previewing: (if *is_preview_playing { 1.0 } else { 0.0 })"));
+    }
+
+    #[test]
+    fn pending_tts_generation_failure_is_visible_to_the_user() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let failure = source
+            .split("fn fail_pending_tts_generation")
+            .nth(1)
+            .expect("pending generation failure handler should exist")
+            .split("fn set_generate_button_loading")
+            .next()
+            .unwrap();
+
+        assert!(failure.contains("self.show_toast("));
+        assert!(failure.contains("音频生成失败，请重试"));
+        assert!(failure.contains("Audio generation failed; please try again"));
     }
 
     #[test]
