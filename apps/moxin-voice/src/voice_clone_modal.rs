@@ -14,6 +14,7 @@ use makepad_widgets::*;
 use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -43,6 +44,12 @@ pub enum RecordingStatus {
     Transcribing,
     Completed,
     Error(String),
+}
+
+#[derive(Debug)]
+enum ExpressRecordingEvent {
+    AutoStopped,
+    Failed(String),
 }
 
 live_design! {
@@ -1452,6 +1459,9 @@ pub struct VoiceCloneModal {
     recording_start_time: Option<std::time::Instant>,
 
     #[rust]
+    recording_event_rx: Option<Receiver<ExpressRecordingEvent>>,
+
+    #[rust]
     recorded_audio_path: Option<PathBuf>,
 
     #[rust]
@@ -1526,6 +1536,7 @@ impl LiveHook for VoiceCloneModal {
 impl Widget for VoiceCloneModal {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         self.view.handle_event(cx, event, scope);
+        let recording_finished_on_this_event = self.poll_express_recording_events(cx);
 
         // Handle system file drag-and-drop
         match event {
@@ -1911,7 +1922,9 @@ impl Widget for VoiceCloneModal {
         ));
         match event.hits(cx, record_btn.area()) {
             Hit::FingerUp(fe) if fe.was_tap() => {
-                self.toggle_recording(cx);
+                if !recording_finished_on_this_event {
+                    self.toggle_recording(cx);
+                }
             }
             _ => {}
         }
@@ -2683,6 +2696,8 @@ impl VoiceCloneModal {
         if self.is_recording.load(Ordering::Relaxed) {
             self.is_recording.store(false, Ordering::Relaxed);
         }
+        self.recording_event_rx = None;
+        self.recording_start_time = None;
         self.recording_status = RecordingStatus::Idle;
 
         // Stop any preview playing
@@ -2779,11 +2794,39 @@ impl VoiceCloneModal {
     }
 
     fn toggle_recording(&mut self, cx: &mut Cx) {
-        if self.is_recording.load(Ordering::Relaxed) {
+        if self.recording_status == RecordingStatus::Recording {
             self.stop_recording(cx);
         } else {
             self.start_recording(cx);
         }
+    }
+
+    fn poll_express_recording_events(&mut self, cx: &mut Cx) -> bool {
+        let event = self
+            .recording_event_rx
+            .as_ref()
+            .and_then(|receiver| receiver.try_recv().ok());
+        let Some(event) = event else {
+            return false;
+        };
+
+        self.recording_event_rx = None;
+        match event {
+            ExpressRecordingEvent::AutoStopped => {
+                if self.recording_status == RecordingStatus::Recording {
+                    self.stop_recording(cx);
+                }
+            }
+            ExpressRecordingEvent::Failed(error) => {
+                self.is_recording.store(false, Ordering::Relaxed);
+                self.recording_start_time = None;
+                self.update_record_button(cx, false);
+                self.add_log(cx, &format!("[ERROR] Recording failed: {error}"));
+                self.recording_status = RecordingStatus::Error(error);
+                self.view.redraw(cx);
+            }
+        }
+        true
     }
 
     /// Clear the Express mode recording / selected file, resetting to idle state.
@@ -2878,6 +2921,8 @@ impl VoiceCloneModal {
         self.recording_sample_rate = Arc::new(Mutex::new(16000)); // Default, will be updated
         self.recording_start_time = Some(std::time::Instant::now());
         self.recording_status = RecordingStatus::Recording;
+        let (recording_event_tx, recording_event_rx) = mpsc::channel();
+        self.recording_event_rx = Some(recording_event_rx);
 
         // Update UI
         self.update_record_button(cx, true);
@@ -2895,6 +2940,9 @@ impl VoiceCloneModal {
                 None => {
                     eprintln!("[VoiceClone] No input device found");
                     is_recording.store(false, Ordering::Relaxed);
+                    let _ = recording_event_tx.send(ExpressRecordingEvent::Failed(
+                        "No input device found".to_string(),
+                    ));
                     return;
                 }
             };
@@ -2907,6 +2955,9 @@ impl VoiceCloneModal {
                 Err(e) => {
                     eprintln!("[VoiceClone] Failed to get default input config: {}", e);
                     is_recording.store(false, Ordering::Relaxed);
+                    let _ = recording_event_tx.send(ExpressRecordingEvent::Failed(format!(
+                        "Failed to get input configuration: {e}"
+                    )));
                     return;
                 }
             };
@@ -2925,6 +2976,8 @@ impl VoiceCloneModal {
 
             let buffer_clone = Arc::clone(&buffer);
             let is_recording_clone = Arc::clone(&is_recording);
+            let error_recording = Arc::clone(&is_recording);
+            let error_event_tx = recording_event_tx.clone();
 
             // We'll store raw samples and resample later
             let stream = match device.build_input_stream(
@@ -2943,13 +2996,22 @@ impl VoiceCloneModal {
                         }
                     }
                 },
-                |err| eprintln!("[VoiceClone] Recording error: {}", err),
+                move |err| {
+                    eprintln!("[VoiceClone] Recording error: {}", err);
+                    error_recording.store(false, Ordering::Relaxed);
+                    let _ = error_event_tx.send(ExpressRecordingEvent::Failed(format!(
+                        "Audio input stream error: {err}"
+                    )));
+                },
                 None,
             ) {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[VoiceClone] Failed to build input stream: {}", e);
                     is_recording.store(false, Ordering::Relaxed);
+                    let _ = recording_event_tx.send(ExpressRecordingEvent::Failed(format!(
+                        "Failed to build input stream: {e}"
+                    )));
                     return;
                 }
             };
@@ -2957,23 +3019,26 @@ impl VoiceCloneModal {
             if let Err(e) = stream.play() {
                 eprintln!("[VoiceClone] Failed to start stream: {}", e);
                 is_recording.store(false, Ordering::Relaxed);
+                let _ = recording_event_tx.send(ExpressRecordingEvent::Failed(format!(
+                    "Failed to start input stream: {e}"
+                )));
                 return;
             }
 
             eprintln!("[VoiceClone] Recording started at {}Hz", sample_rate);
 
-            // Keep the stream alive slightly beyond the supported capture window.
-            let max_duration = std::time::Duration::from_secs(
-                EXPRESS_REFERENCE_MAX_SECS as u64 + 1,
-            );
+            let max_duration = std::time::Duration::from_secs_f32(EXPRESS_REFERENCE_MAX_SECS);
             let start = std::time::Instant::now();
 
             while is_recording.load(Ordering::Relaxed) && start.elapsed() < max_duration {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
 
-            // Auto-stop after max duration
-            is_recording.store(false, Ordering::Relaxed);
+            // Only the deadline path asks the UI to finalize. A manual stop already
+            // runs the same finalization synchronously and must not run it twice.
+            if is_recording.swap(false, Ordering::Relaxed) {
+                let _ = recording_event_tx.send(ExpressRecordingEvent::AutoStopped);
+            }
             eprintln!("[VoiceClone] Recording stopped ({}Hz mono)", sample_rate);
         });
 
@@ -2982,11 +3047,13 @@ impl VoiceCloneModal {
 
     fn stop_recording(&mut self, cx: &mut Cx) {
         self.is_recording.store(false, Ordering::Relaxed);
+        self.recording_event_rx = None;
         self.update_record_button(cx, false);
 
         // Calculate duration
         let duration = self
             .recording_start_time
+            .take()
             .map(|t| t.elapsed().as_secs_f32())
             .unwrap_or(0.0);
 
