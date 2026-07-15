@@ -9730,6 +9730,8 @@ pub struct TTSScreen {
     #[rust]
     playback_stretch_pending: HashSet<StretchBlockKey>,
     #[rust]
+    playback_player_intent_id: u64,
+    #[rust]
     player_active_rate: f64,
     #[rust]
     playback_last_queued_sample: Option<f32>,
@@ -10121,6 +10123,7 @@ impl Widget for TTSScreen {
             self.playback_stretch_cache = StretchBlockCache::default();
             self.playback_stretch_task_id = 0;
             self.playback_stretch_pending.clear();
+            self.playback_player_intent_id = 0;
             self.player_active_rate = 1.0;
             self.playback_last_queued_sample = None;
             // Initialize voice name
@@ -20090,8 +20093,7 @@ impl TTSScreen {
         if self.tts_status == TTSStatus::Playing {
             let _ = self.start_playback_from_time(cx, self.audio_playing_time);
         } else {
-            self.begin_playback_stretch_task();
-            self.apply_player_audio_settings();
+            self.stage_paused_playback_from_time(self.audio_playing_time);
         }
         self.update_player_bar(cx);
     }
@@ -20741,9 +20743,9 @@ impl TTSScreen {
 
         self.stop_preview_playback(cx);
         if let Some(player) = &self.audio_player {
-            player.stop();
-            self.apply_player_audio_settings();
+            self.playback_player_intent_id = player.begin_playback_intent();
         }
+        self.apply_player_audio_settings();
         self.begin_playback_stretch_task();
         self.playback_feed_cursor = start_sample;
         self.playback_feed_finished = false;
@@ -20759,6 +20761,30 @@ impl TTSScreen {
         self.keep_active_segment_visible(cx);
         self.update_playback_progress(cx);
         true
+    }
+
+    fn stage_paused_playback_from_time(&mut self, start_time_secs: f64) {
+        let Some(source) = self.playback_audio_source.as_ref() else {
+            return;
+        };
+        let sample_rate = source.sample_rate();
+        if source.is_empty() || sample_rate == 0 {
+            return;
+        }
+        let total_samples = source.total_samples();
+        let start_time = self.clamped_seek_time(start_time_secs).unwrap_or(0.0);
+        let start_sample = ((start_time * sample_rate as f64).round() as usize)
+            .min(total_samples.saturating_sub(1));
+
+        if let Some(player) = &self.audio_player {
+            self.playback_player_intent_id = player.begin_playback_intent();
+        }
+        self.apply_player_audio_settings();
+        self.begin_playback_stretch_task();
+        self.playback_feed_cursor = start_sample;
+        self.playback_feed_finished = false;
+        self.player_active_rate = self.player_playback_rate;
+        self.playback_last_queued_sample = None;
     }
 
     fn seek_playback_to_ratio(&mut self, cx: &mut Cx, ratio: f64) {
@@ -20779,6 +20805,7 @@ impl TTSScreen {
             }
         } else {
             self.audio_playing_time = target_time;
+            self.stage_paused_playback_from_time(target_time);
             self.update_playback_progress(cx);
             self.update_player_bar(cx);
         }
@@ -26395,7 +26422,10 @@ impl TTSScreen {
             ) {
                 return None;
             }
-            player.write_audio_owned(source_block);
+            player.write_audio_owned_for_intent(
+                self.playback_player_intent_id,
+                source_block,
+            );
             self.player_active_rate = 1.0;
             self.playback_last_queued_sample = None;
             self.playback_feed_cursor = self.playback_feed_cursor.saturating_add(source_samples);
@@ -26453,7 +26483,7 @@ impl TTSScreen {
         }
         let queued_samples = prepared.len();
         self.playback_last_queued_sample = prepared.last().copied();
-        player.write_audio_shared(prepared);
+        player.write_audio_shared_for_intent(self.playback_player_intent_id, prepared);
         self.player_active_rate = key.playback_rate();
         self.playback_feed_cursor = block_end;
         self.playback_feed_finished = self.playback_feed_cursor >= source.total_samples();

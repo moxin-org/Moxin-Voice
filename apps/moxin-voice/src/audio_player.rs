@@ -5,21 +5,40 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 const PLAYER_BUFFER_SECONDS: f32 = 30.0;
 
 /// Commands sent to the audio thread
 enum AudioCommand {
-    Write(Arc<Vec<f32>>), // Append samples
-    Reset,                // Clear playing buffer
+    Write(u64, Arc<Vec<f32>>), // Append samples for the current playback intent
+    Reset(u64),                // Clear the buffer and start a new playback intent
     Pause,
-    Resume,
+    Resume(u64),
     SetVolume(f32),
     SetPlaybackRate(f32),
     #[allow(dead_code)]
     Stop, // Reserved for explicit thread shutdown
+}
+
+#[derive(Default)]
+struct AudioIntentGate {
+    active: u64,
+}
+
+impl AudioIntentGate {
+    fn reset_to(&mut self, intent_id: u64) -> bool {
+        if intent_id < self.active {
+            return false;
+        }
+        self.active = intent_id;
+        true
+    }
+
+    fn accepts(&self, intent_id: u64) -> bool {
+        intent_id == self.active
+    }
 }
 
 /// Circular audio buffer for thread-safe audio streaming
@@ -173,6 +192,7 @@ pub struct TTSPlayer {
     command_tx: Sender<AudioCommand>,
     state: Arc<Mutex<SharedAudioState>>,
     playback_finished: Arc<AtomicBool>,
+    current_intent_id: Arc<AtomicU64>,
     #[allow(dead_code)]
     sample_rate: u32, // Stored for future API needs
 }
@@ -218,6 +238,7 @@ impl TTSPlayer {
             command_tx,
             state,
             playback_finished,
+            current_intent_id: Arc::new(AtomicU64::new(0)),
             sample_rate,
         }
     }
@@ -237,24 +258,49 @@ impl TTSPlayer {
         self.write_audio_shared(Arc::new(samples));
     }
 
+    pub fn write_audio_owned_for_intent(&self, intent_id: u64, samples: Vec<f32>) {
+        self.write_audio_shared_for_intent(intent_id, Arc::new(samples));
+    }
+
     /// Share a cached bounded block with the audio thread without cloning it.
     pub fn write_audio_shared(&self, samples: Arc<Vec<f32>>) {
+        let intent_id = self.current_intent_id.load(Ordering::Acquire);
+        self.write_audio_shared_for_intent(intent_id, samples);
+    }
+
+    /// Queue audio only if it still belongs to the caller's current playback
+    /// intent. A seek or rate change advances the intent and makes older blocks
+    /// harmless even if they arrive after the reset command.
+    pub fn write_audio_shared_for_intent(&self, intent_id: u64, samples: Arc<Vec<f32>>) {
         if samples.is_empty() {
             return;
         }
-        let _ = self.command_tx.send(AudioCommand::Write(samples));
-        let _ = self.command_tx.send(AudioCommand::Resume);
+        if self.current_intent_id.load(Ordering::Acquire) != intent_id {
+            return;
+        }
+        let _ = self.command_tx.send(AudioCommand::Write(intent_id, samples));
+        let _ = self.command_tx.send(AudioCommand::Resume(intent_id));
     }
 
-    /// Reset playback (clear buffer)
-    pub fn stop(&self) {
+    /// Reset playback and return the new intent id that future writes must use.
+    pub fn begin_playback_intent(&self) -> u64 {
+        let intent_id = self
+            .current_intent_id
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1);
         {
             let mut state = self.state.lock();
             state.queued_samples = 0;
             state.buffer_fill = 0.0;
             state.is_playing = false;
         }
-        let _ = self.command_tx.send(AudioCommand::Reset);
+        let _ = self.command_tx.send(AudioCommand::Reset(intent_id));
+        intent_id
+    }
+
+    /// Reset playback (clear buffer).
+    pub fn stop(&self) {
+        self.begin_playback_intent();
     }
 
     pub fn pause(&self) {
@@ -262,7 +308,8 @@ impl TTSPlayer {
     }
 
     pub fn resume(&self) {
-        let _ = self.command_tx.send(AudioCommand::Resume);
+        let intent_id = self.current_intent_id.load(Ordering::Acquire);
+        let _ = self.command_tx.send(AudioCommand::Resume(intent_id));
     }
 
     pub fn set_volume(&self, volume: f64) {
@@ -536,9 +583,13 @@ fn run_audio_thread(
     let stream = stream_result.map_err(|e| e.to_string())?;
     stream.play().map_err(|e| e.to_string())?;
 
+    let mut intent_gate = AudioIntentGate::default();
     loop {
         match command_rx.recv() {
-            Ok(AudioCommand::Write(samples)) => {
+            Ok(AudioCommand::Write(intent_id, samples)) => {
+                if !intent_gate.accepts(intent_id) {
+                    continue;
+                }
                 let mut buf = buffer.lock();
                 if !samples.is_empty() {
                     buf.write(samples.as_slice());
@@ -557,7 +608,10 @@ fn run_audio_thread(
                 };
                 shared.is_playing = is_playing.load(Ordering::Relaxed);
             }
-            Ok(AudioCommand::Reset) => {
+            Ok(AudioCommand::Reset(intent_id)) => {
+                if !intent_gate.reset_to(intent_id) {
+                    continue;
+                }
                 is_playing.store(false, Ordering::Relaxed);
                 resampler_reset.store(true, Ordering::Release);
                 buffer.lock().reset();
@@ -568,7 +622,10 @@ fn run_audio_thread(
                 shared.is_playing = false;
             }
             Ok(AudioCommand::Pause) => is_playing.store(false, Ordering::Relaxed),
-            Ok(AudioCommand::Resume) => {
+            Ok(AudioCommand::Resume(intent_id)) => {
+                if !intent_gate.accepts(intent_id) {
+                    continue;
+                }
                 if buffer.lock().available() > 0 {
                     playback_finished.store(false, Ordering::Release);
                     is_playing.store(true, Ordering::Relaxed);
@@ -589,7 +646,18 @@ fn run_audio_thread(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_output_volume, CircularAudioBuffer, PlaybackResampler};
+    use super::{apply_output_volume, AudioIntentGate, CircularAudioBuffer, PlaybackResampler};
+
+    #[test]
+    fn playback_intent_gate_rejects_blocks_from_before_a_reset() {
+        let mut gate = AudioIntentGate::default();
+        assert!(gate.accepts(0));
+        assert!(gate.reset_to(2));
+        assert!(!gate.accepts(1));
+        assert!(gate.accepts(2));
+        assert!(!gate.reset_to(1));
+        assert!(gate.accepts(2));
+    }
 
     #[test]
     fn resampler_consumes_only_completed_source_samples() {
