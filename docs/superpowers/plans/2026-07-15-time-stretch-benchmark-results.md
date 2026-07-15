@@ -78,3 +78,19 @@ listening evaluation.
 These synthetic measurements validate performance and basic signal invariants;
 the release smoke test must still include real long-form speech listening for
 metallic artifacts, repeated syllables, and boundary defects.
+
+## Mature engine evaluation
+
+The release does not add a DSP dependency merely because an engine has a suitable
+API. The following candidates were checked against their official documentation:
+
+| Candidate | Fit | Release decision |
+| --- | --- | --- |
+| [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) | MIT; C++11; block processing, seek/reset/flush, latency reporting and split-computation mode; primarily tested with AppleClang; an external Rust wrapper exists. | Best future evaluation candidate, but its own documentation says time stretching sounds best from 0.75x to 1.5x, while this product formally supports 2x. Do not ship it until the wrapper, Apple build, 2x speech quality, cancellation and the same benchmark matrix are verified. |
+| [Rubber Band](https://breakfastquay.com/rubberband/) | High-quality C++ engine with streaming real-time mode and explicit real-time safety guidance. | Open-source distribution is GPL and proprietary distribution requires a commercial licence. Do not add it without a product licensing decision and an FFI/build evaluation. |
+| [SoundTouch](https://www.surina.net/soundtouch/index.html) | C++; supports 32-bit float mono, macOS and real-time pitch-preserving tempo changes. | LGPL 2.1 or a separate commercial licence. It would add native build and redistribution obligations and still requires long-form speech listening; no benefit justifies that release risk after the current engine cleared the gates. |
+
+Accordingly, none is eligible for this release yet. The stable
+`TimeStretchEngine` boundary keeps a later replacement local to one module and
+lets every candidate run against the existing benchmark and quality tests before
+selection.

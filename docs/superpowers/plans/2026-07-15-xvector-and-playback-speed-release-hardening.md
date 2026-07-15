@@ -314,7 +314,7 @@ cargo check -p moxin-voice
 - 使用：`apps/moxin-voice/src/playback_audio_source.rs`
 - 测试：新模块和 `screen.rs` 中的 `#[cfg(test)]` 模块
 
-- [ ] **Step 1：定义 block 和边界上下文合同**
+- [x] **Step 1：定义 block 和边界上下文合同**
 
 默认使用 10 秒 source block（允许在 benchmark 后调整到 5–10 秒），每个 block 额外读取 100–250 ms 左右上下文。engine 输出后裁掉上下文，并在相邻 block 之间使用连续 engine state 或短 crossfade，避免独立处理造成爆音、断裂和重复音节。
 
@@ -331,7 +331,7 @@ struct StretchBlockKey {
 
 倍率使用规范化整数（0.75x → 750），不能用 `f64` 直接作为 key。
 
-- [ ] **Step 2：抽离现有算法为可取消的 block engine**
+- [x] **Step 2：抽离现有算法为可取消的 block engine**
 
 将 Hann window、overlap 搜索和主循环移出 `TTSScreen`。入口只处理有界 block，并接受取消检查：
 
@@ -346,7 +346,7 @@ fn stretch_block_preserve_pitch(
 
 在 synthesis-hop 和候选搜索内定期检查取消；任何调用都不得接受完整 30/60 分钟 source。
 
-- [ ] **Step 3：实现单一 worker 和 latest-request-wins**
+- [x] **Step 3：实现单一 worker 和 latest-request-wins**
 
 `PlaybackStretchWorker` 使用一个专用线程：
 
@@ -359,7 +359,7 @@ fn stretch_block_preserve_pitch(
 
 禁止每个 block 或每次切速创建独立线程。
 
-- [ ] **Step 4：实现 64 MiB 有界 block LRU cache**
+- [x] **Step 4：实现 64 MiB 有界 block LRU cache**
 
 缓存 key 为 `(audio_revision, rate_milli, block_index)`：
 
@@ -372,7 +372,7 @@ fn stretch_block_preserve_pitch(
 
 增加 cache hit、revision 隔离、LRU、byte budget 以及“单个 block 也不能超过预算”的测试。
 
-- [ ] **Step 5：区分 requested rate、active rate 和 playback intent**
+- [x] **Step 5：区分 requested rate、active rate 和 playback intent**
 
 `TTSScreen` 增加：
 
@@ -392,7 +392,7 @@ fn stretch_block_preserve_pitch(
 6. 旧 compute result 若 key 仍有效可作为 cache fill，但旧 intent 永远不能改变播放位置、active rate 或 queue。
 7. pause 时结果只入 cache，不自动 resume。
 
-- [ ] **Step 6：正确维护原始媒体时间**
+- [x] **Step 6：正确维护原始媒体时间**
 
 时间轴始终表示 source 媒体时间：
 
@@ -404,7 +404,7 @@ fn stretch_block_preserve_pitch(
 
 底层 `TTSPlayer` 对已经 stretch 的 block 保持 1x 输出，避免二次变调。
 
-- [ ] **Step 7：迁移并增强音质/取消测试**
+- [x] **Step 7：迁移并增强音质/取消测试**
 
 至少覆盖：
 
@@ -416,7 +416,7 @@ fn stretch_block_preserve_pitch(
 - 60 分钟虚拟 source 的随机 seek 不分配完整 stretched buffer；
 - cache/prefetch 不发生 player underrun。
 
-- [ ] **Step 8：写入明确性能门槛**
+- [x] **Step 8：写入明确性能门槛**
 
 在 release 参考 Apple Silicon、`--release` 构建下：
 
@@ -428,7 +428,7 @@ fn stretch_block_preserve_pitch(
 - UI event handler 不执行超过一个 block copy，不执行 DSP 主循环；
 - 除 canonical source 外，player queue + working buffers + stretch cache 默认 ≤ 128 MiB，其中 cache 默认 64 MiB。
 
-- [ ] **Step 9：运行 time-stretch/player 测试**
+- [x] **Step 9：运行 time-stretch/player 测试**
 
 ```bash
 cargo test -p moxin-voice playback_time_stretch -- --nocapture
@@ -439,6 +439,8 @@ cargo check -p moxin-voice
 ```
 
 预期：UI 不执行 DSP；60 分钟 source 仍只处理和缓存播放位置附近 block；变速保持音高目标。
+
+验证记录：10 秒 source block、200 ms 双侧上下文、20 ms 等长边界平滑、单 worker、latest-task-wins、64 MiB LRU、revision/rate/block key、1x 直通、active-rate 媒体时间和三块预取均已接入。worker 自行从共享 source 读取 block，UI 不执行 DSP 或预取音频复制。0.75x/1.25x/1.5x/2x 时长、正弦周期、相邻边界 RMS/相位、取消、旧 task、cache 和 source 坐标测试通过；上述聚焦测试与 `cargo check -p moxin-voice` 通过。
 
 ---
 
@@ -452,7 +454,7 @@ cargo check -p moxin-voice
 - 按选择修改：`apps/moxin-voice/Cargo.toml`、`Cargo.lock`
 - 新增：time-stretch benchmark 或独立测试工具
 
-- [ ] **Step 1：定义可替换的 engine 边界**
+- [x] **Step 1：定义可替换的 engine 边界**
 
 将 worker 与算法通过小型 trait 或等价接口隔离：
 
@@ -470,7 +472,7 @@ trait TimeStretchEngine: Send {
 
 Task 4 迁移出的实现作为 `LegacyWsolaEngine`，不得让 UI、source 或 cache 依赖其内部细节。
 
-- [ ] **Step 2：建立可重复 benchmark 和质量样本**
+- [x] **Step 2：建立可重复 benchmark 和质量样本**
 
 至少覆盖：
 
@@ -484,7 +486,7 @@ Task 4 迁移出的实现作为 `LegacyWsolaEngine`，不得让 UI、source 或 
 
 明确目标：后台处理不能掩盖无限慢算法；block 必须持续快于播放速度，30/60 分钟测试的内存不能随 stretched 总时长增长，取消延迟应控制在用户无感范围。
 
-- [ ] **Step 3：评估成熟实时 time-stretch 实现**
+- [x] **Step 3：评估成熟实时 time-stretch 实现**
 
 候选必须满足：
 
@@ -497,7 +499,7 @@ Task 4 迁移出的实现作为 `LegacyWsolaEngine`，不得让 UI、source 或 
 
 只有满足这些门槛才引入依赖；不能仅根据 crate 名称或简单正弦测试决定。
 
-- [ ] **Step 4：替换实现或重构现有算法**
+- [x] **Step 4：替换实现或重构现有算法**
 
 优先顺序：
 
@@ -505,9 +507,11 @@ Task 4 迁移出的实现作为 `LegacyWsolaEngine`，不得让 UI、source 或 
 2. 若没有合适依赖，将当前逐候选全量相关搜索重构为有界、分块、可增量输出的实现；
 3. 保持 Task 3–4 的分块 source、worker、block cache key、取消和 UI 协议不变。
 
-- [ ] **Step 5：使用同一测试矩阵做替换验收**
+- [x] **Step 5：使用同一测试矩阵做替换验收**
 
 新 engine 必须通过 Task 4 的功能测试和 Step 2 benchmark。若音质或性能退化，继续使用分块异步化后的 legacy engine，不把未达标替换带入 release。
+
+验证记录：`TimeStretchEngine`/`LegacyWsolaEngine` 边界已建立，可复现 benchmark 位于 `apps/moxin-voice/examples/time_stretch_benchmark.rs`，实测和容量解释记录在 `docs/superpowers/plans/2026-07-15-time-stretch-benchmark-results.md`。Apple M4 release 构建下，10 秒 block 的 p95 为 0.75x 87.096 ms、1.25x 52.734 ms、1.5x 43.881 ms、2x 32.529 ms；cache block queue-prep p95 0.017 ms，取消检查 0.027 ms，全部通过门槛。Signalsmith Stretch、Rubber Band 和 SoundTouch 已按官方许可/API 文档评估；本 release 保留已通过门槛的有界 legacy engine，避免在没有相同矩阵构建、2x 语音听测和许可决策时引入新的 C++ DSP 依赖。
 
 ---
 
