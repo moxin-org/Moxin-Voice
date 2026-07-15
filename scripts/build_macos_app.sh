@@ -369,6 +369,7 @@ nodes:
     path: dynamic
     inputs:
       audio: primespeech-tts/audio
+      segment_complete: primespeech-tts/segment_complete
     outputs:
       - buffer_status
 YAML
