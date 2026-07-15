@@ -50,12 +50,12 @@ pub fn init_translations() {
     en.insert("tts.stop".to_string(), "Stop".to_string());
     en.insert("tts.export".to_string(), "Export".to_string());
     en.insert("tts.input_placeholder".to_string(), "Enter text to convert to speech...".to_string());
-    en.insert("tts.speed".to_string(), "Speed".to_string());
+    en.insert("tts.speed".to_string(), "Generation Speed".to_string());
     en.insert("tts.pitch".to_string(), "Pitch".to_string());
     en.insert("tts.volume".to_string(), "Volume".to_string());
     en.insert("tts.no_result".to_string(), "No result yet".to_string());
     en.insert("clone.express_mode".to_string(), "Express Mode".to_string());
-    en.insert("clone.express_desc".to_string(), "Clone voice with 5-10 seconds of audio".to_string());
+    en.insert("clone.express_desc".to_string(), "Clone voice with 3-6 seconds of audio; no transcript needed".to_string());
     en.insert("clone.pro_mode".to_string(), "Pro Mode".to_string());
     en.insert("clone.pro_desc".to_string(), "High-quality voice with 3-10 minutes training".to_string());
     en.insert("clone.record_audio".to_string(), "Record Audio".to_string());
@@ -67,7 +67,7 @@ pub fn init_translations() {
     en.insert("clone.training_progress".to_string(), "Training Progress".to_string());
     en.insert("settings.title".to_string(), "Settings".to_string());
     en.insert("settings.voice_settings".to_string(), "Voice Settings".to_string());
-    en.insert("settings.default_speed".to_string(), "Default Speed".to_string());
+    en.insert("settings.default_speed".to_string(), "Default Generation Speed".to_string());
     en.insert("settings.default_pitch".to_string(), "Default Pitch".to_string());
     en.insert("settings.default_volume".to_string(), "Default Volume".to_string());
     en.insert("settings.output_format".to_string(), "Output Format".to_string());
@@ -123,12 +123,12 @@ pub fn init_translations() {
     zh.insert("tts.stop".to_string(), "停止".to_string());
     zh.insert("tts.export".to_string(), "导出".to_string());
     zh.insert("tts.input_placeholder".to_string(), "请输入要转换的文字...".to_string());
-    zh.insert("tts.speed".to_string(), "语速".to_string());
+    zh.insert("tts.speed".to_string(), "生成语速".to_string());
     zh.insert("tts.pitch".to_string(), "音调".to_string());
     zh.insert("tts.volume".to_string(), "音量".to_string());
     zh.insert("tts.no_result".to_string(), "暂无结果".to_string());
     zh.insert("clone.express_mode".to_string(), "快速模式".to_string());
-    zh.insert("clone.express_desc".to_string(), "5-10秒音频克隆声音".to_string());
+    zh.insert("clone.express_desc".to_string(), "使用3-6秒音频克隆，无需参考文本".to_string());
     zh.insert("clone.pro_mode".to_string(), "专业模式".to_string());
     zh.insert("clone.pro_desc".to_string(), "3-10分钟训练高质量克隆".to_string());
     zh.insert("clone.record_audio".to_string(), "录制音频".to_string());
@@ -140,7 +140,7 @@ pub fn init_translations() {
     zh.insert("clone.training_progress".to_string(), "训练进度".to_string());
     zh.insert("settings.title".to_string(), "设置".to_string());
     zh.insert("settings.voice_settings".to_string(), "语音合成设置".to_string());
-    zh.insert("settings.default_speed".to_string(), "默认语速".to_string());
+    zh.insert("settings.default_speed".to_string(), "默认生成语速".to_string());
     zh.insert("settings.default_pitch".to_string(), "默认音调".to_string());
     zh.insert("settings.default_volume".to_string(), "默认音量".to_string());
     zh.insert("settings.output_format".to_string(), "输出格式".to_string());

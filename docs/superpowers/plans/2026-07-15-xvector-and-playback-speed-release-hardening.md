@@ -523,7 +523,7 @@ Task 4 迁移出的实现作为 `LegacyWsolaEngine`，不得让 UI、source 或 
 - 修改：与音色克隆 UI 文案相关的本地化/Makepad 文本
 - 按需修改：release notes 或项目 README
 
-- [ ] **Step 1：文档明确产品只启用 x-vector**
+- [x] **Step 1：文档明确产品只启用 x-vector**
 
 说明：
 
@@ -532,14 +532,14 @@ Task 4 迁移出的实现作为 `LegacyWsolaEngine`，不得让 UI、source 或 
 - 底层 ICL API 是未暴露的实验能力；
 - x-vector 提前 EOS 时会自动更换 seed 重试一次。
 
-- [ ] **Step 2：区分“生成语速”和“播放器倍速”**
+- [x] **Step 2：区分“生成语速”和“播放器倍速”**
 
 UI 或帮助文案应明确：
 
 - 生成语速：参与生成/后处理，保存和下载的音频包含该效果；
 - 播放器倍速：采用变速不变调，仅影响当前预览，不改写音频文件；首次播放或 seek 到未缓存区域时按 block 后台准备，之后从 block cache 复用。
 
-- [ ] **Step 3：清理误导性文字**
+- [x] **Step 3：清理误导性文字**
 
 运行：
 
@@ -548,6 +548,8 @@ rg -n "BundledIcl|Bundled ICL|uses Base model ICL|Reference Text \(what the audi
 ```
 
 预期：产品代码和用户文案无误导性 ICL 描述；计划文档和底层实验文档中的历史/技术说明可以保留。
+
+验证记录：根 README、macOS quickstart 和 Qwen patch README 已明确 Moxin Voice 只暴露 x-vector、Express 使用 3–6 秒参考音频且不需要文本、提前 EOS 自动换 seed 重试一次，底层 ICL 仅为未暴露实验 API。生成设置已标为“生成语速 / Generation speed”，播放器菜单标为“预览倍速 / Preview speed”，README 说明前者改变生成/下载文件、后者只按 block 后台准备本地预览。剩余 `BundledIcl` 仅是 serde 兼容 alias/测试；底层 patch 和历史技术文档中的 ICL 符号按计划保留。
 
 ---
 

@@ -61,7 +61,7 @@ pub struct Voice {
     /// Reference audio path for custom voices (relative to custom_voices dir)
     #[serde(default)]
     pub reference_audio_path: Option<String>,
-    /// Prompt/reference text for zero-shot cloning
+    /// Legacy prompt/reference text retained only for old-config deserialization.
     #[serde(default)]
     pub prompt_text: Option<String>,
     /// GPT model weights path (optional, uses default if not set)

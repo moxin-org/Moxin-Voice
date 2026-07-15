@@ -84,8 +84,8 @@ const TTS_INPUT_DRAG_AUTOSCROLL_EDGE: f64 = 52.0;
 const TTS_INPUT_DRAG_AUTOSCROLL_MAX_DELTA: f64 = 28.0;
 const TTS_INPUT_SCROLL_TOP_PADDING: f64 = 24.0;
 const PLAYER_PLAYBACK_RATES: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
-const PLAYER_SPEED_MENU_WIDTH: f64 = 96.0;
-const PLAYER_SPEED_MENU_HEIGHT: f64 = 170.0;
+const PLAYER_SPEED_MENU_WIDTH: f64 = 112.0;
+const PLAYER_SPEED_MENU_HEIGHT: f64 = 194.0;
 const PLAYER_ACTION_MENU_WIDTH: f64 = 132.0;
 const PLAYER_ACTION_MENU_HEIGHT: f64 = 96.0;
 const PLAYER_SEGMENT_MENU_WIDTH: f64 = 560.0;
@@ -7912,8 +7912,18 @@ live_design! {
         } // End app_layout
 
         player_speed_menu = <PlayerFloatingMenu> {
-            width: 96, height: Fit
+            width: 112, height: Fit
             visible: false
+
+            speed_menu_title = <Label> {
+                width: Fill, height: 24
+                padding: {left: 10, right: 10}
+                text: "Preview speed"
+                draw_text: {
+                    color: (GRAY_500)
+                    text_style: <FONT_SEMIBOLD>{ font_size: 10.0 }
+                }
+            }
 
             speed_075_btn = <PlayerMenuItemBtn> { text: "0.75x" }
             speed_100_btn = <PlayerMenuItemBtn> { text: "1x" }
@@ -10178,7 +10188,7 @@ impl Widget for TTSScreen {
             // PrimeSpeech fallback removed. See doc/REFACTOR_QWEN3_ONLY.md.
             self.app_preferences.inference_backend = "qwen3_tts_mlx".to_string();
             self.app_preferences.zero_shot_backend = "qwen3_tts_mlx".to_string();
-            self.app_preferences.training_backend = "option_c".to_string(); // Qwen3 ICL mode
+            self.app_preferences.training_backend = "option_c".to_string(); // Qwen3 x-vector mode
             self.record_app_version_and_reset_screen_capture_permission_if_needed(
                 preferences_existed,
             );
@@ -16630,7 +16640,7 @@ impl TTSScreen {
                     .speed_label_row
                     .speed_label
             ))
-            .set_text(cx, self.tr("语速", "Speed"));
+            .set_text(cx, self.tr("生成语速", "Generation speed"));
         self.view
             .label(ids!(
                 content_wrapper
@@ -17384,7 +17394,7 @@ impl TTSScreen {
                     .speed_col
                     .speed_label
             ))
-            .set_text(cx, self.tr("语速", "Speed"));
+            .set_text(cx, self.tr("生成语速", "Generation speed"));
         self.view
             .label(ids!(
                 content_wrapper
@@ -17870,6 +17880,9 @@ impl TTSScreen {
         self.view
             .button(ids!(player_action_menu.share_menu_btn))
             .set_text(cx, &share_label);
+        self.view
+            .label(ids!(player_speed_menu.speed_menu_title))
+            .set_text(cx, self.tr("预览倍速", "Preview speed"));
         self.update_audio_player_action_layout_for_locale(cx);
 
         self.view

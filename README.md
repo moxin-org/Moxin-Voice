@@ -47,7 +47,7 @@ OminiX MLX provides:
 - **Pure Rust inference** — no Python runtime required at synthesis time
 - **Metal GPU acceleration** — optimized for M1/M2/M3/M4 chips via Apple's MLX framework
 - **Unified memory** — zero-copy CPU/GPU data sharing
-- **Qwen3-TTS-MLX** — the TTS engine used by Moxin Voice (9 built-in voices, 12 languages, ICL voice cloning, 2.3× real-time on M3 Max)
+- **Qwen3-TTS-MLX** — the TTS engine used by Moxin Voice (9 built-in voices, 12 languages, x-vector voice cloning, 2.3× real-time on M3 Max)
 
 > Moxin Voice uses OminiX MLX's `dora-qwen3-tts-mlx` node as its sole TTS backend.
 > Source: `node-hub/dora-qwen3-tts-mlx/`
@@ -56,12 +56,13 @@ OminiX MLX provides:
 
 ## ✨ Features
 
-- **🎙️ Zero-Shot Voice Cloning** — Clone any voice with 5–30 seconds of audio (ICL Express mode)
+- **🎙️ Zero-Shot Voice Cloning** — Clone a voice from 3–6 seconds of reference audio (x-vector Express mode; no transcript required)
 - **🎵 Text-to-Speech** — 9 preset voices across Chinese, English, Japanese, and Korean
 - **🌍 Live Translation** — Real-time subtitles from microphone or system audio with a floating overlay
 - **🔮 Qwen3-TTS-MLX Backend** — 2.3× real-time synthesis via OminiX MLX on Apple Silicon
 - **🎤 Audio Recording** — Built-in real-time recording with waveform visualization
-- **🔍 ASR Integration** — Automatic text transcription for cloning reference audio
+- **🔍 ASR Integration** — Speech transcription for Live Translation and dormant training workflows
+- **⏱️ Long-form Preview** — Stream and seek TTS audio up to at least 60 minutes, with cached pitch-preserving preview speeds from 0.75x to 2x
 - **💾 Audio Export** — Save generated speech as WAV files
 - **🌓 Dark Mode** — Native dark theme via Makepad GPU rendering
 - **🌐 Bilingual UI** — Chinese and English interface
@@ -108,8 +109,8 @@ This downloads all three model snapshots into `~/.OminiX/models/`:
 | Model | Purpose |
 |-------|---------|
 | `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | Preset voice synthesis |
-| `Qwen3-TTS-12Hz-1.7B-Base-8bit` | ICL zero-shot voice cloning |
-| `Qwen3-ASR-1.7B-8bit` | Voice cloning reference audio transcription |
+| `Qwen3-TTS-12Hz-1.7B-Base-8bit` | x-vector zero-shot voice cloning |
+| `Qwen3-ASR-1.7B-8bit` | Speech recognition and Live Translation |
 
 `huggingface_hub` is installed automatically if not present.
 
@@ -155,8 +156,26 @@ For end-users receiving the distributed `.app`, model download and initializatio
 
 ### Voice Cloning (Express Mode)
 
-Upload or record 5–30 seconds of reference audio. Moxin Voice uses Qwen3-TTS's **In-Context Learning (ICL)** to clone the voice in real time — no training required.
-ASR auto-transcription is optional; if ASR is unavailable, users can enter reference text manually.
+Upload or record 3–6 seconds of reference audio. Moxin Voice uses Qwen3-TTS's
+**x-vector** speaker embedding path to clone the voice in real time—no training
+or reference transcript is required. If generation ends before the requested text
+is complete, the backend retries once with a different deterministic seed and
+reports an error rather than publishing the second incomplete result.
+
+The bundled Qwen library retains an experimental ICL API for developers, but the
+Moxin Voice product does not expose or invoke it.
+
+### Generation speed vs. preview speed
+
+**Generation speed** is a synthesis setting. Regenerating with a different value
+changes the canonical audio and therefore changes saved and downloaded files.
+
+**Preview speed** is the 0.75x–2x control in the audio player. It preserves pitch,
+only affects local playback, and never rewrites exported audio. Long recordings
+are prepared in 10-second blocks on a background worker; the current block and
+nearby blocks are cached, so the first visit to an uncached seek position may take
+roughly 100–200 ms on the reference Apple M4 system while repeat visits reuse the
+cache.
 
 ---
 

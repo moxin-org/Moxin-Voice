@@ -121,6 +121,12 @@ let samples = synth.synthesize("你好，欢迎使用语音合成。", &opts)?;
 
 Clone a voice from a short reference audio clip (3-10 seconds recommended). Requires the Base model.
 
+> **Moxin Voice product policy:** the app exposes only x-vector cloning, accepts
+> 3–6 seconds of reference audio, and does not require reference text. The Dora
+> product node retries an incomplete x-vector generation once with a different
+> seed. The ICL API documented below remains an unexposed experimental library
+> capability.
+
 **x-vector mode** (recommended) — uses a speaker embedding extracted from reference audio:
 
 ```rust

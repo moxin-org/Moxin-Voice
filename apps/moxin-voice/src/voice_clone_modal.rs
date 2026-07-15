@@ -1783,7 +1783,7 @@ impl Widget for VoiceCloneModal {
                     &format!("[INFO] Transcription received ({}): {}", language, text),
                 );
 
-                // Auto-fill prompt text field (Express flow behavior).
+                // Auto-fill the dormant Pro-mode training transcript.
                 self.view
                     .text_input(ids!(
                         modal_container
@@ -3295,7 +3295,7 @@ impl VoiceCloneModal {
                 self.asr_sent = false;
                 self.recording_status = RecordingStatus::Transcribing;
 
-                // Show transcription loading overlay (Express mode) and reset animation timer
+                // Show the dormant Pro-mode transcription overlay and reset its timer.
                 self.transcription_animation_start_time = None;
                 if self.clone_mode == CloneMode::Express {
                     self.view
@@ -3312,7 +3312,10 @@ impl VoiceCloneModal {
             }
             Err(e) => {
                 self.add_log(cx, &format!("[ERROR] Failed to read audio for ASR: {}", e));
-                self.add_log(cx, "[INFO] Please enter the reference text manually.");
+                self.add_log(
+                    cx,
+                    "[INFO] Pro training requires reference text; enter it manually.",
+                );
                 self.recording_status = RecordingStatus::Idle;
             }
         }
@@ -3343,7 +3346,7 @@ impl VoiceCloneModal {
 
     // ========== Pro Mode Training Methods ==========
 
-    /// Switch between Express (ICL zero-shot) and Pro (few-shot training) modes.
+    /// Switch between Express (x-vector zero-shot) and Pro (few-shot training) modes.
     ///
     /// **Qwen3-only refactor note**: Pro mode is hidden from the UI and its
     /// mode_selector button handler is removed in screen.rs. This function and
@@ -3963,7 +3966,7 @@ impl VoiceCloneModalRef {
             inner.view.set_visible(cx, true);
             inner.clear_log(cx);
 
-            // ASR is optional: if not ready, user can still proceed with manual reference text.
+            // ASR is optional for the dormant Pro flow; manual training text remains available.
             let asr_available = if let Some(ref shared_state) = inner.shared_dora_state {
                 let status = shared_state.status.read();
                 // Only check for ASR listener - audio-input is only needed for live recording

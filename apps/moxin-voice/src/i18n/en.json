@@ -37,14 +37,14 @@
     "export": "Export",
     "exporting": "Exporting...",
     "input_placeholder": "Enter text to convert to speech...",
-    "speed": "Speed",
+    "speed": "Generation Speed",
     "pitch": "Pitch",
     "volume": "Volume",
     "no_result": "No result yet"
   },
   "clone": {
     "express_mode": "Express Mode",
-    "express_desc": "Clone voice with 5-10 seconds of audio",
+    "express_desc": "Clone voice with 3-6 seconds of audio; no transcript needed",
     "pro_mode": "Pro Mode",
     "pro_desc": "High-quality voice with 3-10 minutes training",
     "record_audio": "Record Audio",
@@ -59,7 +59,7 @@
   "settings": {
     "title": "Settings",
     "voice_settings": "Voice Settings",
-    "default_speed": "Default Speed",
+    "default_speed": "Default Generation Speed",
     "default_pitch": "Default Pitch",
     "default_volume": "Default Volume",
     "output_format": "Output Format",
