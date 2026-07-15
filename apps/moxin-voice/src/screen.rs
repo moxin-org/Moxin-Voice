@@ -30467,7 +30467,9 @@ mod tests {
         assert!(menu.contains("vec4(0.05, 0.10, 0.20, 0.07)"));
         assert!(!menu.contains("shadow_distance"));
         assert!(menu.contains("padding: {left: 16, right: 16, top: 16, bottom: 18}"));
-        assert!(source.contains("icon_walk: {width: 20, height: 20}"));
+        assert!(source.contains(
+            "icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}"
+        ));
     }
 
     #[test]
@@ -30568,23 +30570,33 @@ mod tests {
     }
 
     #[test]
-    fn segment_icon_buttons_center_thin_neutral_icons() {
+    fn segment_icon_buttons_match_trigger_and_action_styles() {
         let source = include_str!("screen.rs")
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        for button_name in ["PlayerSegmentBtn = <Button>", "PlayerSegmentActionBtn = <Button>"] {
-            let button = source
-                .split(button_name)
-                .nth(1)
-                .expect("segment icon button should exist")
-                .split("draw_text:")
-                .next()
-                .unwrap();
-            assert!(button.contains("align: {x: 0.5, y: 0.5}"));
-            assert!(button.contains("label_walk: {width: 0, height: 0}"));
-            assert!(button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
-        }
+        let action_button = source
+            .split("PlayerSegmentActionBtn = <Button>")
+            .nth(1)
+            .expect("segment action button should exist")
+            .split("draw_text:")
+            .next()
+            .unwrap();
+        assert!(action_button.contains("align: {x: 0.5, y: 0.5}"));
+        assert!(action_button.contains("label_walk: {width: 0, height: 0}"));
+        assert!(action_button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
+
+        let menu_button = source
+            .split("PlayerSegmentBtn = <Button>")
+            .nth(1)
+            .expect("segment menu button should exist")
+            .split("draw_text:")
+            .next()
+            .unwrap();
+        assert!(menu_button.contains("align: {x: 0.5, y: 0.5}"));
+        assert!(menu_button.contains("label_walk: {width: 0, height: 0}"));
+        assert!(menu_button.contains("return (WHITE);"));
+        assert!(menu_button.contains("icon_walk: {width: 16, height: 16"));
         let preview_button = source
             .split("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>")
             .nth(1)

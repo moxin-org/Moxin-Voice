@@ -328,6 +328,6 @@ mod tests {
     #[test]
     fn test_voice_id_with_chinese() {
         let id = generate_voice_id("我的声音");
-        assert!(id.starts_with("____")); // Chinese chars become underscores
+        assert!(id.starts_with("我的声音_"));
     }
 }
