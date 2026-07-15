@@ -1,3 +1,4 @@
+use crate::playback_audio_source::PlaybackAudioSource;
 use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -157,6 +158,25 @@ pub fn stretch_block_preserve_pitch(
     Ok(output[trim_start..trim_end].to_vec())
 }
 
+/// Remove an independent-block discontinuity without shortening the media
+/// timeline. The first sample is aligned to the previous block and the offset
+/// decays smoothly to zero over `fade_samples`.
+pub fn smooth_block_boundary(samples: &mut [f32], previous_sample: f32, fade_samples: usize) {
+    let Some(first) = samples.first().copied() else {
+        return;
+    };
+    let correction = previous_sample - first;
+    let fade_len = fade_samples.max(1).min(samples.len());
+    for (index, sample) in samples.iter_mut().take(fade_len).enumerate() {
+        let remaining = if fade_len == 1 {
+            1.0
+        } else {
+            1.0 - index as f32 / (fade_len - 1) as f32
+        };
+        *sample += correction * remaining;
+    }
+}
+
 fn hann_window_sample(index: usize, len: usize) -> f32 {
     if len <= 1 {
         return 1.0;
@@ -239,9 +259,20 @@ pub enum StretchPriority {
 struct StretchRequest {
     task_id: u64,
     key: StretchBlockKey,
-    input_with_context: Vec<f32>,
-    trim: BlockTrim,
+    input: StretchInput,
     priority: StretchPriority,
+}
+
+enum StretchInput {
+    Prepared {
+        samples: Vec<f32>,
+        trim: BlockTrim,
+    },
+    SourceBlock {
+        source: PlaybackAudioSource,
+        block_samples: usize,
+        context_samples: usize,
+    },
 }
 
 enum WorkerCommand {
@@ -253,6 +284,8 @@ enum WorkerCommand {
 pub struct StretchBlockResult {
     pub task_id: u64,
     pub key: StretchBlockKey,
+    pub source_start_sample: usize,
+    pub source_end_sample: usize,
     pub samples: Vec<f32>,
 }
 
@@ -316,10 +349,54 @@ impl PlaybackStretchWorker {
                             worker_stopped.load(Ordering::Acquire)
                                 || request.task_id != worker_latest_task_id.load(Ordering::Acquire)
                         };
+                        let (input_with_context, trim, source_start_sample, source_end_sample) =
+                            match request.input {
+                                StretchInput::Prepared { samples, trim } => {
+                                    let source_end = trim.output_source_samples;
+                                    (samples, trim, 0, source_end)
+                                }
+                                StretchInput::SourceBlock {
+                                    source,
+                                    block_samples,
+                                    context_samples,
+                                } => {
+                                    if source.revision() != request.key.audio_revision
+                                        || block_samples == 0
+                                    {
+                                        continue;
+                                    }
+                                    let block_start = (request.key.block_index as usize)
+                                        .saturating_mul(block_samples);
+                                    if block_start >= source.total_samples() {
+                                        continue;
+                                    }
+                                    let block_end = block_start
+                                        .saturating_add(block_samples)
+                                        .min(source.total_samples());
+                                    let context_start = block_start.saturating_sub(context_samples);
+                                    let context_end = block_end
+                                        .saturating_add(context_samples)
+                                        .min(source.total_samples());
+                                    let samples = source.read_block(
+                                        context_start,
+                                        context_end.saturating_sub(context_start),
+                                    );
+                                    let trim = BlockTrim {
+                                        leading_source_samples: block_start
+                                            .saturating_sub(context_start),
+                                        output_source_samples: block_end
+                                            .saturating_sub(block_start),
+                                    };
+                                    (samples, trim, block_start, block_end)
+                                }
+                            };
+                        if cancelled() {
+                            continue;
+                        }
                         let result = engine.process_block(
-                            &request.input_with_context,
+                            &input_with_context,
                             request.key.playback_rate(),
-                            request.trim,
+                            trim,
                             &cancelled,
                         );
                         if let Ok(samples) = result {
@@ -327,6 +404,8 @@ impl PlaybackStretchWorker {
                                 let _ = result_tx.send(StretchBlockResult {
                                     task_id: request.task_id,
                                     key: request.key,
+                                    source_start_sample,
+                                    source_end_sample,
                                     samples,
                                 });
                             }
@@ -368,8 +447,38 @@ impl PlaybackStretchWorker {
             .send(WorkerCommand::Process(StretchRequest {
                 task_id,
                 key,
-                input_with_context,
-                trim,
+                input: StretchInput::Prepared {
+                    samples: input_with_context,
+                    trim,
+                },
+                priority,
+            }))
+            .is_ok()
+    }
+
+    pub fn submit_source_block(
+        &self,
+        task_id: u64,
+        key: StretchBlockKey,
+        source: PlaybackAudioSource,
+        block_samples: usize,
+        context_samples: usize,
+        priority: StretchPriority,
+    ) -> bool {
+        if task_id != self.latest_task_id.load(Ordering::Acquire)
+            || source.revision() != key.audio_revision
+        {
+            return false;
+        }
+        self.command_tx
+            .send(WorkerCommand::Process(StretchRequest {
+                task_id,
+                key,
+                input: StretchInput::SourceBlock {
+                    source,
+                    block_samples,
+                    context_samples,
+                },
                 priority,
             }))
             .is_ok()
@@ -552,6 +661,73 @@ mod tests {
     }
 
     #[test]
+    fn supported_rates_produce_the_expected_block_duration() {
+        let input = sine(24_000, 1.0, 220.0);
+        let trim = BlockTrim {
+            leading_source_samples: 0,
+            output_source_samples: input.len(),
+        };
+
+        for rate in [0.75, 1.25, 1.5, 2.0] {
+            let output = stretch_block_preserve_pitch(&input, rate, trim, &|| false).unwrap();
+            let expected = (input.len() as f64 / rate).round() as isize;
+            assert!(
+                (output.len() as isize - expected).abs() < 4,
+                "unexpected output duration at {rate}x"
+            );
+        }
+    }
+
+    #[test]
+    fn context_keeps_adjacent_block_boundaries_energy_and_phase_coherent() {
+        fn rms(samples: &[f32]) -> f32 {
+            let energy: f32 = samples.iter().map(|sample| sample * sample).sum();
+            (energy / samples.len().max(1) as f32).sqrt()
+        }
+
+        let source = sine(24_000, 20.2, 237.0);
+        let block_samples = 10 * 24_000;
+        let context_samples = 4_800;
+        let first_input = &source[..block_samples + context_samples];
+        let second_context_start = block_samples - context_samples;
+        let second_input = &source[second_context_start..];
+        let first = stretch_block_preserve_pitch(
+            first_input,
+            1.25,
+            BlockTrim {
+                leading_source_samples: 0,
+                output_source_samples: block_samples,
+            },
+            &|| false,
+        )
+        .unwrap();
+        let second = stretch_block_preserve_pitch(
+            second_input,
+            1.25,
+            BlockTrim {
+                leading_source_samples: context_samples,
+                output_source_samples: block_samples,
+            },
+            &|| false,
+        )
+        .unwrap();
+        let mut second = second;
+        smooth_block_boundary(&mut second, first[first.len() - 1], 480);
+
+        let boundary_window = 480;
+        let tail = &first[first.len() - boundary_window..];
+        let head = &second[..boundary_window];
+        let boundary_jump = (first[first.len() - 1] - second[0]).abs();
+        let energy_ratio = rms(tail) / rms(head).max(0.000_001);
+
+        assert!(boundary_jump < 0.25, "boundary jump was {boundary_jump}");
+        assert!(
+            (0.8..=1.25).contains(&energy_ratio),
+            "boundary RMS ratio was {energy_ratio}"
+        );
+    }
+
+    #[test]
     fn context_is_removed_from_block_output() {
         let input = sine(24_000, 1.4, 220.0);
         let trim = BlockTrim {
@@ -618,8 +794,45 @@ mod tests {
 
         assert_eq!(result.task_id, latest_task);
         assert_eq!(result.key, latest_key);
+        assert_eq!(result.source_start_sample, 0);
+        assert_eq!(result.source_end_sample, 1);
         assert_eq!(result.samples, vec![2.0]);
         assert!(worker.try_recv().is_none());
+    }
+
+    #[test]
+    fn worker_reads_only_the_requested_source_block_and_context() {
+        let source = PlaybackAudioSource::from_contiguous(
+            Arc::new(sine(24_000, 2.5, 220.0)),
+            24_000,
+            24_000,
+        );
+        let mut worker = PlaybackStretchWorker::new();
+        let task_id = worker.begin_task();
+        let key = StretchBlockKey::new(source.revision(), 1.25, 1);
+        assert!(worker.submit_source_block(
+            task_id,
+            key,
+            source,
+            24_000,
+            4_800,
+            StretchPriority::Current,
+        ));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let result = loop {
+            if let Some(result) = worker.try_recv() {
+                break result;
+            }
+            assert!(Instant::now() < deadline, "source block stretch timed out");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+
+        assert_eq!(result.task_id, task_id);
+        assert_eq!(result.key, key);
+        assert_eq!(result.source_start_sample, 24_000);
+        assert_eq!(result.source_end_sample, 48_000);
+        assert!((result.samples.len() as isize - 19_200).abs() < 4);
     }
 
     #[test]

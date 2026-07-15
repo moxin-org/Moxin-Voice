@@ -12,8 +12,8 @@ const PLAYER_BUFFER_SECONDS: f32 = 30.0;
 
 /// Commands sent to the audio thread
 enum AudioCommand {
-    Write(Vec<f32>), // Append samples
-    Reset,           // Clear playing buffer
+    Write(Arc<Vec<f32>>), // Append samples
+    Reset,                // Clear playing buffer
     Pause,
     Resume,
     SetVolume(f32),
@@ -234,6 +234,11 @@ impl TTSPlayer {
 
     /// Transfer one bounded block to the audio thread without cloning it.
     pub fn write_audio_owned(&self, samples: Vec<f32>) {
+        self.write_audio_shared(Arc::new(samples));
+    }
+
+    /// Share a cached bounded block with the audio thread without cloning it.
+    pub fn write_audio_shared(&self, samples: Arc<Vec<f32>>) {
         if samples.is_empty() {
             return;
         }
@@ -536,7 +541,7 @@ fn run_audio_thread(
             Ok(AudioCommand::Write(samples)) => {
                 let mut buf = buffer.lock();
                 if !samples.is_empty() {
-                    buf.write(&samples);
+                    buf.write(samples.as_slice());
                     playback_finished.store(false, Ordering::Release);
                 }
                 // Auto-start immediately whenever new samples arrive.

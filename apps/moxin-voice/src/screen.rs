@@ -11,6 +11,10 @@ use crate::dora_integration::DoraIntegration;
 use crate::i18n;
 use crate::log_bridge;
 use crate::playback_audio_source::PlaybackAudioSource;
+use crate::playback_time_stretch::{
+    smooth_block_boundary, PlaybackStretchWorker, StretchBlockCache, StretchBlockKey,
+    StretchPriority,
+};
 use crate::task_persistence;
 use crate::training_executor::TrainingExecutor;
 use crate::tts_emotion::{self, TtsInstructSelection, TtsInstructState, NEUTRAL_EMOTION_ID};
@@ -24,6 +28,7 @@ use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use hound::WavReader;
 use makepad_widgets::makepad_draw::text::selection::Cursor;
 use makepad_widgets::*;
+use std::collections::HashSet;
 use std::fs;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
@@ -38,6 +43,9 @@ const BOOTSTRAP_LOCK_FILE: &str = "bootstrap.lock";
 const PLAYBACK_BLOCK_SECONDS: usize = 10;
 const PLAYBACK_LOW_WATER_SECONDS: f64 = 5.0;
 const PLAYBACK_HIGH_WATER_SECONDS: f64 = 20.0;
+const PLAYBACK_STRETCH_CONTEXT_MILLIS: usize = 200;
+const PLAYBACK_STRETCH_BOUNDARY_FADE_MILLIS: usize = 20;
+const PLAYBACK_STRETCH_PREFETCH_BLOCKS: u64 = 3;
 
 /// Current page in the application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -9678,6 +9686,18 @@ pub struct TTSScreen {
     playback_feed_cursor: usize,
     #[rust]
     playback_feed_finished: bool,
+    #[rust]
+    playback_stretch_worker: Option<PlaybackStretchWorker>,
+    #[rust]
+    playback_stretch_cache: StretchBlockCache,
+    #[rust]
+    playback_stretch_task_id: u64,
+    #[rust]
+    playback_stretch_pending: HashSet<StretchBlockKey>,
+    #[rust]
+    player_active_rate: f64,
+    #[rust]
+    playback_last_queued_sample: Option<f32>,
 
     // Current voice name for display
     #[rust]
@@ -10057,6 +10077,12 @@ impl Widget for TTSScreen {
             self.playback_audio_source = None;
             self.playback_feed_cursor = 0;
             self.playback_feed_finished = true;
+            self.playback_stretch_worker = Some(PlaybackStretchWorker::new());
+            self.playback_stretch_cache = StretchBlockCache::default();
+            self.playback_stretch_task_id = 0;
+            self.playback_stretch_pending.clear();
+            self.player_active_rate = 1.0;
+            self.playback_last_queued_sample = None;
             // Initialize voice name
             self.current_voice_name = "Doubao".to_string();
             self.selected_voice_id = Some("Doubao".to_string());
@@ -10514,6 +10540,8 @@ impl Widget for TTSScreen {
                 }
             }
 
+            self.poll_playback_stretch_results();
+
             // Update playback progress and check if finished
             if self.tts_status == TTSStatus::Playing {
                 self.refill_playback_queue();
@@ -10535,7 +10563,7 @@ impl Widget for TTSScreen {
                                 self.audio_playing_time,
                                 total_duration,
                                 0.1,
-                                self.player_playback_rate,
+                                self.player_active_rate,
                             );
                         }
                         self.update_playback_progress(cx);
@@ -19989,6 +20017,7 @@ impl TTSScreen {
         if self.tts_status == TTSStatus::Playing {
             let _ = self.start_playback_from_time(cx, self.audio_playing_time);
         } else {
+            self.begin_playback_stretch_task();
             self.apply_player_audio_settings();
         }
         self.update_player_bar(cx);
@@ -20482,6 +20511,7 @@ impl TTSScreen {
     }
 
     fn stop_main_playback_for_preview(&mut self, cx: &mut Cx) {
+        self.begin_playback_stretch_task();
         if let Some(player) = &self.audio_player {
             player.stop();
         }
@@ -20590,14 +20620,18 @@ impl TTSScreen {
             player.stop();
             self.apply_player_audio_settings();
         }
+        self.begin_playback_stretch_task();
         self.playback_feed_cursor = start_sample;
         self.playback_feed_finished = false;
+        self.player_active_rate = self.player_playback_rate;
+        self.playback_last_queued_sample = None;
+        self.tts_status = TTSStatus::Playing;
         self.fill_playback_queue(0);
-        if self.playback_feed_cursor == start_sample {
+        if self.playback_feed_cursor == start_sample && self.playback_stretch_pending.is_empty() {
+            self.tts_status = TTSStatus::Ready;
             return false;
         }
         self.audio_playing_time = start_time;
-        self.tts_status = TTSStatus::Playing;
         self.update_playback_progress(cx);
         true
     }
@@ -26091,6 +26125,103 @@ impl TTSScreen {
             .unwrap_or_default()
     }
 
+    fn begin_playback_stretch_task(&mut self) {
+        let worker = self
+            .playback_stretch_worker
+            .get_or_insert_with(PlaybackStretchWorker::new);
+        self.playback_stretch_task_id = worker.begin_task();
+        self.playback_stretch_pending.clear();
+    }
+
+    fn poll_playback_stretch_results(&mut self) {
+        let mut results = Vec::new();
+        if let Some(worker) = &self.playback_stretch_worker {
+            while let Some(result) = worker.try_recv() {
+                results.push(result);
+            }
+        }
+
+        for result in results {
+            if result.task_id != self.playback_stretch_task_id {
+                continue;
+            }
+            self.playback_stretch_pending.remove(&result.key);
+            self.playback_stretch_cache
+                .insert(result.key, Arc::new(result.samples));
+        }
+    }
+
+    fn request_playback_stretch_block(
+        &mut self,
+        key: StretchBlockKey,
+        priority: StretchPriority,
+    ) -> bool {
+        if self.playback_stretch_cache.contains(&key)
+            || self.playback_stretch_pending.contains(&key)
+        {
+            return false;
+        }
+        let Some(source) = self.playback_audio_source.clone() else {
+            return false;
+        };
+        if source.revision() != key.audio_revision || self.playback_stretch_task_id == 0 {
+            return false;
+        }
+
+        let sample_rate = source.sample_rate() as usize;
+        let block_samples = sample_rate.saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        if block_samples == 0 {
+            return false;
+        }
+        let block_start = (key.block_index as usize).saturating_mul(block_samples);
+        if block_start >= source.total_samples() {
+            return false;
+        }
+        let context_samples = sample_rate
+            .saturating_mul(PLAYBACK_STRETCH_CONTEXT_MILLIS)
+            / 1_000;
+        let submitted = self
+            .playback_stretch_worker
+            .as_ref()
+            .is_some_and(|worker| {
+                worker.submit_source_block(
+                    self.playback_stretch_task_id,
+                    key,
+                    source,
+                    block_samples,
+                    context_samples,
+                    priority,
+                )
+            });
+        if submitted {
+            self.playback_stretch_pending.insert(key);
+        }
+        submitted
+    }
+
+    fn prefetch_playback_stretch_blocks(&mut self, after_block_index: u64) {
+        let Some(source) = self.playback_audio_source.clone() else {
+            return;
+        };
+        let block_samples = (source.sample_rate() as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        if block_samples == 0 {
+            return;
+        }
+        let block_count = source.total_samples().div_ceil(block_samples) as u64;
+        for offset in 1..=PLAYBACK_STRETCH_PREFETCH_BLOCKS {
+            let block_index = after_block_index.saturating_add(offset);
+            if block_index >= block_count {
+                break;
+            }
+            let key = StretchBlockKey::new(
+                source.revision(),
+                self.player_playback_rate,
+                block_index,
+            );
+            self.request_playback_stretch_block(key, StretchPriority::Prefetch);
+        }
+    }
+
     fn queue_next_playback_block(&mut self) -> Option<usize> {
         let Some(source) = self.playback_audio_source.clone() else {
             self.playback_feed_finished = true;
@@ -26098,26 +26229,79 @@ impl TTSScreen {
         };
         let sample_rate = source.sample_rate();
         let block_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
-        let source_block = source.read_block(self.playback_feed_cursor, block_samples);
-        if source_block.is_empty() {
+        if block_samples == 0 || self.playback_feed_cursor >= source.total_samples() {
             self.playback_feed_finished = true;
             return None;
         }
 
-        let source_samples = source_block.len();
-        let prepared = Self::time_stretch_preserve_pitch(&source_block, self.player_playback_rate);
-        let Some(player) = &self.audio_player else {
+        if (self.player_playback_rate - 1.0).abs() < 0.01 {
+            let source_block = source.read_block(self.playback_feed_cursor, block_samples);
+            if source_block.is_empty() {
+                self.playback_feed_finished = true;
+                return None;
+            }
+            let source_samples = source_block.len();
+            let player = self.audio_player.as_ref()?;
+            if source_samples > player.queue_capacity_samples() {
+                self.playback_feed_finished = true;
+                return None;
+            }
+            player.write_audio_owned(source_block);
+            self.player_active_rate = 1.0;
+            self.playback_last_queued_sample = None;
+            self.playback_feed_cursor = self.playback_feed_cursor.saturating_add(source_samples);
+            self.playback_feed_finished = self.playback_feed_cursor >= source.total_samples();
+            return Some(source_samples);
+        }
+
+        let block_index = (self.playback_feed_cursor / block_samples) as u64;
+        let block_start = (block_index as usize).saturating_mul(block_samples);
+        let block_end = block_start
+            .saturating_add(block_samples)
+            .min(source.total_samples());
+        let key = StretchBlockKey::new(
+            source.revision(),
+            self.player_playback_rate,
+            block_index,
+        );
+        let Some(cached) = self.playback_stretch_cache.get(&key) else {
+            self.request_playback_stretch_block(key, StretchPriority::Current);
+            self.prefetch_playback_stretch_blocks(block_index);
             return None;
         };
+
+        let source_offset = self.playback_feed_cursor.saturating_sub(block_start);
+        let output_offset = (source_offset as f64 / key.playback_rate()).round() as usize;
+        let mut prepared = if output_offset == 0 {
+            cached
+        } else {
+            Arc::new(cached.get(output_offset..).unwrap_or_default().to_vec())
+        };
+        if let Some(previous_sample) = self.playback_last_queued_sample {
+            let mut smoothed = prepared.as_ref().clone();
+            let fade_samples = (sample_rate as usize)
+                .saturating_mul(PLAYBACK_STRETCH_BOUNDARY_FADE_MILLIS)
+                / 1_000;
+            smooth_block_boundary(&mut smoothed, previous_sample, fade_samples);
+            prepared = Arc::new(smoothed);
+        }
+        if prepared.is_empty() {
+            self.playback_feed_cursor = block_end;
+            self.playback_feed_finished = self.playback_feed_cursor >= source.total_samples();
+            return Some(0);
+        }
+        let player = self.audio_player.as_ref()?;
         if prepared.len() > player.queue_capacity_samples() {
             self.playback_feed_finished = true;
             return None;
         }
-
         let queued_samples = prepared.len();
-        player.write_audio_owned(prepared);
-        self.playback_feed_cursor = self.playback_feed_cursor.saturating_add(source_samples);
+        self.playback_last_queued_sample = prepared.last().copied();
+        player.write_audio_shared(prepared);
+        self.player_active_rate = key.playback_rate();
+        self.playback_feed_cursor = block_end;
         self.playback_feed_finished = self.playback_feed_cursor >= source.total_samples();
+        self.prefetch_playback_stretch_blocks(block_index);
         Some(queued_samples)
     }
 
@@ -26149,133 +26333,6 @@ impl TTSScreen {
                 .unwrap_or_default();
             self.fill_playback_queue(queued_samples);
         }
-    }
-
-    fn hann_window_sample(index: usize, len: usize) -> f32 {
-        if len <= 1 {
-            return 1.0;
-        }
-        let phase = std::f32::consts::TAU * index as f32 / (len - 1) as f32;
-        0.5 - 0.5 * phase.cos()
-    }
-
-    fn best_time_stretch_source_index(
-        samples: &[f32],
-        output: &[f32],
-        weights: &[f32],
-        output_pos: usize,
-        desired_source_idx: usize,
-        frame_len: usize,
-        synthesis_hop: usize,
-    ) -> usize {
-        if output_pos == 0 || frame_len == 0 || samples.len() <= frame_len {
-            return desired_source_idx.min(samples.len().saturating_sub(frame_len));
-        }
-
-        let max_candidate = samples.len().saturating_sub(frame_len);
-        let search_radius = (frame_len / 3).clamp(64, 320);
-        let start = desired_source_idx.saturating_sub(search_radius).min(max_candidate);
-        let end = desired_source_idx
-            .saturating_add(search_radius)
-            .min(max_candidate);
-        let compare_len = (frame_len.saturating_sub(synthesis_hop))
-            .min(512)
-            .min(output.len().saturating_sub(output_pos));
-        if compare_len < 32 || start >= end {
-            return desired_source_idx.min(max_candidate);
-        }
-
-        let mut best_idx = desired_source_idx.min(max_candidate);
-        let mut best_score = f32::NEG_INFINITY;
-        for candidate in start..=end {
-            let mut dot = 0.0f32;
-            let mut out_energy = 0.0f32;
-            let mut src_energy = 0.0f32;
-
-            for offset in (0..compare_len).step_by(4) {
-                if weights[output_pos + offset] <= 0.000_001 {
-                    continue;
-                }
-                let out_sample = output[output_pos + offset] / weights[output_pos + offset];
-                let src_sample = samples[candidate + offset];
-                dot += out_sample * src_sample;
-                out_energy += out_sample * out_sample;
-                src_energy += src_sample * src_sample;
-            }
-
-            if out_energy <= 0.000_001 || src_energy <= 0.000_001 {
-                continue;
-            }
-
-            let score = dot / (out_energy.sqrt() * src_energy.sqrt());
-            if score > best_score {
-                best_score = score;
-                best_idx = candidate;
-            }
-        }
-
-        best_idx
-    }
-
-    fn time_stretch_preserve_pitch(samples: &[f32], playback_rate: f64) -> Vec<f32> {
-        if samples.is_empty() {
-            return Vec::new();
-        }
-
-        let rate = playback_rate.clamp(0.5, 2.0);
-        if (rate - 1.0).abs() < 0.01 {
-            return samples.to_vec();
-        }
-
-        let target_len = (samples.len() as f64 / rate).round().max(1.0) as usize;
-        let window_len = samples.len().min(1024);
-        if window_len < 32 {
-            return samples.to_vec();
-        }
-
-        let synthesis_hop = (window_len / 4).max(8);
-        let analysis_hop = (synthesis_hop as f64 * rate).round().max(1.0);
-        let mut output = vec![0.0f32; target_len + window_len];
-        let mut weights = vec![0.0f32; target_len + window_len];
-        let mut source_pos = 0.0f64;
-        let mut output_pos = 0usize;
-
-        while output_pos < target_len {
-            let desired_source_idx = source_pos.round().max(0.0) as usize;
-            let source_idx = Self::best_time_stretch_source_index(
-                samples,
-                &output,
-                &weights,
-                output_pos,
-                desired_source_idx,
-                window_len,
-                synthesis_hop,
-            );
-            if source_idx >= samples.len() {
-                break;
-            }
-
-            let frame_len = window_len
-                .min(samples.len() - source_idx)
-                .min(output.len() - output_pos);
-            for i in 0..frame_len {
-                let window = Self::hann_window_sample(i, window_len).max(0.000_001);
-                output[output_pos + i] += samples[source_idx + i] * window;
-                weights[output_pos + i] += window;
-            }
-
-            source_pos += analysis_hop;
-            output_pos = output_pos.saturating_add(synthesis_hop);
-        }
-
-        for i in 0..target_len {
-            if weights[i] > 0.000_001 {
-                output[i] /= weights[i];
-            }
-        }
-
-        output.truncate(target_len);
-        output
     }
 
     /// Apply dark mode to the entire UI
@@ -30094,7 +30151,16 @@ mod tests {
             .map(|n| ((n % period) as f32 / period as f32 * std::f32::consts::TAU).sin())
             .collect();
 
-        let stretched = TTSScreen::time_stretch_preserve_pitch(&samples, 2.0);
+        let stretched = crate::playback_time_stretch::stretch_block_preserve_pitch(
+            &samples,
+            2.0,
+            crate::playback_time_stretch::BlockTrim {
+                leading_source_samples: 0,
+                output_source_samples: samples.len(),
+            },
+            &|| false,
+        )
+        .unwrap();
 
         assert!(stretched.len() > samples.len() / 2 - period);
         assert!(stretched.len() < samples.len() / 2 + period);
@@ -30130,7 +30196,16 @@ mod tests {
             .map(|n| ((n % period) as f32 / period as f32 * std::f32::consts::TAU).sin())
             .collect();
 
-        let stretched = TTSScreen::time_stretch_preserve_pitch(&samples, 1.5);
+        let stretched = crate::playback_time_stretch::stretch_block_preserve_pitch(
+            &samples,
+            1.5,
+            crate::playback_time_stretch::BlockTrim {
+                leading_source_samples: 0,
+                output_source_samples: samples.len(),
+            },
+            &|| false,
+        )
+        .unwrap();
         let input_rms = rms(&samples);
         let output_rms = rms(&stretched);
 
