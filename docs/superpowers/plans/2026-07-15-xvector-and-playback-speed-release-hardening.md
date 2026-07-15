@@ -29,7 +29,7 @@
 - 验证：`node-hub/dora-qwen3-tts-mlx/patches/qwen3-tts-mlx/src/generate.rs`
 - 验证：`node-hub/dora-qwen3-tts-mlx/patches/qwen3-tts-mlx/src/lib.rs`
 
-- [ ] **Step 1：记录变更前基线**
+- [x] **Step 1：记录变更前基线**
 
 运行：
 
@@ -40,7 +40,7 @@ cargo test -p qwen3-tts-mlx clone_result_is_incomplete_when_eos_precedes_remaini
 
 预期：现有测试通过；若失败，先记录为基线问题，不把无关修复混入本计划。
 
-- [ ] **Step 2：简化 `TtsRequest::Custom` 分支**
+- [x] **Step 2：简化 `TtsRequest::Custom` 分支**
 
 在 `synthesize_qwen` 中：
 
@@ -75,11 +75,11 @@ let mut synthesize_once = |seed| -> Result<_> {
 };
 ```
 
-- [ ] **Step 3：更新日志语义**
+- [x] **Step 3：更新日志语义**
 
 将 clone 配置日志明确标记为 `mode=x-vector`。删除任何可能让运维人员误以为运行时还会尝试 ICL 的日志。
 
-- [ ] **Step 4：验证产品节点已没有 ICL 调用**
+- [x] **Step 4：验证产品节点已没有 ICL 调用**
 
 运行：
 
@@ -91,7 +91,7 @@ cargo check -p dora-qwen3-tts-mlx
 
 预期：`rg` 无匹配；测试和检查通过。底层 patch crate 中仍可保留 ICL 符号。
 
-- [ ] **Step 5：确认 x-vector 不完整重试仍然有效**
+- [x] **Step 5：确认 x-vector 不完整重试仍然有效**
 
 保留并运行以下已有测试：
 
