@@ -9697,6 +9697,8 @@ pub struct TTSScreen {
     player_action_menu_open: bool,
     #[rust]
     player_segment_menu_open: bool,
+    #[rust]
+    player_segment_scroll_lock_active: bool,
 
     // Canonical audio and bounded player feeder state.
     #[rust]
@@ -10097,6 +10099,7 @@ impl Widget for TTSScreen {
             self.player_speed_menu_open = false;
             self.player_action_menu_open = false;
             self.player_segment_menu_open = false;
+            self.player_segment_scroll_lock_active = false;
             self.playback_audio_source = None;
             self.playback_feed_cursor = 0;
             self.playback_feed_finished = true;
@@ -14797,6 +14800,19 @@ impl Widget for TTSScreen {
                     }
                 }
             }
+        }
+
+        // Root-level floating views do not automatically stop wheel events from
+        // reaching overlapping PortalLists underneath them. While the segment
+        // menu is open, confine scrolling to its list and refresh the allowed
+        // area after every draw because the list's area may have moved/resized.
+        if self.player_segment_menu_open {
+            cx.block_scrolling_except_within(
+                self.view
+                    .portal_list(ids!(player_segment_menu.segment_portal_list))
+                    .area(),
+            );
+            self.player_segment_scroll_lock_active = true;
         }
 
         DrawStep::done()
@@ -19993,6 +20009,17 @@ impl TTSScreen {
         self.view
             .view(ids!(player_segment_menu))
             .set_visible(cx, self.player_segment_menu_open);
+        if self.player_segment_menu_open {
+            cx.block_scrolling_except_within(
+                self.view
+                    .portal_list(ids!(player_segment_menu.segment_portal_list))
+                    .area(),
+            );
+            self.player_segment_scroll_lock_active = true;
+        } else if self.player_segment_scroll_lock_active {
+            cx.unblock_scrolling();
+            self.player_segment_scroll_lock_active = false;
+        }
         self.view
             .button(ids!(
                 content_wrapper
