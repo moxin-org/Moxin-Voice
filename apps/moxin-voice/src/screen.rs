@@ -10,6 +10,7 @@ use crate::audio_player::{
 use crate::dora_integration::DoraIntegration;
 use crate::i18n;
 use crate::log_bridge;
+use crate::playback_audio_source::PlaybackAudioSource;
 use crate::task_persistence;
 use crate::training_executor::TrainingExecutor;
 use crate::tts_emotion::{self, TtsInstructSelection, TtsInstructState, NEUTRAL_EMOTION_ID};
@@ -34,6 +35,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MOXIN_VOICE_BUNDLE_ID: &str = "com.moxin.voice";
 const BOOTSTRAP_LOCK_FILE: &str = "bootstrap.lock";
+const PLAYBACK_BLOCK_SECONDS: usize = 10;
+const PLAYBACK_LOW_WATER_SECONDS: f64 = 5.0;
+const PLAYBACK_HIGH_WATER_SECONDS: f64 = 20.0;
 
 /// Current page in the application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -9667,13 +9671,13 @@ pub struct TTSScreen {
     #[rust]
     player_segment_menu_open: bool,
 
-    // Stored audio for playback/download (not auto-play)
+    // Canonical audio and bounded player feeder state.
     #[rust]
-    stored_audio_samples: Vec<f32>,
+    playback_audio_source: Option<PlaybackAudioSource>,
     #[rust]
-    stored_audio_sample_rate: u32,
+    playback_feed_cursor: usize,
     #[rust]
-    processed_audio_samples: Vec<f32>,
+    playback_feed_finished: bool,
 
     // Current voice name for display
     #[rust]
@@ -9726,6 +9730,12 @@ pub struct TTSScreen {
     preview_playing_voice_id: Option<String>,
     #[rust]
     segment_preview_playing: bool,
+    #[rust]
+    preview_audio_source: Option<PlaybackAudioSource>,
+    #[rust]
+    preview_feed_cursor: usize,
+    #[rust]
+    preview_feed_finished: bool,
 
     // Toast notification state
     #[rust]
@@ -10044,9 +10054,9 @@ impl Widget for TTSScreen {
             self.player_speed_menu_open = false;
             self.player_action_menu_open = false;
             self.player_segment_menu_open = false;
-            // Initialize stored audio sample rate (PrimeSpeech uses 32000)
-            self.stored_audio_sample_rate = 32000;
-            self.processed_audio_samples = Vec::new();
+            self.playback_audio_source = None;
+            self.playback_feed_cursor = 0;
+            self.playback_feed_finished = true;
             // Initialize voice name
             self.current_voice_name = "Doubao".to_string();
             self.selected_voice_id = Some("Doubao".to_string());
@@ -10069,6 +10079,9 @@ impl Widget for TTSScreen {
             self.active_tts_operation = None;
             self.tts_audio_segments = None;
             self.has_generated_audio = false;
+            self.preview_audio_source = None;
+            self.preview_feed_cursor = 0;
+            self.preview_feed_finished = true;
             // Initialize current page — Live Translation is the primary feature
             self.current_page = AppPage::Translation;
 
@@ -10503,15 +10516,18 @@ impl Widget for TTSScreen {
 
             // Update playback progress and check if finished
             if self.tts_status == TTSStatus::Playing {
+                self.refill_playback_queue();
                 if let Some(player) = &self.audio_player {
                     // Check if playback has actually finished (buffer empty)
                     if player.check_playback_finished() {
-                        // Audio finished - reset to Ready state
-                        self.tts_status = TTSStatus::Ready;
-                        self.audio_playing_time = 0.0;
-                        self.update_playback_progress(cx);
-                        self.update_player_bar(cx);
-                        self.add_log(cx, "[INFO] [tts] Playback completed");
+                        if self.playback_feed_finished {
+                            // Audio finished - reset to Ready state
+                            self.tts_status = TTSStatus::Ready;
+                            self.audio_playing_time = 0.0;
+                            self.update_playback_progress(cx);
+                            self.update_player_bar(cx);
+                            self.add_log(cx, "[INFO] [tts] Playback completed");
+                        }
                     } else if player.is_playing() {
                         // Still playing - update playback time and progress bar
                         if let Some(total_duration) = self.playback_duration_secs() {
@@ -10530,28 +10546,32 @@ impl Widget for TTSScreen {
 
             // Check if preview playback has finished
             if self.preview_playing_voice_id.is_some() {
+                self.refill_preview_queue();
                 if let Some(player) = &self.preview_player {
                     if player.check_playback_finished() {
-                        // Preview finished - reset preview state
-                        self.segment_preview_playing = false;
-                        self.preview_playing_voice_id = None;
-                        let voice_selector = self.view.voice_selector(ids!(
-                            content_wrapper
-                                .main_content
-                                .left_column
-                                .content_area
-                                .tts_page
-                                .cards_container
-                                .controls_panel
-                                .settings_panel
-                                .voice_section
-                                .voice_selector
-                        ));
-                        voice_selector.set_preview_playing(cx, None);
-                        self.update_voice_picker_controls(cx);
-                        self.update_player_bar(cx);
-                        self.view.redraw(cx);
-                        self.add_log(cx, "[INFO] [tts] Preview playback finished");
+                        if self.preview_audio_source.is_none() || self.preview_feed_finished {
+                            // Preview finished - reset preview state
+                            self.segment_preview_playing = false;
+                            self.preview_playing_voice_id = None;
+                            self.preview_audio_source = None;
+                            let voice_selector = self.view.voice_selector(ids!(
+                                content_wrapper
+                                    .main_content
+                                    .left_column
+                                    .content_area
+                                    .tts_page
+                                    .cards_container
+                                    .controls_panel
+                                    .settings_panel
+                                    .voice_section
+                                    .voice_selector
+                            ));
+                            voice_selector.set_preview_playing(cx, None);
+                            self.update_voice_picker_controls(cx);
+                            self.update_player_bar(cx);
+                            self.view.redraw(cx);
+                            self.add_log(cx, "[INFO] [tts] Preview playback finished");
+                        }
                     }
                 }
             }
@@ -19062,9 +19082,9 @@ impl TTSScreen {
         let Some(segments) = self.tts_audio_segments.as_ref() else {
             return;
         };
-        self.stored_audio_samples = segments.merged_samples();
-        self.stored_audio_sample_rate = segments.sample_rate();
-        self.rebuild_processed_audio_samples();
+        self.playback_audio_source = Some(PlaybackAudioSource::from_segments(segments.clone()));
+        self.playback_feed_cursor = 0;
+        self.playback_feed_finished = false;
     }
 
     fn finalize_active_initial_tts_segment(&mut self, cx: &mut Cx) {
@@ -19133,8 +19153,8 @@ impl TTSScreen {
         };
         self.tts_audio_segments = Some(segments);
         self.rebuild_audio_from_tts_segments();
-        let sample_count = self.effective_audio_samples().len();
-        let effective_rate = self.effective_audio_sample_rate();
+        let sample_count = self.playback_audio_total_samples();
+        let effective_rate = self.playback_audio_sample_rate();
         let duration_secs = if effective_rate > 0 {
             sample_count as f32 / effective_rate as f32
         } else {
@@ -19320,9 +19340,20 @@ impl TTSScreen {
             sample_rate,
             self.app_preferences.preferred_output_device.as_deref(),
         );
-        player.write_audio(&samples);
-        player.resume();
         self.preview_player = Some(player);
+        self.preview_audio_source = Some(PlaybackAudioSource::from_contiguous(
+            samples,
+            sample_rate,
+            sample_rate,
+        ));
+        self.preview_feed_cursor = 0;
+        self.preview_feed_finished = false;
+        self.fill_preview_queue(0);
+        if self.preview_feed_cursor == 0 {
+            self.preview_audio_source = None;
+            self.preview_feed_finished = true;
+            return;
+        }
         self.preview_playing_voice_id = Some(preview_id);
         self.segment_preview_playing = true;
         self.add_log(
@@ -19557,8 +19588,8 @@ impl TTSScreen {
             ))
             .set_text(cx, status_text);
 
-        let audio_len = self.effective_audio_samples().len();
-        let effective_rate = self.effective_audio_sample_rate();
+        let audio_len = self.playback_audio_total_samples();
+        let effective_rate = self.playback_audio_sample_rate();
         let has_playable_audio = self.has_generated_audio && audio_len > 0 && effective_rate > 0;
         let is_english = self.is_english();
         let segment_summary = self
@@ -20026,9 +20057,12 @@ impl TTSScreen {
     }
 
     fn append_current_generation_to_history(&mut self, cx: &mut Cx) {
-        let samples = self.effective_audio_samples().to_vec();
-        let effective_rate = self.effective_audio_sample_rate();
-        if samples.is_empty() || effective_rate == 0 {
+        let Some(source) = self.playback_audio_source.clone() else {
+            return;
+        };
+        let sample_count = source.total_samples();
+        let effective_rate = source.sample_rate();
+        if sample_count == 0 || effective_rate == 0 {
             return;
         }
 
@@ -20047,8 +20081,7 @@ impl TTSScreen {
             );
             return;
         }
-        if let Err(e) = Self::write_wav_file_with_sample_rate(&audio_path, &samples, effective_rate)
-        {
+        if let Err(e) = Self::write_wav_file_from_source(&audio_path, &source) {
             self.add_log(
                 cx,
                 &format!("[WARN] [history] Failed to save audio snapshot: {}", e),
@@ -20085,7 +20118,7 @@ impl TTSScreen {
                 .text()
         });
 
-        let duration_secs = samples.len() as f32 / effective_rate as f32;
+        let duration_secs = sample_count as f32 / effective_rate as f32;
         let entry = TtsHistoryEntry {
             id: entry_id,
             created_at,
@@ -20097,7 +20130,7 @@ impl TTSScreen {
             model_name: self.pending_generation_model_name.clone(),
             duration_secs,
             sample_rate: effective_rate,
-            sample_count: samples.len(),
+            sample_count,
             speed: self.pending_generation_speed,
             pitch: self.pending_generation_pitch,
             volume: self.pending_generation_volume,
@@ -20261,11 +20294,15 @@ impl TTSScreen {
             player.stop();
         }
 
-        match self.load_wav_file(&audio_path) {
-            Ok(samples) => {
-                self.stored_audio_samples = samples;
-                self.processed_audio_samples.clear();
-                self.stored_audio_sample_rate = entry.sample_rate.max(1);
+        match self.load_wav_mono_file(&audio_path) {
+            Ok((samples, sample_rate)) => {
+                self.playback_audio_source = Some(PlaybackAudioSource::from_contiguous(
+                    Arc::new(samples),
+                    sample_rate,
+                    24_000,
+                ));
+                self.playback_feed_cursor = 0;
+                self.playback_feed_finished = false;
                 self.tts_audio_segments = None;
                 self.player_segment_menu_open = false;
                 self.audio_playing_time = 0.0;
@@ -20382,8 +20419,8 @@ impl TTSScreen {
 
     fn update_playback_progress(&mut self, cx: &mut Cx) {
         // Calculate total duration and current position
-        let audio_len = self.effective_audio_samples().len();
-        let effective_rate = self.effective_audio_sample_rate();
+        let audio_len = self.playback_audio_total_samples();
+        let effective_rate = self.playback_audio_sample_rate();
         if audio_len == 0 || effective_rate == 0 {
             return;
         }
@@ -20427,8 +20464,8 @@ impl TTSScreen {
     }
 
     fn playback_duration_secs(&self) -> Option<f64> {
-        let audio_len = self.effective_audio_samples().len();
-        let effective_rate = self.effective_audio_sample_rate();
+        let audio_len = self.playback_audio_total_samples();
+        let effective_rate = self.playback_audio_sample_rate();
         if audio_len == 0 || effective_rate == 0 {
             return None;
         }
@@ -20458,6 +20495,9 @@ impl TTSScreen {
         if let Some(player) = &self.preview_player {
             player.stop();
         }
+        self.preview_audio_source = None;
+        self.preview_feed_cursor = 0;
+        self.preview_feed_finished = true;
         self.segment_preview_playing = false;
         if self.preview_playing_voice_id.take().is_some() {
             let voice_selector = self.view.voice_selector(ids!(
@@ -20477,34 +20517,89 @@ impl TTSScreen {
         }
     }
 
+    fn queue_next_preview_block(&mut self) -> Option<usize> {
+        let Some(source) = self.preview_audio_source.clone() else {
+            self.preview_feed_finished = true;
+            return None;
+        };
+        let block_samples = (source.sample_rate() as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        let block = source.read_block(self.preview_feed_cursor, block_samples);
+        if block.is_empty() {
+            self.preview_feed_finished = true;
+            return None;
+        }
+        let block_len = block.len();
+        let Some(player) = &self.preview_player else {
+            return None;
+        };
+        player.write_audio_owned(block);
+        self.preview_feed_cursor = self.preview_feed_cursor.saturating_add(block_len);
+        self.preview_feed_finished = self.preview_feed_cursor >= source.total_samples();
+        Some(block_len)
+    }
+
+    fn fill_preview_queue(&mut self, mut queued_samples: usize) {
+        let sample_rate = self
+            .preview_audio_source
+            .as_ref()
+            .map(PlaybackAudioSource::sample_rate)
+            .unwrap_or_default();
+        let high_water = (PLAYBACK_HIGH_WATER_SECONDS * sample_rate as f64) as usize;
+        while queued_samples < high_water && !self.preview_feed_finished {
+            let Some(written) = self.queue_next_preview_block() else {
+                break;
+            };
+            queued_samples = queued_samples.saturating_add(written);
+        }
+    }
+
+    fn refill_preview_queue(&mut self) {
+        if self.preview_audio_source.is_none() || self.preview_feed_finished {
+            return;
+        }
+        let should_refill = self
+            .preview_player
+            .as_ref()
+            .map(|player| player.queued_secs() <= PLAYBACK_LOW_WATER_SECONDS)
+            .unwrap_or(false);
+        if should_refill {
+            let queued_samples = self
+                .preview_player
+                .as_ref()
+                .map(TTSPlayer::queued_samples)
+                .unwrap_or_default();
+            self.fill_preview_queue(queued_samples);
+        }
+    }
+
     fn start_playback_from_time(&mut self, cx: &mut Cx, start_time_secs: f64) -> bool {
-        let playback_samples = self.effective_audio_samples().to_vec();
-        let effective_rate = self.effective_audio_sample_rate();
-        if playback_samples.is_empty() || effective_rate == 0 {
+        let Some(source) = self.playback_audio_source.clone() else {
+            return false;
+        };
+        let effective_rate = source.sample_rate();
+        if source.is_empty() || effective_rate == 0 {
             return false;
         }
 
         let start_time = self.clamped_seek_time(start_time_secs).unwrap_or(0.0);
         let start_sample = ((start_time * effective_rate as f64).round() as usize)
-            .min(playback_samples.len().saturating_sub(1));
-        let remaining_samples = &playback_samples[start_sample..];
-        if remaining_samples.is_empty() {
-            return false;
-        }
-        let prepared_samples =
-            Self::time_stretch_preserve_pitch(remaining_samples, self.player_playback_rate);
+            .min(source.total_samples().saturating_sub(1));
 
         self.stop_preview_playback(cx);
         if let Some(player) = &self.audio_player {
             player.stop();
             self.apply_player_audio_settings();
-            player.write_audio(&prepared_samples);
-            self.audio_playing_time = start_time;
-            self.tts_status = TTSStatus::Playing;
-            self.update_playback_progress(cx);
-            return true;
         }
-        false
+        self.playback_feed_cursor = start_sample;
+        self.playback_feed_finished = false;
+        self.fill_playback_queue(0);
+        if self.playback_feed_cursor == start_sample {
+            return false;
+        }
+        self.audio_playing_time = start_time;
+        self.tts_status = TTSStatus::Playing;
+        self.update_playback_progress(cx);
+        true
     }
 
     fn seek_playback_to_ratio(&mut self, cx: &mut Cx, ratio: f64) {
@@ -20706,6 +20801,8 @@ impl TTSScreen {
         // Load WAV file
         match self.load_wav_file(&audio_path) {
             Ok(samples) => {
+                self.preview_audio_source = None;
+                self.preview_feed_finished = true;
                 // Initialize preview player if needed
                 if self.preview_player.is_none() {
                     self.preview_player = Some(TTSPlayer::new_with_output_device(
@@ -20819,7 +20916,7 @@ impl TTSScreen {
         None
     }
 
-    fn load_wav_file(&self, path: &PathBuf) -> Result<Vec<f32>, String> {
+    fn load_wav_mono_file(&self, path: &PathBuf) -> Result<(Vec<f32>, u32), String> {
         let reader = WavReader::open(path).map_err(|e| format!("Failed to open WAV: {}", e))?;
         let spec = reader.spec();
         let sample_rate = spec.sample_rate;
@@ -20852,26 +20949,13 @@ impl TTSScreen {
             samples
         };
 
-        // Resample to 24000 Hz if needed (TTSPlayer source rate = Qwen3-TTS native 24kHz)
-        let target_rate = 24000;
-        let resampled = if sample_rate != target_rate {
-            let ratio = target_rate as f32 / sample_rate as f32;
-            let new_len = (mono_samples.len() as f32 * ratio) as usize;
-            let mut result = Vec::with_capacity(new_len);
-            for i in 0..new_len {
-                let src_idx = i as f32 / ratio;
-                let idx = src_idx as usize;
-                let frac = src_idx - idx as f32;
-                let s1 = mono_samples.get(idx).copied().unwrap_or(0.0);
-                let s2 = mono_samples.get(idx + 1).copied().unwrap_or(s1);
-                result.push(s1 + (s2 - s1) * frac);
-            }
-            result
-        } else {
-            mono_samples
-        };
+        Ok((mono_samples, sample_rate))
+    }
 
-        Ok(resampled)
+    fn load_wav_file(&self, path: &PathBuf) -> Result<Vec<f32>, String> {
+        let (samples, sample_rate) = self.load_wav_mono_file(path)?;
+        let source = PlaybackAudioSource::from_contiguous(Arc::new(samples), sample_rate, 24_000);
+        Ok(source.read_block(0, source.total_samples()))
     }
 
     fn show_toast(&mut self, cx: &mut Cx, message: &str) {
@@ -23849,21 +23933,20 @@ impl TTSScreen {
                 ),
             );
         } else {
-            if self.effective_audio_samples().is_empty() {
+            if self.playback_audio_total_samples() == 0 {
                 self.add_log(cx, "[WARN] [tts] No audio to play");
                 self.update_player_bar(cx);
                 return;
             }
 
-            let effective_rate = self.effective_audio_sample_rate();
+            let effective_rate = self.playback_audio_sample_rate();
             if effective_rate == 0 {
                 self.add_log(cx, "[WARN] [tts] Invalid audio sample rate");
                 self.update_player_bar(cx);
                 return;
             }
 
-            let total_duration =
-                self.effective_audio_samples().len() as f64 / effective_rate as f64;
+            let total_duration = self.playback_audio_total_samples() as f64 / effective_rate as f64;
             let is_resuming =
                 self.audio_playing_time > 0.1 && self.audio_playing_time < (total_duration - 0.1);
             let start_time = if is_resuming {
@@ -23898,7 +23981,7 @@ impl TTSScreen {
                 );
                 return;
             }
-            if self.effective_audio_samples().is_empty() {
+            if self.playback_audio_total_samples() == 0 {
                 self.add_log(cx, "[WARN] [share] No audio available to share");
                 self.show_toast(cx, self.tr("暂无可分享音频", "No audio available to share"));
                 return;
@@ -23928,7 +24011,7 @@ impl TTSScreen {
                     );
                     return;
                 }
-                if self.effective_audio_samples().is_empty() {
+                if self.playback_audio_total_samples() == 0 {
                     self.add_log(cx, "[WARN] [download] No audio available to download");
                     self.show_toast(
                         cx,
@@ -24079,8 +24162,12 @@ impl TTSScreen {
     }
 
     fn prepare_current_audio_share_file(&mut self, cx: &mut Cx) -> Option<PathBuf> {
-        let samples = self.effective_audio_samples().to_vec();
-        if samples.is_empty() || self.stored_audio_sample_rate == 0 {
+        let Some(source) = self.playback_audio_source.clone() else {
+            self.add_log(cx, "[WARN] [share] Current audio is empty");
+            self.show_toast(cx, self.tr("暂无可分享音频", "No audio available to share"));
+            return None;
+        };
+        if source.is_empty() || source.sample_rate() == 0 {
             self.add_log(cx, "[WARN] [share] Current audio is empty");
             self.show_toast(cx, self.tr("暂无可分享音频", "No audio available to share"));
             return None;
@@ -24094,7 +24181,7 @@ impl TTSScreen {
         let filename = format!("tts_share_{}_{}.wav", safe_voice, timestamp);
         let share_path = Self::export_path_for_filename(&filename);
 
-        match self.write_wav_file(&share_path, &samples) {
+        match Self::write_wav_file_from_source(&share_path, &source) {
             Ok(_) => Some(share_path),
             Err(e) => {
                 self.add_log(
@@ -24258,9 +24345,16 @@ impl TTSScreen {
     }
 
     fn export_current_audio(&mut self, cx: &mut Cx, format: DownloadFormat) -> Option<PathBuf> {
-        let samples = self.effective_audio_samples().to_vec();
-        let effective_rate = self.effective_audio_sample_rate();
-        if samples.is_empty() {
+        let Some(source) = self.playback_audio_source.clone() else {
+            self.add_log(cx, "[WARN] [download] No current audio available");
+            self.show_toast(
+                cx,
+                self.tr("暂无可下载音频", "No audio available to download"),
+            );
+            return None;
+        };
+        let effective_rate = source.sample_rate();
+        if source.is_empty() {
             self.add_log(cx, "[WARN] [download] No current audio available");
             self.show_toast(
                 cx,
@@ -24297,12 +24391,10 @@ impl TTSScreen {
         let target = Self::export_path_for_filename(&filename);
 
         let export_result = match format {
-            DownloadFormat::Wav => self
-                .write_wav_file(&target, &samples)
-                .map_err(|e| e.to_string()),
-            DownloadFormat::Mp3 => {
-                Self::write_mp3_file_from_samples(&target, &samples, effective_rate)
+            DownloadFormat::Wav => {
+                Self::write_wav_file_from_source(&target, &source).map_err(|e| e.to_string())
             }
+            DownloadFormat::Mp3 => Self::write_mp3_file_from_source(&target, &source),
         };
 
         match export_result {
@@ -24593,10 +24685,6 @@ impl TTSScreen {
         }
     }
 
-    fn write_wav_file(&self, path: &PathBuf, samples: &[f32]) -> std::io::Result<()> {
-        Self::write_wav_file_with_sample_rate(path, samples, self.effective_audio_sample_rate())
-    }
-
     fn write_wav_file_with_sample_rate(
         path: &PathBuf,
         samples: &[f32],
@@ -24642,6 +24730,67 @@ impl TTSScreen {
         Ok(())
     }
 
+    fn write_wav_file_from_source(
+        path: &PathBuf,
+        source: &PlaybackAudioSource,
+    ) -> std::io::Result<()> {
+        use std::io::{Error, ErrorKind, Write};
+
+        let sample_rate = source.sample_rate();
+        if sample_rate == 0 {
+            return Err(Error::new(ErrorKind::InvalidInput, "invalid sample rate"));
+        }
+        let data_size = source
+            .total_samples()
+            .checked_mul(2)
+            .and_then(|size| u32::try_from(size).ok())
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "WAV data exceeds 4 GiB"))?;
+        let file_size = 36u32
+            .checked_add(data_size)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "WAV file is too large"))?;
+        let num_channels = 1u16;
+        let bits_per_sample = 16u16;
+        let byte_rate = sample_rate * u32::from(num_channels) * u32::from(bits_per_sample) / 8;
+        let block_align = num_channels * bits_per_sample / 8;
+        let mut file = std::fs::File::create(path)?;
+
+        file.write_all(b"RIFF")?;
+        file.write_all(&file_size.to_le_bytes())?;
+        file.write_all(b"WAVE")?;
+        file.write_all(b"fmt ")?;
+        file.write_all(&16u32.to_le_bytes())?;
+        file.write_all(&1u16.to_le_bytes())?;
+        file.write_all(&num_channels.to_le_bytes())?;
+        file.write_all(&sample_rate.to_le_bytes())?;
+        file.write_all(&byte_rate.to_le_bytes())?;
+        file.write_all(&block_align.to_le_bytes())?;
+        file.write_all(&bits_per_sample.to_le_bytes())?;
+        file.write_all(b"data")?;
+        file.write_all(&data_size.to_le_bytes())?;
+
+        let block_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        let mut cursor = 0usize;
+        while cursor < source.total_samples() {
+            let block = source.read_block(cursor, block_samples);
+            if block.is_empty() {
+                break;
+            }
+            for sample in &block {
+                let i16_sample = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+                file.write_all(&i16_sample.to_le_bytes())?;
+            }
+            cursor = cursor.saturating_add(block.len());
+        }
+
+        if cursor != source.total_samples() {
+            return Err(Error::new(
+                ErrorKind::UnexpectedEof,
+                "audio source ended before its declared sample count",
+            ));
+        }
+        Ok(())
+    }
+
     fn write_mp3_file_from_samples(
         target: &PathBuf,
         samples: &[f32],
@@ -24663,6 +24812,26 @@ impl TTSScreen {
         Self::write_wav_file_with_sample_rate(&temp_wav, samples, sample_rate)
             .map_err(|e| format!("failed to create temp wav: {}", e))?;
 
+        let conversion = Self::convert_wav_file_to_mp3(&temp_wav, target);
+        let _ = std::fs::remove_file(&temp_wav);
+        conversion
+    }
+
+    fn write_mp3_file_from_source(
+        target: &PathBuf,
+        source: &PlaybackAudioSource,
+    ) -> Result<(), String> {
+        let temp_wav = std::env::temp_dir().join(format!(
+            "moxin_tts_export_{}_{}.wav",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+
+        Self::write_wav_file_from_source(&temp_wav, source)
+            .map_err(|e| format!("failed to create temp wav: {}", e))?;
         let conversion = Self::convert_wav_file_to_mp3(&temp_wav, target);
         let _ = std::fs::remove_file(&temp_wav);
         conversion
@@ -25908,45 +26077,78 @@ impl TTSScreen {
         }
     }
 
-    fn effective_audio_samples(&self) -> &[f32] {
-        if self.stored_audio_samples.is_empty() {
-            &self.stored_audio_samples
-        } else if self.processed_audio_samples.is_empty() {
-            &self.stored_audio_samples
-        } else {
-            &self.processed_audio_samples
+    fn playback_audio_total_samples(&self) -> usize {
+        self.playback_audio_source
+            .as_ref()
+            .map(PlaybackAudioSource::total_samples)
+            .unwrap_or_default()
+    }
+
+    fn playback_audio_sample_rate(&self) -> u32 {
+        self.playback_audio_source
+            .as_ref()
+            .map(PlaybackAudioSource::sample_rate)
+            .unwrap_or_default()
+    }
+
+    fn queue_next_playback_block(&mut self) -> Option<usize> {
+        let Some(source) = self.playback_audio_source.clone() else {
+            self.playback_feed_finished = true;
+            return None;
+        };
+        let sample_rate = source.sample_rate();
+        let block_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        let source_block = source.read_block(self.playback_feed_cursor, block_samples);
+        if source_block.is_empty() {
+            self.playback_feed_finished = true;
+            return None;
+        }
+
+        let source_samples = source_block.len();
+        let prepared = Self::time_stretch_preserve_pitch(&source_block, self.player_playback_rate);
+        let Some(player) = &self.audio_player else {
+            return None;
+        };
+        if prepared.len() > player.queue_capacity_samples() {
+            self.playback_feed_finished = true;
+            return None;
+        }
+
+        let queued_samples = prepared.len();
+        player.write_audio_owned(prepared);
+        self.playback_feed_cursor = self.playback_feed_cursor.saturating_add(source_samples);
+        self.playback_feed_finished = self.playback_feed_cursor >= source.total_samples();
+        Some(queued_samples)
+    }
+
+    fn fill_playback_queue(&mut self, mut queued_samples: usize) {
+        let sample_rate = self.playback_audio_sample_rate();
+        let high_water = (PLAYBACK_HIGH_WATER_SECONDS * sample_rate as f64) as usize;
+        while queued_samples < high_water && !self.playback_feed_finished {
+            let Some(written) = self.queue_next_playback_block() else {
+                break;
+            };
+            queued_samples = queued_samples.saturating_add(written);
         }
     }
 
-    fn effective_audio_sample_rate(&self) -> u32 {
-        if self.stored_audio_samples.is_empty() {
-            self.stored_audio_sample_rate
-        } else if self.processed_audio_samples.is_empty() {
-            self.stored_audio_sample_rate
-        } else {
-            24000
+    fn refill_playback_queue(&mut self) {
+        if self.tts_status != TTSStatus::Playing || self.playback_feed_finished {
+            return;
         }
-    }
-
-    fn resample_linear(samples: &[f32], in_rate: u32, out_rate: u32) -> Vec<f32> {
-        if samples.is_empty() || in_rate == 0 || out_rate == 0 || in_rate == out_rate {
-            return samples.to_vec();
+        let should_refill = self
+            .audio_player
+            .as_ref()
+            .map(|player| player.queued_secs() <= PLAYBACK_LOW_WATER_SECONDS)
+            .unwrap_or(false);
+        if should_refill {
+            let queued_samples = self
+                .audio_player
+                .as_ref()
+                .map(TTSPlayer::queued_samples)
+                .unwrap_or_default();
+            self.fill_playback_queue(queued_samples);
         }
-
-        let ratio = out_rate as f32 / in_rate as f32;
-        let new_len = (samples.len() as f32 * ratio).round().max(1.0) as usize;
-        let mut result = Vec::with_capacity(new_len);
-
-        for i in 0..new_len {
-            let src_idx = i as f32 / ratio;
-            let idx = src_idx as usize;
-            let frac = src_idx - idx as f32;
-            let s1 = samples.get(idx).copied().unwrap_or(0.0);
-            let s2 = samples.get(idx + 1).copied().unwrap_or(s1);
-            result.push(s1 + (s2 - s1) * frac);
-        }
-
-        result
     }
 
     fn hann_window_sample(index: usize, len: usize) -> f32 {
@@ -26074,24 +26276,6 @@ impl TTSScreen {
 
         output.truncate(target_len);
         output
-    }
-
-    fn rebuild_processed_audio_samples(&mut self) {
-        if self.stored_audio_samples.is_empty() {
-            self.processed_audio_samples.clear();
-            return;
-        }
-
-        // Resample to 24kHz if needed (player source rate matches Qwen3-TTS native rate).
-        if self.stored_audio_sample_rate > 0 && self.stored_audio_sample_rate != 24000 {
-            self.processed_audio_samples = Self::resample_linear(
-                &self.stored_audio_samples,
-                self.stored_audio_sample_rate,
-                24000,
-            );
-        } else {
-            self.processed_audio_samples = self.stored_audio_samples.clone();
-        }
     }
 
     /// Apply dark mode to the entire UI
@@ -28922,6 +29106,8 @@ impl TTSScreen {
             if let Some(player) = &self.preview_player {
                 player.stop();
             }
+            self.preview_audio_source = None;
+            self.preview_feed_finished = true;
             self.preview_playing_voice_id = None;
             self.update_voice_picker_controls(cx);
             self.view.redraw(cx);
@@ -29018,6 +29204,8 @@ impl TTSScreen {
         // Load and play WAV file
         match self.load_wav_file(&audio_path) {
             Ok(samples) => {
+                self.preview_audio_source = None;
+                self.preview_feed_finished = true;
                 if self.preview_player.is_none() {
                     self.preview_player = Some(TTSPlayer::new_with_output_device(
                         24000,
@@ -29825,6 +30013,31 @@ mod tests {
             TTSScreen::download_format_for_availability("wav", false),
             DownloadFormat::Wav
         );
+    }
+
+    #[test]
+    fn current_audio_wav_export_streams_from_playback_source() {
+        let target = std::env::temp_dir().join(format!(
+            "moxin-streamed-export-{}-{}.wav",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let source = crate::playback_audio_source::PlaybackAudioSource::from_contiguous(
+            std::sync::Arc::new(vec![0.25; 48_000]),
+            24_000,
+            24_000,
+        );
+
+        TTSScreen::write_wav_file_from_source(&target, &source).unwrap();
+
+        let reader = hound::WavReader::open(&target).unwrap();
+        assert_eq!(reader.spec().sample_rate, 24_000);
+        assert_eq!(reader.duration(), 48_000);
+        drop(reader);
+        let _ = std::fs::remove_file(target);
     }
 
     #[test]

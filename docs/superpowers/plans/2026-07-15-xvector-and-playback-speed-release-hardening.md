@@ -215,7 +215,7 @@ cargo check -p moxin-voice
 - 修改：`apps/moxin-voice/src/screen.rs`
 - 按需修改：`apps/moxin-voice/src/tts_history.rs`、下载/分享音频写出路径
 
-- [ ] **Step 1：先固定长音频容量合同**
+- [x] **Step 1：先固定长音频容量合同**
 
 增加不依赖真实模型的 30/60 分钟测试 fixture，约束：
 
@@ -228,7 +228,7 @@ cargo check -p moxin-voice
 
 这些测试先暴露当前 `segments.merged_samples()`、`processed_audio_samples` 和 `write_audio(samples.to_vec())` 的放大行为。
 
-- [ ] **Step 2：让 segment audio 成为 canonical source**
+- [x] **Step 2：让 segment audio 成为 canonical source**
 
 将 `TtsAudioSegment.samples` 改为可共享、不可变的所有权形式（例如 `Arc<Vec<f32>>`），并为 `TtsAudioSegments` 增加：
 
@@ -240,7 +240,7 @@ cargo check -p moxin-voice
 
 播放热路径不得再调用 `merged_samples()`。如测试仍需该 helper，将其限制为测试/小数据用途；生产调用必须清零。
 
-- [ ] **Step 3：引入统一的 `PlaybackAudioSource`**
+- [x] **Step 3：引入统一的 `PlaybackAudioSource`**
 
 `PlaybackAudioSource` 统一封装：
 
@@ -260,7 +260,7 @@ cargo check -p moxin-voice
 
 若遇到非 24 kHz 历史音频，只对当前读取 block 做有状态 resample，不能先重采样整条 60 分钟音频。
 
-- [ ] **Step 4：播放器改为有界 block queue**
+- [x] **Step 4：播放器改为有界 block queue**
 
 扩展 `TTSPlayer`：
 
@@ -274,7 +274,7 @@ cargo check -p moxin-voice
 
 底层 CPAL callback 保持无锁或短锁、无大块分配；UI timer 只驱动轻量 refill，不复制完整音频。
 
-- [ ] **Step 5：下载、分享和历史保存改为流式读取**
+- [x] **Step 5：下载、分享和历史保存改为流式读取**
 
 所有需要完整音频的消费者通过 `PlaybackAudioSource` 顺序读取 block：
 
@@ -283,13 +283,13 @@ cargo check -p moxin-voice
 - 历史元数据使用 `total_samples`/duration，不通过完整 buffer 推导；
 - share 如必须创建临时文件，也应流式生成该文件。
 
-- [ ] **Step 6：验证 source revision 和 retry**
+- [x] **Step 6：验证 source revision 和 retry**
 
 任何 segment retry、历史加载、新生成或 clear 都创建新的 `audio_revision`。旧 source block、player queue 和后续 stretch cache 都不能跨 revision 复用。
 
 增加竞态测试：旧 source 的 block 在 retry 后晚到，必须因 revision 不匹配被丢弃。
 
-- [ ] **Step 7：运行分块 source/player 测试**
+- [x] **Step 7：运行分块 source/player 测试**
 
 ```bash
 cargo test -p moxin-voice playback_audio_source -- --nocapture
@@ -299,6 +299,8 @@ cargo check -p moxin-voice
 ```
 
 预期：60 分钟 fixture 不产生完整 merged/processed/player-command 副本，seek 只读取目标 block 附近数据。
+
+验证记录：60 分钟虚拟 source、跨 segment block、全局坐标重采样、revision 隔离、固定播放器容量和流式 WAV 导出测试通过，`cargo check -p moxin-voice` 通过。主界面已没有 `merged_samples()`、`stored_audio_samples` 或 `processed_audio_samples` 生产调用。非 1x block 的同步 DSP 是 Task 3 到 Task 4 之间的临时状态，Task 4 必须在 release 前将其移到可取消 worker。
 
 ---
 

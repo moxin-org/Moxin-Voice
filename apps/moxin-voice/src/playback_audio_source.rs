@@ -36,12 +36,11 @@ impl PlaybackAudioSource {
     pub fn from_segments(segments: TtsAudioSegments) -> Self {
         let output_sample_rate = segments.sample_rate();
         let total_output_samples = segments.total_samples();
-        let revision = segments.revision();
         Self {
             storage: PlaybackAudioStorage::Segments(segments),
             output_sample_rate,
             total_output_samples,
-            revision,
+            revision: next_source_revision(),
         }
     }
 
@@ -248,12 +247,12 @@ mod tests {
             TtsAudioSegment::completed("two", "p2", vec![3.0], 24_000),
         ])
         .unwrap();
-        let old_revision = segments.revision();
+        let old_source = PlaybackAudioSource::from_segments(segments.clone());
 
         segments.replace_samples(1, vec![9.0, 8.0], 24_000).unwrap();
         let source = PlaybackAudioSource::from_segments(segments);
 
-        assert_ne!(source.revision(), old_revision);
+        assert_ne!(source.revision(), old_source.revision());
         assert_eq!(source.read_block(0, 4), vec![1.0, 2.0, 9.0, 8.0]);
     }
 }

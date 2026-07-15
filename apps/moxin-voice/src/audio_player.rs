@@ -243,6 +243,12 @@ impl TTSPlayer {
 
     /// Reset playback (clear buffer)
     pub fn stop(&self) {
+        {
+            let mut state = self.state.lock();
+            state.queued_samples = 0;
+            state.buffer_fill = 0.0;
+            state.is_playing = false;
+        }
         let _ = self.command_tx.send(AudioCommand::Reset);
     }
 
