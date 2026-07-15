@@ -228,7 +228,7 @@ if [[ -d "$QWEN_PREVIEWS_SRC" ]]; then
   cp "$QWEN_PREVIEWS_SRC"/*.wav "$RES_DIR/qwen3-previews/"
 fi
 
-# Bundle Qwen3-TTS bundled ICL voice reference audio and transcripts
+# Bundle Qwen3-TTS clone reference audio and compatibility metadata.
 QWEN_VOICES_SRC="$ROOT_DIR/node-hub/dora-qwen3-tts-mlx/voices"
 if [[ -d "$QWEN_VOICES_SRC" ]]; then
   mkdir -p "$RES_DIR/qwen3-voices"
@@ -425,7 +425,7 @@ cat > "$PLIST_PATH" <<EOF
   <key>CFBundleShortVersionString</key>
   <string>${VERSION}</string>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>14.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSMicrophoneUsageDescription</key>
