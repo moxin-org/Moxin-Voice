@@ -651,6 +651,38 @@ mod tests {
     use super::App;
     use makepad_widgets::WindowId;
 
+    fn assert_segment_completion_route(source_name: &str, source: &str) {
+        let player = source
+            .split("- id: moxin-audio-player")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{source_name} must define moxin-audio-player"));
+
+        assert!(
+            player.contains("audio: primespeech-tts/audio"),
+            "{source_name} must route TTS audio to moxin-audio-player"
+        );
+        assert!(
+            player.contains("segment_complete: primespeech-tts/segment_complete"),
+            "{source_name} must route segment completion to moxin-audio-player"
+        );
+    }
+
+    #[test]
+    fn packaged_dataflows_route_tts_segment_completion_to_the_ui_bridge() {
+        assert_segment_completion_route(
+            "development dataflow",
+            include_str!("../../apps/moxin-voice/dataflow/tts.yml"),
+        );
+        assert_segment_completion_route(
+            "bundled dataflow",
+            include_str!("../../scripts/dataflow/tts.bundle.yml"),
+        );
+        assert_segment_completion_route(
+            "generated release dataflow",
+            include_str!("../../scripts/build_macos_app.sh"),
+        );
+    }
+
     #[test]
     fn main_window_close_is_intercepted_when_main_window_is_known() {
         let window_id = WindowId(1, 1);
