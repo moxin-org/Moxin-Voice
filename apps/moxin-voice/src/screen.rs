@@ -33,7 +33,7 @@ use std::fs;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -10047,6 +10047,10 @@ pub struct TTSScreen {
     #[rust]
     tts_history: Vec<TtsHistoryEntry>,
     #[rust]
+    history_save_tx: Option<Sender<Result<TtsHistoryEntry, String>>>,
+    #[rust]
+    history_save_rx: Option<Receiver<Result<TtsHistoryEntry, String>>>,
+    #[rust]
     history_item_areas: Vec<(usize, Area, Area, Area, Area, Area, Area)>, // (idx, card, play, use, download, share, delete)
     #[rust]
     currently_playing_history_id: Option<String>,
@@ -10159,6 +10163,9 @@ impl Widget for TTSScreen {
             self.voice_picker_active_voice_id = self.selected_voice_id.clone();
 
             self.tts_history = tts_history::load_history();
+            let (history_save_tx, history_save_rx) = mpsc::channel();
+            self.history_save_tx = Some(history_save_tx);
+            self.history_save_rx = Some(history_save_rx);
             self.history_item_areas = Vec::new();
             self.share_modal_visible = false;
             self.pending_share_source = None;
@@ -10560,6 +10567,7 @@ impl Widget for TTSScreen {
             }
 
             self.poll_playback_stretch_results();
+            self.poll_history_save_results(cx);
 
             // Update playback progress and check if finished
             if self.tts_status == TTSStatus::Playing {
@@ -20125,21 +20133,6 @@ impl TTSScreen {
         let audio_file = format!("{}.wav", entry_id);
         let audio_path = tts_history::history_audio_path(&audio_file);
 
-        if let Err(e) = tts_history::ensure_history_storage() {
-            self.add_log(
-                cx,
-                &format!("[WARN] [history] Failed to prepare storage: {}", e),
-            );
-            return;
-        }
-        if let Err(e) = Self::write_wav_file_from_source(&audio_path, &source) {
-            self.add_log(
-                cx,
-                &format!("[WARN] [history] Failed to save audio snapshot: {}", e),
-            );
-            return;
-        }
-
         let voice_id = self
             .pending_generation_voice_id
             .clone()
@@ -20191,19 +20184,62 @@ impl TTSScreen {
             audio_file,
         };
 
-        self.tts_history.insert(0, entry);
-
-        if self.tts_history.len() > tts_history::DEFAULT_MAX_HISTORY_ITEMS {
-            let removed = self
-                .tts_history
-                .split_off(tts_history::DEFAULT_MAX_HISTORY_ITEMS);
-            for old in removed {
-                let _ = tts_history::delete_audio_file(&old.audio_file);
-            }
+        let Some(result_tx) = self.history_save_tx.clone() else {
+            self.add_log(cx, "[WARN] [history] Background save worker is unavailable");
+            return;
+        };
+        let spawn_result = thread::Builder::new()
+            .name("moxin-history-save".to_string())
+            .spawn(move || {
+                let result = tts_history::ensure_history_storage()
+                    .and_then(|_| {
+                        Self::write_wav_file_from_source(&audio_path, &source)
+                            .map_err(|error| error.to_string())
+                    })
+                    .map(|_| entry);
+                let _ = result_tx.send(result);
+            });
+        if let Err(error) = spawn_result {
+            self.add_log(
+                cx,
+                &format!("[WARN] [history] Failed to start background save: {error}"),
+            );
         }
+    }
 
-        self.persist_tts_history(cx);
-        self.update_history_display(cx);
+    fn poll_history_save_results(&mut self, cx: &mut Cx) {
+        let results = self
+            .history_save_rx
+            .as_ref()
+            .map(|receiver| receiver.try_iter().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        for result in results {
+            let entry = match result {
+                Ok(entry) => entry,
+                Err(error) => {
+                    self.add_log(
+                        cx,
+                        &format!("[WARN] [history] Failed to save audio snapshot: {error}"),
+                    );
+                    continue;
+                }
+            };
+
+            self.tts_history.insert(0, entry);
+
+            if self.tts_history.len() > tts_history::DEFAULT_MAX_HISTORY_ITEMS {
+                let removed = self
+                    .tts_history
+                    .split_off(tts_history::DEFAULT_MAX_HISTORY_ITEMS);
+                for old in removed {
+                    let _ = tts_history::delete_audio_file(&old.audio_file);
+                }
+            }
+
+            self.persist_tts_history(cx);
+            self.update_history_display(cx);
+        }
     }
 
     fn update_history_display(&mut self, cx: &mut Cx) {
@@ -24746,16 +24782,22 @@ impl TTSScreen {
         samples: &[f32],
         sample_rate: u32,
     ) -> std::io::Result<()> {
-        use std::io::Write;
+        use std::io::{BufWriter, Error, ErrorKind, Write};
 
         let num_channels: u16 = 1;
         let bits_per_sample: u16 = 16;
         let byte_rate = sample_rate * (num_channels as u32) * (bits_per_sample as u32) / 8;
         let block_align: u16 = num_channels * bits_per_sample / 8;
-        let data_size = (samples.len() * 2) as u32;
-        let file_size = 36 + data_size;
+        let data_size = samples
+            .len()
+            .checked_mul(2)
+            .and_then(|size| u32::try_from(size).ok())
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "WAV data exceeds 4 GiB"))?;
+        let file_size = 36u32
+            .checked_add(data_size)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "WAV file is too large"))?;
 
-        let mut file = std::fs::File::create(path)?;
+        let mut file = BufWriter::with_capacity(256 * 1024, std::fs::File::create(path)?);
 
         // RIFF header
         file.write_all(b"RIFF")?;
@@ -24776,21 +24818,31 @@ impl TTSScreen {
         file.write_all(b"data")?;
         file.write_all(&data_size.to_le_bytes())?;
 
-        // Convert f32 samples to i16 and write
-        for &sample in samples {
-            let clamped = sample.max(-1.0).min(1.0);
-            let i16_sample = (clamped * 32767.0) as i16;
-            file.write_all(&i16_sample.to_le_bytes())?;
+        let block_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        for block in samples.chunks(block_samples.max(1)) {
+            Self::write_pcm16_block(&mut file, block)?;
         }
 
-        Ok(())
+        file.flush()
+    }
+
+    fn write_pcm16_block(
+        writer: &mut impl std::io::Write,
+        samples: &[f32],
+    ) -> std::io::Result<()> {
+        let mut bytes = Vec::with_capacity(samples.len().saturating_mul(2));
+        for sample in samples {
+            let pcm = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+            bytes.extend_from_slice(&pcm.to_le_bytes());
+        }
+        writer.write_all(&bytes)
     }
 
     fn write_wav_file_from_source(
         path: &PathBuf,
         source: &PlaybackAudioSource,
     ) -> std::io::Result<()> {
-        use std::io::{Error, ErrorKind, Write};
+        use std::io::{BufWriter, Error, ErrorKind, Write};
 
         let sample_rate = source.sample_rate();
         if sample_rate == 0 {
@@ -24808,7 +24860,7 @@ impl TTSScreen {
         let bits_per_sample = 16u16;
         let byte_rate = sample_rate * u32::from(num_channels) * u32::from(bits_per_sample) / 8;
         let block_align = num_channels * bits_per_sample / 8;
-        let mut file = std::fs::File::create(path)?;
+        let mut file = BufWriter::with_capacity(256 * 1024, std::fs::File::create(path)?);
 
         file.write_all(b"RIFF")?;
         file.write_all(&file_size.to_le_bytes())?;
@@ -24831,10 +24883,7 @@ impl TTSScreen {
             if block.is_empty() {
                 break;
             }
-            for sample in &block {
-                let i16_sample = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
-                file.write_all(&i16_sample.to_le_bytes())?;
-            }
+            Self::write_pcm16_block(&mut file, &block)?;
             cursor = cursor.saturating_add(block.len());
         }
 
@@ -24844,7 +24893,7 @@ impl TTSScreen {
                 "audio source ended before its declared sample count",
             ));
         }
-        Ok(())
+        file.flush()
     }
 
     fn write_mp3_file_from_samples(
