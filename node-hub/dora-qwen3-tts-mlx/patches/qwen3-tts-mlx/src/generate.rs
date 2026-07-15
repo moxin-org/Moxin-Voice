@@ -232,6 +232,15 @@ pub fn assistant_target_ids_with_eos(
     target
 }
 
+/// Build the complete target text block used by x-vector voice cloning in
+/// official non-streaming mode. Callers have already tokenized only the text
+/// to synthesize, so no ChatML wrapper tokens need to be removed.
+pub fn voice_clone_target_ids_with_eos(text_token_ids: &[u32], tts_eos_token_id: u32) -> Vec<u32> {
+    let mut target = text_token_ids.to_vec();
+    target.push(tts_eos_token_id);
+    target
+}
+
 fn sampling_temperature(gen_config: &GenerationConfig) -> f32 {
     if gen_config.do_sample {
         gen_config.temperature
@@ -760,9 +769,9 @@ pub fn generate_voice_design(
 
 /// Generate speech using voice cloning (x_vector_only mode).
 ///
-/// Uses a continuous speaker embedding from ECAPA-TDNN instead of discrete speaker token.
-/// Prefill layout is same as CustomVoice but position 7 has continuous embedding.
-/// Generation loop is identical.
+/// Uses a continuous speaker embedding from ECAPA-TDNN instead of a discrete
+/// speaker token. The complete target text (including text EOS) is placed in
+/// prefill before codec generation begins, matching official non-streaming mode.
 pub fn generate_voice_clone(
     talker: &mut Talker,
     text_token_ids: &[u32],
@@ -777,28 +786,21 @@ pub fn generate_voice_clone(
 
     let mut rng_key = seed.map(|s| SamplingKey::new(s)).transpose()?;
 
-    // Build trailing text (same as other modes)
-    let mut trailing_text_ids: Vec<u32> = Vec::new();
-    if text_token_ids.len() > 1 {
-        trailing_text_ids.extend_from_slice(&text_token_ids[1..]);
-    }
-    trailing_text_ids.push(tts_config.tts_eos_token_id);
-    let trailing_len = trailing_text_ids.len();
-
-    let trailing_text_embeds = talker.build_projected_text_embeddings(&trailing_text_ids)?;
+    let target_text_ids =
+        voice_clone_target_ids_with_eos(text_token_ids, tts_config.tts_eos_token_id);
     let tts_pad_embed = talker.build_text_only_embedding(tts_config.tts_pad_token_id)?;
 
     info!(
-        "VoiceClone prefill: {} text tokens, 10 prefill positions, {} trailing",
+        "VoiceClone non-streaming prefill: {} text tokens, {} target tokens incl eos",
         text_token_ids.len(),
-        trailing_len,
+        target_text_ids.len(),
     );
 
     talker.reset_caches();
 
     let prefill_start = Instant::now();
 
-    // Voice clone batched prefill (uses continuous speaker embedding at position 7)
+    // Consume the complete target text before autoregressive codec generation.
     let input_embed = talker.build_voice_clone_prefill_embedding(
         text_token_ids,
         codec_prefix,
@@ -812,7 +814,7 @@ pub fn generate_voice_clone(
     eval([&logits, &hidden])?;
     let prefill_time = prefill_start.elapsed();
 
-    // Generation loop (identical to CustomVoice)
+    // Text input remains tts_pad after the complete target was prefetched.
     let gen_start = Instant::now();
     let mut all_codes: Vec<[u32; 16]> = Vec::new();
     let mut ended_by_eos = false;
@@ -872,14 +874,7 @@ pub fn generate_voice_clone(
         }
         all_codes.push(frame);
 
-        let text_embed = if step < trailing_len {
-            let s = step as i32;
-            trailing_text_embeds.index((.., s..s + 1, ..))
-        } else {
-            tts_pad_embed.clone()
-        };
-
-        let input_embed = talker.build_generation_embedding_with_text(&frame, &text_embed)?;
+        let input_embed = talker.build_generation_embedding_with_text(&frame, &tts_pad_embed)?;
         let result = talker.forward_step(&input_embed)?;
         logits = result.0;
         hidden = result.1;
@@ -911,7 +906,7 @@ pub fn generate_voice_clone(
         generation_ms: gen_time.as_secs_f64() * 1000.0,
         generation_frames: all_codes.len(),
         ended_by_eos,
-        streamed_text_tokens: Some(trailing_len),
+        streamed_text_tokens: None,
     };
 
     Ok((all_codes, timing))
@@ -1328,6 +1323,13 @@ mod tests {
         let target = assistant_target_ids_with_eos(&[1, 2, 3], 999);
 
         assert_eq!(target, vec![999]);
+    }
+
+    #[test]
+    fn xvector_non_streaming_target_preserves_every_text_token_before_eos() {
+        let target = voice_clone_target_ids_with_eos(&[41, 42, 43, 44], 999);
+
+        assert_eq!(target, vec![41, 42, 43, 44, 999]);
     }
 
     #[test]

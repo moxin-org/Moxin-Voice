@@ -723,16 +723,17 @@ impl Talker {
         Ok(all.as_dtype(mlx_rs::Dtype::Float32)?)
     }
 
-    /// Build batched prefill embedding for voice cloning (x_vector_only mode).
-    /// Same as CustomVoice prefill but position 7 uses continuous speaker embedding
-    /// instead of a discrete speaker token.
+    /// Build the official non-streaming prefill for x-vector voice cloning.
+    /// This matches CustomVoice's full-text prefill while position 7 uses a
+    /// continuous speaker embedding instead of a discrete speaker token.
     ///
-    /// Layout (10 positions):
+    /// Layout:
     ///   Pos 0-2: role [im_start, assistant, \n] — text projection only
     ///   Pos 3-6: tts_pad + codec [think, think_bos, lang, think_eos]
     ///   Pos 7:   tts_pad + speaker_embedding (continuous, from ECAPA-TDNN)
     ///   Pos 8:   tts_bos + codec_pad
-    ///   Pos 9:   first_text + codec_bos
+    ///   Next:    complete target text + tts_eos, each with codec_pad
+    ///   Final:   tts_pad + codec_bos
     pub fn build_voice_clone_prefill_embedding(
         &mut self,
         text_tokens: &[u32],
@@ -769,22 +770,36 @@ impl Talker {
         let tts_bos_embed = self.build_projected_text_embeddings(&[tts_config.tts_bos_token_id])?;
         let pad_arr = Array::from_slice(&[pad_id as i32], &[1, 1]);
         let pad_embed = self.codec_embedding.forward(&pad_arr)?;
-        let bos_pos = tts_bos_embed.add(pad_embed)?;
+        let bos_pos = tts_bos_embed.add(&pad_embed)?;
 
-        // Pos 3+N+2: first_text + codec_bos [1, 1, hidden]
-        let first_text = if text_tokens.is_empty() {
-            tts_config.tts_pad_token_id
-        } else {
-            text_tokens[0]
-        };
-        let first_text_embed = self.build_projected_text_embeddings(&[first_text])?;
+        // Complete target text + tts_eos, each over codec_pad.
+        let target_text_ids = crate::generate::voice_clone_target_ids_with_eos(
+            text_tokens,
+            tts_config.tts_eos_token_id,
+        );
+        let target_text_embed = self.build_projected_text_embeddings(&target_text_ids)?;
+        let pad_broadcast = mlx_rs::ops::broadcast_to(
+            &pad_embed,
+            &[1, target_text_ids.len() as i32, pad_embed.dim(2) as i32],
+        )?;
+        let target_block = target_text_embed.add(&pad_broadcast)?;
+
+        // Generation begins with tts_pad + codec_bos.
+        let tts_pad_embed = self.build_projected_text_embeddings(&[tts_config.tts_pad_token_id])?;
         let bos_arr = Array::from_slice(&[bos_id as i32], &[1, 1]);
         let bos_embed = self.codec_embedding.forward(&bos_arr)?;
-        let first_pos = first_text_embed.add(bos_embed)?;
+        let final_bos = tts_pad_embed.add(&bos_embed)?;
 
-        // Concatenate: [1, 3+N+3, hidden]
+        // Concatenate: [1, 3+N+2+target_len+1, hidden]
         let all = mlx_rs::ops::concatenate_axis(
-            &[&role_embed, &codec_overlay, &spk_pos, &bos_pos, &first_pos],
+            &[
+                &role_embed,
+                &codec_overlay,
+                &spk_pos,
+                &bos_pos,
+                &target_block,
+                &final_bos,
+            ],
             1,
         )?;
         Ok(all.as_dtype(mlx_rs::Dtype::Float32)?)
