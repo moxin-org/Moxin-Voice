@@ -35,8 +35,9 @@ pub enum VoiceSource {
     Custom,
     /// Few-shot trained model (requires 3-10 min training)
     Trained,
-    /// Built-in ICL voice: reference audio bundled with the app, uses Base model ICL at inference
-    BundledIcl,
+    /// Built-in clone voice whose reference audio is bundled with the app
+    #[serde(alias = "BundledIcl")]
+    BundledClone,
 }
 
 /// Voice information
@@ -60,7 +61,7 @@ pub struct Voice {
     /// Reference audio path for custom voices (relative to custom_voices dir)
     #[serde(default)]
     pub reference_audio_path: Option<String>,
-    /// Prompt/reference text for zero-shot cloning
+    /// Legacy prompt/reference text retained only for old-config deserialization.
     #[serde(default)]
     pub prompt_text: Option<String>,
     /// GPT model weights path (optional, uses default if not set)
@@ -385,7 +386,7 @@ pub fn get_qwen_builtin_voices(locale: &str) -> Vec<Voice> {
         }
     }).collect();
 
-    // BundledIcl voices: reference audio is bundled with the app; inference uses Base model ICL.
+    // Bundled clone voices use app-provided reference audio through the x-vector path.
     let (baiyang_name, baiyang_desc) = qwen_voice_i18n("baiyang", locale);
     voices.push(Voice {
         id: "baiyang".to_string(),
@@ -394,9 +395,9 @@ pub fn get_qwen_builtin_voices(locale: &str) -> Vec<Voice> {
         category: VoiceCategory::Female,
         language: "zh".to_string(),
         preview_audio: Some("baiyang.wav".to_string()),
-        source: VoiceSource::BundledIcl,
+        source: VoiceSource::BundledClone,
         reference_audio_path: Some("ref.wav".to_string()),
-        prompt_text: Some("璀璨的星河在广袤的天际延伸，五千年文明的灿烂华章在这片热土上绽放。看，这是一个充满希望的时代，我们共同见证着中华民族伟大复兴的光辉历程。让我们携手同行，创造更加辉煌的明天。".to_string()),
+        prompt_text: None,
         gpt_weights: None,
         sovits_weights: None,
         created_at: None,
@@ -410,9 +411,9 @@ pub fn get_qwen_builtin_voices(locale: &str) -> Vec<Voice> {
         category: VoiceCategory::Male,
         language: "zh".to_string(),
         preview_audio: Some("yangyang.wav".to_string()),
-        source: VoiceSource::BundledIcl,
+        source: VoiceSource::BundledClone,
         reference_audio_path: Some("ref.wav".to_string()),
-        prompt_text: Some("璀璨的星河在广袤的天际延伸，五千年文明的灿烂华章在这片热土上绽放。看，这是一个充满希望的时代，我们共同见证着中华民族伟大复兴的光辉历程。让我们携手同行，创造更加辉煌的明天。".to_string()),
+        prompt_text: None,
         gpt_weights: None,
         sovits_weights: None,
         created_at: None,
@@ -471,7 +472,6 @@ impl Voice {
         name: String,
         language: String,
         reference_audio_path: String,
-        prompt_text: String,
     ) -> Self {
         Self {
             id,
@@ -482,7 +482,7 @@ impl Voice {
             preview_audio: Some(reference_audio_path.clone()),
             source: VoiceSource::Custom,
             reference_audio_path: Some(reference_audio_path),
-            prompt_text: Some(prompt_text),
+            prompt_text: None,
             gpt_weights: None,
             sovits_weights: None,
             created_at: Some(
@@ -499,7 +499,7 @@ impl Voice {
         self.source == VoiceSource::Custom
     }
 
-     /// Check if this is a trained voice (few-shot)
+    /// Check if this is a trained voice (few-shot)
     pub fn is_trained(&self) -> bool {
         self.source == VoiceSource::Trained
     }
@@ -538,5 +538,108 @@ impl Voice {
         let query_lower = query.to_lowercase();
         self.name.to_lowercase().contains(&query_lower)
             || self.description.to_lowercase().contains(&query_lower)
+    }
+}
+
+/// Build the wire payload for a reference-audio-only clone request.
+///
+/// `prompt_text` is intentionally ignored: the field remains on `Voice` only so
+/// configurations written by older releases can still be deserialized.
+pub(crate) fn build_custom_clone_prompt(
+    voice: &Voice,
+    resolved_reference_audio_path: &str,
+    text: &str,
+) -> Option<String> {
+    if !matches!(
+        voice.source,
+        VoiceSource::Custom | VoiceSource::BundledClone
+    ) || voice.reference_audio_path.is_none()
+        || resolved_reference_audio_path.is_empty()
+    {
+        return None;
+    }
+
+    Some(format!(
+        "VOICE:CUSTOM|{}||{}|{}",
+        resolved_reference_audio_path, voice.language, text
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_custom_clone_prompt, Voice, VoiceSource};
+
+    #[test]
+    fn new_custom_voice_needs_reference_audio_but_no_prompt_text() {
+        let voice = Voice::new_custom(
+            "custom-1".to_string(),
+            "Custom".to_string(),
+            "zh".to_string(),
+            "custom-1/ref.wav".to_string(),
+        );
+
+        assert_eq!(
+            voice.reference_audio_path.as_deref(),
+            Some("custom-1/ref.wav")
+        );
+        assert_eq!(voice.prompt_text, None);
+        assert_eq!(
+            build_custom_clone_prompt(&voice, "/tmp/ref.wav", "你好").as_deref(),
+            Some("VOICE:CUSTOM|/tmp/ref.wav||zh|你好")
+        );
+    }
+
+    #[test]
+    fn legacy_prompt_text_is_read_but_never_sent() {
+        let json = r#"{
+            "id":"legacy",
+            "name":"Legacy",
+            "description":"Legacy voice",
+            "category":"Character",
+            "language":"en",
+            "source":"Custom",
+            "reference_audio_path":"legacy/ref.wav",
+            "prompt_text":"the old reference transcript"
+        }"#;
+        let voice: Voice = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            voice.prompt_text.as_deref(),
+            Some("the old reference transcript")
+        );
+        assert_eq!(
+            build_custom_clone_prompt(&voice, "/tmp/legacy.wav", "hello").as_deref(),
+            Some("VOICE:CUSTOM|/tmp/legacy.wav||en|hello")
+        );
+    }
+
+    #[test]
+    fn legacy_bundled_icl_source_deserializes_as_bundled_clone() {
+        let source: VoiceSource = serde_json::from_str(r#""BundledIcl""#).unwrap();
+
+        assert_eq!(source, VoiceSource::BundledClone);
+    }
+
+    #[test]
+    fn bundled_clone_uses_empty_prompt_field() {
+        let voice = Voice {
+            id: "baiyang".to_string(),
+            name: "Baiyang".to_string(),
+            description: String::new(),
+            category: super::VoiceCategory::Female,
+            language: "zh".to_string(),
+            preview_audio: Some("baiyang.wav".to_string()),
+            source: VoiceSource::BundledClone,
+            reference_audio_path: Some("ref.wav".to_string()),
+            prompt_text: Some("legacy transcript".to_string()),
+            gpt_weights: None,
+            sovits_weights: None,
+            created_at: None,
+        };
+
+        assert_eq!(
+            build_custom_clone_prompt(&voice, "/app/baiyang/ref.wav", "测试").as_deref(),
+            Some("VOICE:CUSTOM|/app/baiyang/ref.wav||zh|测试")
+        );
     }
 }

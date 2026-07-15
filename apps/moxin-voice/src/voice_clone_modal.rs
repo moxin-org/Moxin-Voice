@@ -1,28 +1,31 @@
 //! Voice Clone Modal - UI for creating custom voices via zero-shot cloning
 //!
 //! Supports two modes:
-//! 1. Express Mode (Zero-shot): Select existing audio file + manually enter prompt text OR record voice via microphone + auto-transcribe with ASR
+//! 1. Express Mode (Zero-shot): Select or record a short reference-audio sample
 //! 2. Pro Mode (Few-shot Training): Record 3-10 minutes of audio and train custom GPT-SoVITS models
 
 use crate::audio_player::TTSPlayer;
 use crate::task_persistence;
 use crate::voice_data::{CloningStatus, Voice};
-use crate::voice_persistence;
+use crate::voice_persistence::{
+    self, EXPRESS_REFERENCE_MAX_SECS, EXPRESS_REFERENCE_MIN_SECS,
+};
 use makepad_widgets::*;
 use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// Clone mode - Express (zero-shot ICL) or Pro (few-shot training).
+/// Clone mode - Express (zero-shot x-vector) or Pro (few-shot training).
 ///
 /// Pro mode is currently disabled in the UI (Qwen3-only refactor).
 /// The `Pro` variant and related code are kept for restoration.
 /// See doc/REFACTOR_QWEN3_ONLY.md.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CloneMode {
-    Express,  // Zero-shot ICL cloning (up to 30s reference audio)
+    Express,  // Zero-shot x-vector cloning (3-6s reference audio)
     Pro,      // Few-shot training (3-10 minute audio) — hidden, see above
 }
 
@@ -41,6 +44,12 @@ pub enum RecordingStatus {
     Transcribing,
     Completed,
     Error(String),
+}
+
+#[derive(Debug)]
+enum ExpressRecordingEvent {
+    AutoStopped,
+    Failed(String),
 }
 
 live_design! {
@@ -146,7 +155,7 @@ live_design! {
                     return mix((TEXT_PRIMARY), (TEXT_PRIMARY_DARK), self.dark_mode);
                 }
             }
-            text: "Reference Audio (3-8 seconds)"
+            text: "Reference Audio (3-6 seconds)"
         }
 
         file_row = <View> {
@@ -739,12 +748,13 @@ live_design! {
                         prompt_text_container = <View> {
                         width: Fill, height: Fit
                         flow: Overlay
+                        visible: false
 
                         prompt_text_input = <LabeledInput> {
-                            label = { text: "Reference Text (what the audio says)" }
+                            label = { text: "Training Reference Text (Pro mode only)" }
                             input = {
                                 height: 60
-                                empty_text: "Enter the exact text spoken in the reference audio..."
+                                empty_text: "Legacy Pro-mode transcript"
                             }
                         }
 
@@ -1449,6 +1459,9 @@ pub struct VoiceCloneModal {
     recording_start_time: Option<std::time::Instant>,
 
     #[rust]
+    recording_event_rx: Option<Receiver<ExpressRecordingEvent>>,
+
+    #[rust]
     recorded_audio_path: Option<PathBuf>,
 
     #[rust]
@@ -1523,6 +1536,7 @@ impl LiveHook for VoiceCloneModal {
 impl Widget for VoiceCloneModal {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         self.view.handle_event(cx, event, scope);
+        let recording_finished_on_this_event = self.poll_express_recording_events(cx);
 
         // Handle system file drag-and-drop
         match event {
@@ -1687,10 +1701,7 @@ impl Widget for VoiceCloneModal {
 
             if let Some(path) = path {
                 self.add_log(cx, "[INFO] Loading recorded audio...");
-                // Validate the file first
-                self.handle_file_selected(cx, path.clone());
-                // Then start ASR transcription
-                self.transcribe_audio(cx, &path);
+                self.handle_file_selected(cx, path);
             }
         }
 
@@ -1782,7 +1793,7 @@ impl Widget for VoiceCloneModal {
                     &format!("[INFO] Transcription received ({}): {}", language, text),
                 );
 
-                // Auto-fill prompt text field (Express flow behavior).
+                // Auto-fill the dormant Pro-mode training transcript.
                 self.view
                     .text_input(ids!(
                         modal_container
@@ -1911,7 +1922,9 @@ impl Widget for VoiceCloneModal {
         ));
         match event.hits(cx, record_btn.area()) {
             Hit::FingerUp(fe) if fe.was_tap() => {
-                self.toggle_recording(cx);
+                if !recording_finished_on_this_event {
+                    self.toggle_recording(cx);
+                }
             }
             _ => {}
         }
@@ -2143,15 +2156,6 @@ impl VoiceCloneModal {
         }
     }
 
-    /// Returns true if Qwen3 is the active zero-shot (express) backend.
-    /// Reads MOXIN_INFERENCE_BACKEND which is set by the main backend switcher.
-    fn is_qwen3_zero_shot() -> bool {
-        std::env::var("MOXIN_INFERENCE_BACKEND")
-            .ok()
-            .map(|v| v.to_ascii_lowercase().contains("qwen3"))
-            .unwrap_or(false)
-    }
-
     /// Returns "option_b" if Qwen3/MLX is the active pro-mode training backend, "option_a" otherwise.
     /// Reads MOXIN_TRAINING_BACKEND which is set by the Experiments settings dropdown.
     fn get_training_backend() -> String {
@@ -2280,14 +2284,26 @@ impl VoiceCloneModal {
 
                 self.audio_info = Some(info.clone());
 
-                let express_max_secs: f32 = if Self::is_qwen3_zero_shot() { 8.0 } else { 10.0 };
-                if info.duration_secs > express_max_secs {
+                if info.duration_secs < EXPRESS_REFERENCE_MIN_SECS {
                     self.selected_file = None;
+                    self.audio_info = None;
+                    self.show_error(
+                        cx,
+                        &format!(
+                            "Audio too short ({:.1}s). Minimum: {:.0} seconds",
+                            info.duration_secs, EXPRESS_REFERENCE_MIN_SECS
+                        ),
+                    );
+                    return;
+                }
+                if info.duration_secs > EXPRESS_REFERENCE_MAX_SECS {
+                    self.selected_file = None;
+                    self.audio_info = None;
                     self.show_error(
                         cx,
                         &format!(
                             "Audio too long ({:.1}s). Maximum: {:.0} seconds",
-                            info.duration_secs, express_max_secs
+                            info.duration_secs, EXPRESS_REFERENCE_MAX_SECS
                         ),
                     );
                     return;
@@ -2322,11 +2338,7 @@ impl VoiceCloneModal {
                     ))
                     .set_visible(cx, true);
 
-                // Trigger ASR transcription for uploaded file (same as recording flow)
-                // Skip if already transcribing (avoids re-trigger when called from ASR result handler)
-                if self.recording_status != RecordingStatus::Transcribing {
-                    self.transcribe_audio(cx, &path);
-                }
+                self.recording_status = RecordingStatus::Completed;
             }
             Err(e) => {
                 self.selected_file = None;
@@ -2576,23 +2588,6 @@ impl VoiceCloneModal {
             return;
         }
 
-        let prompt_text = self
-            .view
-            .text_input(ids!(
-                modal_container
-                    .modal_wrapper
-                    .modal_content
-                    .body
-                    .prompt_text_input
-                    .input
-            ))
-            .text();
-
-        if prompt_text.trim().is_empty() {
-            self.show_error(cx, "Please enter the reference text");
-            return;
-        }
-
         let source_path = match &self.selected_file {
             Some(p) => p.clone(),
             None => {
@@ -2601,27 +2596,27 @@ impl VoiceCloneModal {
             }
         };
 
-        // Validate audio duration — limits differ by backend:
-        // option_a (GPT-SoVITS zero-shot): 3-10 seconds
-        // option_b (Qwen3 zero-shot): 3-8 seconds (must match ICL ref max to keep text/audio aligned)
-        let express_max_secs: f32 = if Self::is_qwen3_zero_shot() { 8.0 } else { 10.0 };
         if let Some(ref info) = self.audio_info {
-            if info.duration_secs < 3.0 {
+            if info.duration_secs < EXPRESS_REFERENCE_MIN_SECS {
                 self.show_error(
                     cx,
                     &format!(
-                        "Audio too short ({:.1}s). Required: 3-{:.0} seconds",
-                        info.duration_secs, express_max_secs
+                        "Audio too short ({:.1}s). Required: {:.0}-{:.0} seconds",
+                        info.duration_secs,
+                        EXPRESS_REFERENCE_MIN_SECS,
+                        EXPRESS_REFERENCE_MAX_SECS
                     ),
                 );
                 return;
             }
-            if info.duration_secs > express_max_secs {
+            if info.duration_secs > EXPRESS_REFERENCE_MAX_SECS {
                 self.show_error(
                     cx,
                     &format!(
-                        "Audio too long ({:.1}s). Required: 3-{:.0} seconds",
-                        info.duration_secs, express_max_secs
+                        "Audio too long ({:.1}s). Required: {:.0}-{:.0} seconds",
+                        info.duration_secs,
+                        EXPRESS_REFERENCE_MIN_SECS,
+                        EXPRESS_REFERENCE_MAX_SECS
                     ),
                 );
                 return;
@@ -2659,7 +2654,6 @@ impl VoiceCloneModal {
             voice_name.trim().to_string(),
             self.selected_language.clone(),
             relative_path,
-            prompt_text.trim().to_string(),
         );
 
         // Save to config
@@ -2702,6 +2696,8 @@ impl VoiceCloneModal {
         if self.is_recording.load(Ordering::Relaxed) {
             self.is_recording.store(false, Ordering::Relaxed);
         }
+        self.recording_event_rx = None;
+        self.recording_start_time = None;
         self.recording_status = RecordingStatus::Idle;
 
         // Stop any preview playing
@@ -2798,11 +2794,39 @@ impl VoiceCloneModal {
     }
 
     fn toggle_recording(&mut self, cx: &mut Cx) {
-        if self.is_recording.load(Ordering::Relaxed) {
+        if self.recording_status == RecordingStatus::Recording {
             self.stop_recording(cx);
         } else {
             self.start_recording(cx);
         }
+    }
+
+    fn poll_express_recording_events(&mut self, cx: &mut Cx) -> bool {
+        let event = self
+            .recording_event_rx
+            .as_ref()
+            .and_then(|receiver| receiver.try_recv().ok());
+        let Some(event) = event else {
+            return false;
+        };
+
+        self.recording_event_rx = None;
+        match event {
+            ExpressRecordingEvent::AutoStopped => {
+                if self.recording_status == RecordingStatus::Recording {
+                    self.stop_recording(cx);
+                }
+            }
+            ExpressRecordingEvent::Failed(error) => {
+                self.is_recording.store(false, Ordering::Relaxed);
+                self.recording_start_time = None;
+                self.update_record_button(cx, false);
+                self.add_log(cx, &format!("[ERROR] Recording failed: {error}"));
+                self.recording_status = RecordingStatus::Error(error);
+                self.view.redraw(cx);
+            }
+        }
+        true
     }
 
     /// Clear the Express mode recording / selected file, resetting to idle state.
@@ -2883,8 +2907,13 @@ impl VoiceCloneModal {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
         self.add_log(cx, "[INFO] Starting microphone recording...");
-        let max_s = if Self::is_qwen3_zero_shot() { 30 } else { 10 };
-        self.add_log(cx, &format!("[INFO] Speak clearly for 3-{} seconds", max_s));
+        self.add_log(
+            cx,
+            &format!(
+                "[INFO] Speak clearly for {:.0}-{:.0} seconds",
+                EXPRESS_REFERENCE_MIN_SECS, EXPRESS_REFERENCE_MAX_SECS
+            ),
+        );
 
         // Initialize buffer and sample rate
         self.recording_buffer = Arc::new(Mutex::new(Vec::new()));
@@ -2892,6 +2921,8 @@ impl VoiceCloneModal {
         self.recording_sample_rate = Arc::new(Mutex::new(16000)); // Default, will be updated
         self.recording_start_time = Some(std::time::Instant::now());
         self.recording_status = RecordingStatus::Recording;
+        let (recording_event_tx, recording_event_rx) = mpsc::channel();
+        self.recording_event_rx = Some(recording_event_rx);
 
         // Update UI
         self.update_record_button(cx, true);
@@ -2909,6 +2940,9 @@ impl VoiceCloneModal {
                 None => {
                     eprintln!("[VoiceClone] No input device found");
                     is_recording.store(false, Ordering::Relaxed);
+                    let _ = recording_event_tx.send(ExpressRecordingEvent::Failed(
+                        "No input device found".to_string(),
+                    ));
                     return;
                 }
             };
@@ -2921,6 +2955,9 @@ impl VoiceCloneModal {
                 Err(e) => {
                     eprintln!("[VoiceClone] Failed to get default input config: {}", e);
                     is_recording.store(false, Ordering::Relaxed);
+                    let _ = recording_event_tx.send(ExpressRecordingEvent::Failed(format!(
+                        "Failed to get input configuration: {e}"
+                    )));
                     return;
                 }
             };
@@ -2939,6 +2976,8 @@ impl VoiceCloneModal {
 
             let buffer_clone = Arc::clone(&buffer);
             let is_recording_clone = Arc::clone(&is_recording);
+            let error_recording = Arc::clone(&is_recording);
+            let error_event_tx = recording_event_tx.clone();
 
             // We'll store raw samples and resample later
             let stream = match device.build_input_stream(
@@ -2957,13 +2996,22 @@ impl VoiceCloneModal {
                         }
                     }
                 },
-                |err| eprintln!("[VoiceClone] Recording error: {}", err),
+                move |err| {
+                    eprintln!("[VoiceClone] Recording error: {}", err);
+                    error_recording.store(false, Ordering::Relaxed);
+                    let _ = error_event_tx.send(ExpressRecordingEvent::Failed(format!(
+                        "Audio input stream error: {err}"
+                    )));
+                },
                 None,
             ) {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[VoiceClone] Failed to build input stream: {}", e);
                     is_recording.store(false, Ordering::Relaxed);
+                    let _ = recording_event_tx.send(ExpressRecordingEvent::Failed(format!(
+                        "Failed to build input stream: {e}"
+                    )));
                     return;
                 }
             };
@@ -2971,21 +3019,26 @@ impl VoiceCloneModal {
             if let Err(e) = stream.play() {
                 eprintln!("[VoiceClone] Failed to start stream: {}", e);
                 is_recording.store(false, Ordering::Relaxed);
+                let _ = recording_event_tx.send(ExpressRecordingEvent::Failed(format!(
+                    "Failed to start input stream: {e}"
+                )));
                 return;
             }
 
             eprintln!("[VoiceClone] Recording started at {}Hz", sample_rate);
 
-            // Keep stream alive while recording (max 12 seconds)
-            let max_duration = std::time::Duration::from_secs(12);
+            let max_duration = std::time::Duration::from_secs_f32(EXPRESS_REFERENCE_MAX_SECS);
             let start = std::time::Instant::now();
 
             while is_recording.load(Ordering::Relaxed) && start.elapsed() < max_duration {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
 
-            // Auto-stop after max duration
-            is_recording.store(false, Ordering::Relaxed);
+            // Only the deadline path asks the UI to finalize. A manual stop already
+            // runs the same finalization synchronously and must not run it twice.
+            if is_recording.swap(false, Ordering::Relaxed) {
+                let _ = recording_event_tx.send(ExpressRecordingEvent::AutoStopped);
+            }
             eprintln!("[VoiceClone] Recording stopped ({}Hz mono)", sample_rate);
         });
 
@@ -2994,11 +3047,13 @@ impl VoiceCloneModal {
 
     fn stop_recording(&mut self, cx: &mut Cx) {
         self.is_recording.store(false, Ordering::Relaxed);
+        self.recording_event_rx = None;
         self.update_record_button(cx, false);
 
         // Calculate duration
         let duration = self
             .recording_start_time
+            .take()
             .map(|t| t.elapsed().as_secs_f32())
             .unwrap_or(0.0);
 
@@ -3015,9 +3070,14 @@ impl VoiceCloneModal {
             return;
         }
 
-        let express_max_secs: f32 = if Self::is_qwen3_zero_shot() { 30.0 } else { 10.0 };
-        if duration > express_max_secs {
-            self.add_log(cx, &format!("[WARN] Recording over {:.0}s will be trimmed to {:.0}s", express_max_secs, express_max_secs));
+        if duration > EXPRESS_REFERENCE_MAX_SECS {
+            self.add_log(
+                cx,
+                &format!(
+                    "[WARN] Recording over {:.0}s will be trimmed to {:.0}s",
+                    EXPRESS_REFERENCE_MAX_SECS, EXPRESS_REFERENCE_MAX_SECS
+                ),
+            );
         }
 
         self.recording_status = RecordingStatus::Transcribing;
@@ -3029,7 +3089,7 @@ impl VoiceCloneModal {
         let sample_rate_store = Arc::clone(&self.recording_sample_rate);
         let processing_complete = Arc::clone(&self.processing_complete);
         let temp_file_store = Arc::clone(&self.temp_audio_file);
-        let express_max_secs_bg: u32 = if Self::is_qwen3_zero_shot() { 30 } else { 10 };
+        let express_max_secs_bg = EXPRESS_REFERENCE_MAX_SECS as u32;
 
         std::thread::spawn(move || {
             // Give the recording thread a moment to finalize
@@ -3058,11 +3118,10 @@ impl VoiceCloneModal {
 
             // Validate duration in processing thread (defensive check)
             // This prevents race conditions or edge cases where short recordings slip through
-            const MIN_DURATION: f32 = 3.0;
-            if duration < MIN_DURATION {
+            if duration < EXPRESS_REFERENCE_MIN_SECS {
                 eprintln!(
                     "[VoiceClone] ERROR: Recording too short ({:.1}s < {}s), aborting processing",
-                    duration, MIN_DURATION
+                    duration, EXPRESS_REFERENCE_MIN_SECS
                 );
                 return;
             }
@@ -3079,7 +3138,7 @@ impl VoiceCloneModal {
                 samples
             };
 
-            // Trim to backend-specific max (Qwen3: 30s, GPT-SoVITS: 10s)
+            // Trim recordings to the x-vector reference-audio contract.
             let max_samples = (express_max_secs_bg * target_sample_rate) as usize;
             let trimmed_samples: Vec<f32> = if resampled.len() > max_samples {
                 resampled[..max_samples].to_vec()
@@ -3307,7 +3366,7 @@ impl VoiceCloneModal {
                 self.asr_sent = false;
                 self.recording_status = RecordingStatus::Transcribing;
 
-                // Show transcription loading overlay (Express mode) and reset animation timer
+                // Show the dormant Pro-mode transcription overlay and reset its timer.
                 self.transcription_animation_start_time = None;
                 if self.clone_mode == CloneMode::Express {
                     self.view
@@ -3324,7 +3383,10 @@ impl VoiceCloneModal {
             }
             Err(e) => {
                 self.add_log(cx, &format!("[ERROR] Failed to read audio for ASR: {}", e));
-                self.add_log(cx, "[INFO] Please enter the reference text manually.");
+                self.add_log(
+                    cx,
+                    "[INFO] Pro training requires reference text; enter it manually.",
+                );
                 self.recording_status = RecordingStatus::Idle;
             }
         }
@@ -3355,7 +3417,7 @@ impl VoiceCloneModal {
 
     // ========== Pro Mode Training Methods ==========
 
-    /// Switch between Express (ICL zero-shot) and Pro (few-shot training) modes.
+    /// Switch between Express (x-vector zero-shot) and Pro (few-shot training) modes.
     ///
     /// **Qwen3-only refactor note**: Pro mode is hidden from the UI and its
     /// mode_selector button handler is removed in screen.rs. This function and
@@ -3975,7 +4037,7 @@ impl VoiceCloneModalRef {
             inner.view.set_visible(cx, true);
             inner.clear_log(cx);
 
-            // ASR is optional: if not ready, user can still proceed with manual reference text.
+            // ASR is optional for the dormant Pro flow; manual training text remains available.
             let asr_available = if let Some(ref shared_state) = inner.shared_dora_state {
                 let status = shared_state.status.read();
                 // Only check for ASR listener - audio-input is only needed for live recording

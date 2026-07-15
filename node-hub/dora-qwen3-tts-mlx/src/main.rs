@@ -68,7 +68,9 @@ fn retry_seed(text: &str, attempt: u8) -> u64 {
     text.as_bytes()
         .iter()
         .chain(std::iter::once(&attempt))
-        .fold(FNV_OFFSET, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME))
+        .fold(FNV_OFFSET, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
+        })
 }
 
 fn parse_text_and_params(raw: &str) -> (String, TtsParams) {
@@ -502,18 +504,17 @@ fn synthesize_qwen(
         }
         TtsRequest::Custom {
             ref_wav,
-            prompt_text,
+            prompt_text: _,
             language,
             text,
         } => {
             let lang = normalize_language(&language, &text);
-            let use_xvector = prompt_text.trim().is_empty();
             let (ref_audio_24k, speaker_cache_key) =
-                prepare_reference_audio_for_clone(state, &ref_wav, use_xvector)?;
+                prepare_reference_audio_for_clone(state, &ref_wav, true)?;
             let synth = state.base()?;
             let max_new_tokens = resolve_max_new_tokens();
             tracing::info!(
-                "Qwen clone generation config: language='{}', max_new_tokens_override={:?}",
+                "Qwen clone generation config: mode=x-vector, language='{}', max_new_tokens_override={:?}",
                 lang,
                 max_new_tokens
             );
@@ -526,36 +527,13 @@ fn synthesize_qwen(
                     ..Default::default()
                 };
 
-                if use_xvector {
-                    Ok(synth.synthesize_voice_clone_with_timing_cached(
-                        &text,
-                        &ref_audio_24k,
-                        &lang,
-                        &speaker_cache_key,
-                        &options,
-                    )?)
-                } else {
-                    match synth.synthesize_voice_clone_icl_with_timing_cached(
-                        &text,
-                        &ref_audio_24k,
-                        &prompt_text,
-                        &lang,
-                        &speaker_cache_key,
-                        &options,
-                    ) {
-                        Ok(result) => Ok(result),
-                        Err(err) => {
-                            tracing::warn!("ICL clone failed, fallback to x-vector mode: {}", err);
-                            Ok(synth.synthesize_voice_clone_with_timing_cached(
-                                &text,
-                                &ref_audio_24k,
-                                &lang,
-                                &speaker_cache_key,
-                                &options,
-                            )?)
-                        }
-                    }
-                }
+                Ok(synth.synthesize_voice_clone_with_timing_cached(
+                    &text,
+                    &ref_audio_24k,
+                    &lang,
+                    &speaker_cache_key,
+                    &options,
+                )?)
             };
 
             let (mut samples, mut timing) = synthesize_once(None)?;
@@ -563,7 +541,7 @@ fn synthesize_qwen(
             if timing.incomplete_clone {
                 attempts = 2;
                 tracing::warn!(
-                    "Clone generation ended before its streamed text was consumed; retrying once"
+                    "Clone generation did not finish safely; retrying once with a new seed"
                 );
                 (samples, timing) = synthesize_once(Some(retry_seed(&text, 1)))?;
             }
@@ -672,7 +650,7 @@ fn main() -> Result<()> {
                             send_status(&mut node, "error: incomplete clone synthesis")?;
                             send_log(
                                 &mut node,
-                                "{\"error\":\"clone synthesis ended before all text was consumed\"}",
+                                "{\"error\":\"clone synthesis did not reach EOS within its safety limit\"}",
                             )?;
                             continue;
                         }

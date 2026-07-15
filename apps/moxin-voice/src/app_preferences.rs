@@ -46,7 +46,7 @@ impl Default for AppPreferences {
             history_retention_days: -1,
             inference_backend: "qwen3_tts_mlx".to_string(),
             zero_shot_backend: "qwen3_tts_mlx".to_string(),
-            training_backend: "option_c".to_string(), // Qwen3 mode (ICL only)
+            training_backend: "option_c".to_string(), // Qwen3 x-vector product mode
             preferred_output_device: None,
             preferred_input_device: None,
             tts_download_format: "mp3".to_string(),

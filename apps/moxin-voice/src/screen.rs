@@ -10,6 +10,11 @@ use crate::audio_player::{
 use crate::dora_integration::DoraIntegration;
 use crate::i18n;
 use crate::log_bridge;
+use crate::playback_audio_source::PlaybackAudioSource;
+use crate::playback_time_stretch::{
+    smooth_block_boundary, PlaybackStretchWorker, StretchBlockCache, StretchBlockKey,
+    StretchPriority,
+};
 use crate::task_persistence;
 use crate::training_executor::TrainingExecutor;
 use crate::tts_emotion::{self, TtsInstructSelection, TtsInstructState, NEUTRAL_EMOTION_ID};
@@ -23,17 +28,24 @@ use crate::voice_selector::{VoiceSelectorAction, VoiceSelectorWidgetExt};
 use hound::WavReader;
 use makepad_widgets::makepad_draw::text::selection::Cursor;
 use makepad_widgets::*;
+use std::collections::HashSet;
 use std::fs;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MOXIN_VOICE_BUNDLE_ID: &str = "com.moxin.voice";
 const BOOTSTRAP_LOCK_FILE: &str = "bootstrap.lock";
+const PLAYBACK_BLOCK_SECONDS: usize = 10;
+const PLAYBACK_LOW_WATER_SECONDS: f64 = 5.0;
+const PLAYBACK_HIGH_WATER_SECONDS: f64 = 20.0;
+const PLAYBACK_STRETCH_CONTEXT_MILLIS: usize = 200;
+const PLAYBACK_STRETCH_BOUNDARY_FADE_MILLIS: usize = 20;
+const PLAYBACK_STRETCH_PREFETCH_BLOCKS: u64 = 3;
 
 /// Current page in the application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -72,8 +84,8 @@ const TTS_INPUT_DRAG_AUTOSCROLL_EDGE: f64 = 52.0;
 const TTS_INPUT_DRAG_AUTOSCROLL_MAX_DELTA: f64 = 28.0;
 const TTS_INPUT_SCROLL_TOP_PADDING: f64 = 24.0;
 const PLAYER_PLAYBACK_RATES: [f64; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
-const PLAYER_SPEED_MENU_WIDTH: f64 = 96.0;
-const PLAYER_SPEED_MENU_HEIGHT: f64 = 170.0;
+const PLAYER_SPEED_MENU_WIDTH: f64 = 112.0;
+const PLAYER_SPEED_MENU_HEIGHT: f64 = 194.0;
 const PLAYER_ACTION_MENU_WIDTH: f64 = 132.0;
 const PLAYER_ACTION_MENU_HEIGHT: f64 = 96.0;
 const PLAYER_SEGMENT_MENU_WIDTH: f64 = 560.0;
@@ -148,11 +160,33 @@ fn player_effective_volume(volume: f64, muted: bool) -> f64 {
     }
 }
 
+fn player_queue_can_accept(
+    queued_samples: usize,
+    additional_samples: usize,
+    capacity_samples: usize,
+) -> bool {
+    additional_samples <= capacity_samples.saturating_sub(queued_samples)
+}
+
 fn player_playback_rate_index(current_rate: f64) -> usize {
     PLAYER_PLAYBACK_RATES
         .iter()
         .position(|rate| (*rate - current_rate).abs() < 0.01)
         .unwrap_or(1)
+}
+
+fn segment_follow_first_id(
+    active_index: usize,
+    first_visible: usize,
+    visible_items: usize,
+) -> Option<usize> {
+    if visible_items == 0 || active_index < first_visible {
+        return Some(active_index);
+    }
+    if active_index >= first_visible.saturating_add(visible_items) {
+        return Some(active_index.saturating_add(1).saturating_sub(visible_items));
+    }
+    None
 }
 
 fn player_menu_abs_pos(anchor: Rect, menu_width: f64, menu_height: f64) -> DVec2 {
@@ -1933,7 +1967,8 @@ live_design! {
     }
 
     PlayerSegmentDownloadBtn = <PlayerSegmentActionBtn> {
-        icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}
+        // Compensate for the download glyph's optical center inside its SVG bounds.
+        icon_walk: {width: 20, height: 20, margin: {left: 8, right: 4, top: 6, bottom: 6}}
         draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) }
     }
 
@@ -7900,8 +7935,18 @@ live_design! {
         } // End app_layout
 
         player_speed_menu = <PlayerFloatingMenu> {
-            width: 96, height: Fit
+            width: 112, height: Fit
             visible: false
+
+            speed_menu_title = <Label> {
+                width: Fill, height: 24
+                padding: {left: 10, right: 10}
+                text: "Preview speed"
+                draw_text: {
+                    color: (GRAY_500)
+                    text_style: <FONT_SEMIBOLD>{ font_size: 10.0 }
+                }
+            }
 
             speed_075_btn = <PlayerMenuItemBtn> { text: "0.75x" }
             speed_100_btn = <PlayerMenuItemBtn> { text: "1x" }
@@ -9666,14 +9711,30 @@ pub struct TTSScreen {
     player_action_menu_open: bool,
     #[rust]
     player_segment_menu_open: bool,
+    #[rust]
+    player_segment_scroll_lock_active: bool,
 
-    // Stored audio for playback/download (not auto-play)
+    // Canonical audio and bounded player feeder state.
     #[rust]
-    stored_audio_samples: Vec<f32>,
+    playback_audio_source: Option<PlaybackAudioSource>,
     #[rust]
-    stored_audio_sample_rate: u32,
+    playback_feed_cursor: usize,
     #[rust]
-    processed_audio_samples: Vec<f32>,
+    playback_feed_finished: bool,
+    #[rust]
+    playback_stretch_worker: Option<PlaybackStretchWorker>,
+    #[rust]
+    playback_stretch_cache: StretchBlockCache,
+    #[rust]
+    playback_stretch_task_id: u64,
+    #[rust]
+    playback_stretch_pending: HashSet<StretchBlockKey>,
+    #[rust]
+    playback_player_intent_id: u64,
+    #[rust]
+    player_active_rate: f64,
+    #[rust]
+    playback_last_queued_sample: Option<f32>,
 
     // Current voice name for display
     #[rust]
@@ -9726,6 +9787,12 @@ pub struct TTSScreen {
     preview_playing_voice_id: Option<String>,
     #[rust]
     segment_preview_playing: bool,
+    #[rust]
+    preview_audio_source: Option<PlaybackAudioSource>,
+    #[rust]
+    preview_feed_cursor: usize,
+    #[rust]
+    preview_feed_finished: bool,
 
     // Toast notification state
     #[rust]
@@ -9998,6 +10065,10 @@ pub struct TTSScreen {
     #[rust]
     tts_history: Vec<TtsHistoryEntry>,
     #[rust]
+    history_save_tx: Option<Sender<Result<TtsHistoryEntry, String>>>,
+    #[rust]
+    history_save_rx: Option<Receiver<Result<TtsHistoryEntry, String>>>,
+    #[rust]
     history_item_areas: Vec<(usize, Area, Area, Area, Area, Area, Area)>, // (idx, card, play, use, download, share, delete)
     #[rust]
     currently_playing_history_id: Option<String>,
@@ -10044,9 +10115,17 @@ impl Widget for TTSScreen {
             self.player_speed_menu_open = false;
             self.player_action_menu_open = false;
             self.player_segment_menu_open = false;
-            // Initialize stored audio sample rate (PrimeSpeech uses 32000)
-            self.stored_audio_sample_rate = 32000;
-            self.processed_audio_samples = Vec::new();
+            self.player_segment_scroll_lock_active = false;
+            self.playback_audio_source = None;
+            self.playback_feed_cursor = 0;
+            self.playback_feed_finished = true;
+            self.playback_stretch_worker = Some(PlaybackStretchWorker::new());
+            self.playback_stretch_cache = StretchBlockCache::default();
+            self.playback_stretch_task_id = 0;
+            self.playback_stretch_pending.clear();
+            self.playback_player_intent_id = 0;
+            self.player_active_rate = 1.0;
+            self.playback_last_queued_sample = None;
             // Initialize voice name
             self.current_voice_name = "Doubao".to_string();
             self.selected_voice_id = Some("Doubao".to_string());
@@ -10069,6 +10148,9 @@ impl Widget for TTSScreen {
             self.active_tts_operation = None;
             self.tts_audio_segments = None;
             self.has_generated_audio = false;
+            self.preview_audio_source = None;
+            self.preview_feed_cursor = 0;
+            self.preview_feed_finished = true;
             // Initialize current page — Live Translation is the primary feature
             self.current_page = AppPage::Translation;
 
@@ -10101,6 +10183,9 @@ impl Widget for TTSScreen {
             self.voice_picker_active_voice_id = self.selected_voice_id.clone();
 
             self.tts_history = tts_history::load_history();
+            let (history_save_tx, history_save_rx) = mpsc::channel();
+            self.history_save_tx = Some(history_save_tx);
+            self.history_save_rx = Some(history_save_rx);
             self.history_item_areas = Vec::new();
             self.share_modal_visible = false;
             self.pending_share_source = None;
@@ -10139,7 +10224,7 @@ impl Widget for TTSScreen {
             // PrimeSpeech fallback removed. See doc/REFACTOR_QWEN3_ONLY.md.
             self.app_preferences.inference_backend = "qwen3_tts_mlx".to_string();
             self.app_preferences.zero_shot_backend = "qwen3_tts_mlx".to_string();
-            self.app_preferences.training_backend = "option_c".to_string(); // Qwen3 ICL mode
+            self.app_preferences.training_backend = "option_c".to_string(); // Qwen3 x-vector mode
             self.record_app_version_and_reset_screen_capture_permission_if_needed(
                 preferences_existed,
             );
@@ -10501,17 +10586,23 @@ impl Widget for TTSScreen {
                 }
             }
 
+            self.poll_playback_stretch_results();
+            self.poll_history_save_results(cx);
+
             // Update playback progress and check if finished
             if self.tts_status == TTSStatus::Playing {
+                self.refill_playback_queue();
                 if let Some(player) = &self.audio_player {
                     // Check if playback has actually finished (buffer empty)
                     if player.check_playback_finished() {
-                        // Audio finished - reset to Ready state
-                        self.tts_status = TTSStatus::Ready;
-                        self.audio_playing_time = 0.0;
-                        self.update_playback_progress(cx);
-                        self.update_player_bar(cx);
-                        self.add_log(cx, "[INFO] [tts] Playback completed");
+                        if self.playback_feed_finished {
+                            // Audio finished - reset to Ready state
+                            self.tts_status = TTSStatus::Ready;
+                            self.audio_playing_time = 0.0;
+                            self.update_playback_progress(cx);
+                            self.update_player_bar(cx);
+                            self.add_log(cx, "[INFO] [tts] Playback completed");
+                        }
                     } else if player.is_playing() {
                         // Still playing - update playback time and progress bar
                         if let Some(total_duration) = self.playback_duration_secs() {
@@ -10519,9 +10610,10 @@ impl Widget for TTSScreen {
                                 self.audio_playing_time,
                                 total_duration,
                                 0.1,
-                                self.player_playback_rate,
+                                self.player_active_rate,
                             );
                         }
+                        self.keep_active_segment_visible(cx);
                         self.update_playback_progress(cx);
                     }
                     // If paused (is_playing=false but not finished), do nothing - keep current time
@@ -10530,28 +10622,32 @@ impl Widget for TTSScreen {
 
             // Check if preview playback has finished
             if self.preview_playing_voice_id.is_some() {
+                self.refill_preview_queue();
                 if let Some(player) = &self.preview_player {
                     if player.check_playback_finished() {
-                        // Preview finished - reset preview state
-                        self.segment_preview_playing = false;
-                        self.preview_playing_voice_id = None;
-                        let voice_selector = self.view.voice_selector(ids!(
-                            content_wrapper
-                                .main_content
-                                .left_column
-                                .content_area
-                                .tts_page
-                                .cards_container
-                                .controls_panel
-                                .settings_panel
-                                .voice_section
-                                .voice_selector
-                        ));
-                        voice_selector.set_preview_playing(cx, None);
-                        self.update_voice_picker_controls(cx);
-                        self.update_player_bar(cx);
-                        self.view.redraw(cx);
-                        self.add_log(cx, "[INFO] [tts] Preview playback finished");
+                        if self.preview_audio_source.is_none() || self.preview_feed_finished {
+                            // Preview finished - reset preview state
+                            self.segment_preview_playing = false;
+                            self.preview_playing_voice_id = None;
+                            self.preview_audio_source = None;
+                            let voice_selector = self.view.voice_selector(ids!(
+                                content_wrapper
+                                    .main_content
+                                    .left_column
+                                    .content_area
+                                    .tts_page
+                                    .cards_container
+                                    .controls_panel
+                                    .settings_panel
+                                    .voice_section
+                                    .voice_selector
+                            ));
+                            voice_selector.set_preview_playing(cx, None);
+                            self.update_voice_picker_controls(cx);
+                            self.update_player_bar(cx);
+                            self.view.redraw(cx);
+                            self.add_log(cx, "[INFO] [tts] Preview playback finished");
+                        }
                     }
                 }
             }
@@ -13087,7 +13183,7 @@ impl Widget for TTSScreen {
             let voice = &filtered_voices[voice_idx];
             let can_preview = match voice.source {
                 crate::voice_data::VoiceSource::Builtin
-                | crate::voice_data::VoiceSource::BundledIcl => voice.preview_audio.is_some(),
+                | crate::voice_data::VoiceSource::BundledClone => voice.preview_audio.is_some(),
                 crate::voice_data::VoiceSource::Custom
                 | crate::voice_data::VoiceSource::Trained => voice.reference_audio_path.is_some(),
             };
@@ -13104,7 +13200,7 @@ impl Widget for TTSScreen {
 
             // Check delete button click (only for custom voices)
             if voice.source != crate::voice_data::VoiceSource::Builtin
-                && voice.source != crate::voice_data::VoiceSource::BundledIcl
+                && voice.source != crate::voice_data::VoiceSource::BundledClone
             {
                 match event.hits(cx, delete_btn_area) {
                     Hit::FingerUp(fe) if fe.was_tap() => {
@@ -13873,6 +13969,7 @@ impl Widget for TTSScreen {
             self.player_speed_menu_open = false;
             self.player_action_menu_open = false;
             self.update_player_menu_visibility(cx);
+            self.keep_active_segment_visible(cx);
         }
         if self
             .view
@@ -14091,7 +14188,7 @@ impl Widget for TTSScreen {
                             let source = voice.source.clone();
                             let type_text = match source {
                                 crate::voice_data::VoiceSource::Builtin
-                                | crate::voice_data::VoiceSource::BundledIcl => {
+                                | crate::voice_data::VoiceSource::BundledClone => {
                                     self.tr("内置", "Built-in")
                                 }
                                 crate::voice_data::VoiceSource::Custom => {
@@ -14102,10 +14199,10 @@ impl Widget for TTSScreen {
                                 }
                             };
                             let is_custom = source != crate::voice_data::VoiceSource::Builtin
-                                && source != crate::voice_data::VoiceSource::BundledIcl;
+                                && source != crate::voice_data::VoiceSource::BundledClone;
                             let can_preview = match source {
                                 crate::voice_data::VoiceSource::Builtin
-                                | crate::voice_data::VoiceSource::BundledIcl => {
+                                | crate::voice_data::VoiceSource::BundledClone => {
                                     voice.preview_audio.is_some()
                                 }
                                 crate::voice_data::VoiceSource::Custom
@@ -14722,6 +14819,19 @@ impl Widget for TTSScreen {
                     }
                 }
             }
+        }
+
+        // Root-level floating views do not automatically stop wheel events from
+        // reaching overlapping PortalLists underneath them. While the segment
+        // menu is open, confine scrolling to its list and refresh the allowed
+        // area after every draw because the list's area may have moved/resized.
+        if self.player_segment_menu_open {
+            cx.block_scrolling_except_within(
+                self.view
+                    .portal_list(ids!(player_segment_menu.segment_portal_list))
+                    .area(),
+            );
+            self.player_segment_scroll_lock_active = true;
         }
 
         DrawStep::done()
@@ -16582,7 +16692,7 @@ impl TTSScreen {
                     .speed_label_row
                     .speed_label
             ))
-            .set_text(cx, self.tr("语速", "Speed"));
+            .set_text(cx, self.tr("生成语速", "Generation speed"));
         self.view
             .label(ids!(
                 content_wrapper
@@ -17336,7 +17446,7 @@ impl TTSScreen {
                     .speed_col
                     .speed_label
             ))
-            .set_text(cx, self.tr("语速", "Speed"));
+            .set_text(cx, self.tr("生成语速", "Generation speed"));
         self.view
             .label(ids!(
                 content_wrapper
@@ -17822,6 +17932,9 @@ impl TTSScreen {
         self.view
             .button(ids!(player_action_menu.share_menu_btn))
             .set_text(cx, &share_label);
+        self.view
+            .label(ids!(player_speed_menu.speed_menu_title))
+            .set_text(cx, self.tr("预览倍速", "Preview speed"));
         self.update_audio_player_action_layout_for_locale(cx);
 
         self.view
@@ -19062,9 +19175,9 @@ impl TTSScreen {
         let Some(segments) = self.tts_audio_segments.as_ref() else {
             return;
         };
-        self.stored_audio_samples = segments.merged_samples();
-        self.stored_audio_sample_rate = segments.sample_rate();
-        self.rebuild_processed_audio_samples();
+        self.playback_audio_source = Some(PlaybackAudioSource::from_segments(segments.clone()));
+        self.playback_feed_cursor = 0;
+        self.playback_feed_finished = false;
     }
 
     fn finalize_active_initial_tts_segment(&mut self, cx: &mut Cx) {
@@ -19104,7 +19217,7 @@ impl TTSScreen {
             self.fail_pending_tts_generation(cx, "[ERROR] [tts] Missing pending TTS segment");
             return;
         };
-        segment.samples = samples;
+        segment.samples = Arc::new(samples);
         segment.sample_rate = sample_rate;
 
         self.pending_generation_dispatch.mark_received();
@@ -19133,8 +19246,8 @@ impl TTSScreen {
         };
         self.tts_audio_segments = Some(segments);
         self.rebuild_audio_from_tts_segments();
-        let sample_count = self.effective_audio_samples().len();
-        let effective_rate = self.effective_audio_sample_rate();
+        let sample_count = self.playback_audio_total_samples();
+        let effective_rate = self.playback_audio_sample_rate();
         let duration_secs = if effective_rate > 0 {
             sample_count as f32 / effective_rate as f32
         } else {
@@ -19320,9 +19433,20 @@ impl TTSScreen {
             sample_rate,
             self.app_preferences.preferred_output_device.as_deref(),
         );
-        player.write_audio(&samples);
-        player.resume();
         self.preview_player = Some(player);
+        self.preview_audio_source = Some(PlaybackAudioSource::from_contiguous(
+            samples,
+            sample_rate,
+            sample_rate,
+        ));
+        self.preview_feed_cursor = 0;
+        self.preview_feed_finished = false;
+        self.fill_preview_queue(0);
+        if self.preview_feed_cursor == 0 {
+            self.preview_audio_source = None;
+            self.preview_feed_finished = true;
+            return;
+        }
         self.preview_playing_voice_id = Some(preview_id);
         self.segment_preview_playing = true;
         self.add_log(
@@ -19338,6 +19462,10 @@ impl TTSScreen {
         self.clear_pending_generation_snapshot();
         self.tts_status = TTSStatus::Error(message.to_string());
         self.set_generate_button_loading(cx, false);
+        self.show_toast(
+            cx,
+            self.tr("音频生成失败，请重试", "Audio generation failed; please try again"),
+        );
         self.update_player_bar(cx);
     }
 
@@ -19557,8 +19685,8 @@ impl TTSScreen {
             ))
             .set_text(cx, status_text);
 
-        let audio_len = self.effective_audio_samples().len();
-        let effective_rate = self.effective_audio_sample_rate();
+        let audio_len = self.playback_audio_total_samples();
+        let effective_rate = self.playback_audio_sample_rate();
         let has_playable_audio = self.has_generated_audio && audio_len > 0 && effective_rate > 0;
         let is_english = self.is_english();
         let segment_summary = self
@@ -19904,6 +20032,17 @@ impl TTSScreen {
         self.view
             .view(ids!(player_segment_menu))
             .set_visible(cx, self.player_segment_menu_open);
+        if self.player_segment_menu_open {
+            cx.block_scrolling_except_within(
+                self.view
+                    .portal_list(ids!(player_segment_menu.segment_portal_list))
+                    .area(),
+            );
+            self.player_segment_scroll_lock_active = true;
+        } else if self.player_segment_scroll_lock_active {
+            cx.unblock_scrolling();
+            self.player_segment_scroll_lock_active = false;
+        }
         self.view
             .button(ids!(
                 content_wrapper
@@ -19958,9 +20097,32 @@ impl TTSScreen {
         if self.tts_status == TTSStatus::Playing {
             let _ = self.start_playback_from_time(cx, self.audio_playing_time);
         } else {
-            self.apply_player_audio_settings();
+            self.stage_paused_playback_from_time(self.audio_playing_time);
         }
         self.update_player_bar(cx);
+    }
+
+    fn keep_active_segment_visible(&mut self, cx: &mut Cx) {
+        if !self.player_segment_menu_open || self.tts_status != TTSStatus::Playing {
+            return;
+        }
+        let Some(active_index) = self.tts_audio_segments.as_ref().and_then(|segments| {
+            let sample = (self.audio_playing_time * segments.sample_rate() as f64).max(0.0)
+                as usize;
+            segments.index_at_sample(sample)
+        }) else {
+            return;
+        };
+
+        let list = self
+            .view
+            .portal_list(ids!(player_segment_menu.segment_portal_list));
+        if let Some(first_id) =
+            segment_follow_first_id(active_index, list.first_id(), list.visible_items())
+        {
+            list.set_first_id(first_id);
+            self.view.redraw(cx);
+        }
     }
 
     fn format_duration(duration_secs: f32) -> String {
@@ -20026,9 +20188,12 @@ impl TTSScreen {
     }
 
     fn append_current_generation_to_history(&mut self, cx: &mut Cx) {
-        let samples = self.effective_audio_samples().to_vec();
-        let effective_rate = self.effective_audio_sample_rate();
-        if samples.is_empty() || effective_rate == 0 {
+        let Some(source) = self.playback_audio_source.clone() else {
+            return;
+        };
+        let sample_count = source.total_samples();
+        let effective_rate = source.sample_rate();
+        if sample_count == 0 || effective_rate == 0 {
             return;
         }
 
@@ -20039,22 +20204,6 @@ impl TTSScreen {
         let entry_id = format!("gen-{}-{}", created_at, now.subsec_nanos());
         let audio_file = format!("{}.wav", entry_id);
         let audio_path = tts_history::history_audio_path(&audio_file);
-
-        if let Err(e) = tts_history::ensure_history_storage() {
-            self.add_log(
-                cx,
-                &format!("[WARN] [history] Failed to prepare storage: {}", e),
-            );
-            return;
-        }
-        if let Err(e) = Self::write_wav_file_with_sample_rate(&audio_path, &samples, effective_rate)
-        {
-            self.add_log(
-                cx,
-                &format!("[WARN] [history] Failed to save audio snapshot: {}", e),
-            );
-            return;
-        }
 
         let voice_id = self
             .pending_generation_voice_id
@@ -20085,7 +20234,7 @@ impl TTSScreen {
                 .text()
         });
 
-        let duration_secs = samples.len() as f32 / effective_rate as f32;
+        let duration_secs = sample_count as f32 / effective_rate as f32;
         let entry = TtsHistoryEntry {
             id: entry_id,
             created_at,
@@ -20097,7 +20246,7 @@ impl TTSScreen {
             model_name: self.pending_generation_model_name.clone(),
             duration_secs,
             sample_rate: effective_rate,
-            sample_count: samples.len(),
+            sample_count,
             speed: self.pending_generation_speed,
             pitch: self.pending_generation_pitch,
             volume: self.pending_generation_volume,
@@ -20107,19 +20256,62 @@ impl TTSScreen {
             audio_file,
         };
 
-        self.tts_history.insert(0, entry);
-
-        if self.tts_history.len() > tts_history::DEFAULT_MAX_HISTORY_ITEMS {
-            let removed = self
-                .tts_history
-                .split_off(tts_history::DEFAULT_MAX_HISTORY_ITEMS);
-            for old in removed {
-                let _ = tts_history::delete_audio_file(&old.audio_file);
-            }
+        let Some(result_tx) = self.history_save_tx.clone() else {
+            self.add_log(cx, "[WARN] [history] Background save worker is unavailable");
+            return;
+        };
+        let spawn_result = thread::Builder::new()
+            .name("moxin-history-save".to_string())
+            .spawn(move || {
+                let result = tts_history::ensure_history_storage()
+                    .and_then(|_| {
+                        Self::write_wav_file_from_source(&audio_path, &source)
+                            .map_err(|error| error.to_string())
+                    })
+                    .map(|_| entry);
+                let _ = result_tx.send(result);
+            });
+        if let Err(error) = spawn_result {
+            self.add_log(
+                cx,
+                &format!("[WARN] [history] Failed to start background save: {error}"),
+            );
         }
+    }
 
-        self.persist_tts_history(cx);
-        self.update_history_display(cx);
+    fn poll_history_save_results(&mut self, cx: &mut Cx) {
+        let results = self
+            .history_save_rx
+            .as_ref()
+            .map(|receiver| receiver.try_iter().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        for result in results {
+            let entry = match result {
+                Ok(entry) => entry,
+                Err(error) => {
+                    self.add_log(
+                        cx,
+                        &format!("[WARN] [history] Failed to save audio snapshot: {error}"),
+                    );
+                    continue;
+                }
+            };
+
+            self.tts_history.insert(0, entry);
+
+            if self.tts_history.len() > tts_history::DEFAULT_MAX_HISTORY_ITEMS {
+                let removed = self
+                    .tts_history
+                    .split_off(tts_history::DEFAULT_MAX_HISTORY_ITEMS);
+                for old in removed {
+                    let _ = tts_history::delete_audio_file(&old.audio_file);
+                }
+            }
+
+            self.persist_tts_history(cx);
+            self.update_history_display(cx);
+        }
     }
 
     fn update_history_display(&mut self, cx: &mut Cx) {
@@ -20261,11 +20453,15 @@ impl TTSScreen {
             player.stop();
         }
 
-        match self.load_wav_file(&audio_path) {
-            Ok(samples) => {
-                self.stored_audio_samples = samples;
-                self.processed_audio_samples.clear();
-                self.stored_audio_sample_rate = entry.sample_rate.max(1);
+        match self.load_wav_mono_file(&audio_path) {
+            Ok((samples, sample_rate)) => {
+                self.playback_audio_source = Some(PlaybackAudioSource::from_contiguous(
+                    Arc::new(samples),
+                    sample_rate,
+                    24_000,
+                ));
+                self.playback_feed_cursor = 0;
+                self.playback_feed_finished = false;
                 self.tts_audio_segments = None;
                 self.player_segment_menu_open = false;
                 self.audio_playing_time = 0.0;
@@ -20382,8 +20578,8 @@ impl TTSScreen {
 
     fn update_playback_progress(&mut self, cx: &mut Cx) {
         // Calculate total duration and current position
-        let audio_len = self.effective_audio_samples().len();
-        let effective_rate = self.effective_audio_sample_rate();
+        let audio_len = self.playback_audio_total_samples();
+        let effective_rate = self.playback_audio_sample_rate();
         if audio_len == 0 || effective_rate == 0 {
             return;
         }
@@ -20427,8 +20623,8 @@ impl TTSScreen {
     }
 
     fn playback_duration_secs(&self) -> Option<f64> {
-        let audio_len = self.effective_audio_samples().len();
-        let effective_rate = self.effective_audio_sample_rate();
+        let audio_len = self.playback_audio_total_samples();
+        let effective_rate = self.playback_audio_sample_rate();
         if audio_len == 0 || effective_rate == 0 {
             return None;
         }
@@ -20445,6 +20641,7 @@ impl TTSScreen {
     }
 
     fn stop_main_playback_for_preview(&mut self, cx: &mut Cx) {
+        self.begin_playback_stretch_task();
         if let Some(player) = &self.audio_player {
             player.stop();
         }
@@ -20458,6 +20655,9 @@ impl TTSScreen {
         if let Some(player) = &self.preview_player {
             player.stop();
         }
+        self.preview_audio_source = None;
+        self.preview_feed_cursor = 0;
+        self.preview_feed_finished = true;
         self.segment_preview_playing = false;
         if self.preview_playing_voice_id.take().is_some() {
             let voice_selector = self.view.voice_selector(ids!(
@@ -20477,34 +20677,118 @@ impl TTSScreen {
         }
     }
 
+    fn queue_next_preview_block(&mut self) -> Option<usize> {
+        let Some(source) = self.preview_audio_source.clone() else {
+            self.preview_feed_finished = true;
+            return None;
+        };
+        let block_samples = (source.sample_rate() as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        let block = source.read_block(self.preview_feed_cursor, block_samples);
+        if block.is_empty() {
+            self.preview_feed_finished = true;
+            return None;
+        }
+        let block_len = block.len();
+        let Some(player) = &self.preview_player else {
+            return None;
+        };
+        player.write_audio_owned(block);
+        self.preview_feed_cursor = self.preview_feed_cursor.saturating_add(block_len);
+        self.preview_feed_finished = self.preview_feed_cursor >= source.total_samples();
+        Some(block_len)
+    }
+
+    fn fill_preview_queue(&mut self, mut queued_samples: usize) {
+        let sample_rate = self
+            .preview_audio_source
+            .as_ref()
+            .map(PlaybackAudioSource::sample_rate)
+            .unwrap_or_default();
+        let high_water = (PLAYBACK_HIGH_WATER_SECONDS * sample_rate as f64) as usize;
+        while queued_samples < high_water && !self.preview_feed_finished {
+            let Some(written) = self.queue_next_preview_block() else {
+                break;
+            };
+            queued_samples = queued_samples.saturating_add(written);
+        }
+    }
+
+    fn refill_preview_queue(&mut self) {
+        if self.preview_audio_source.is_none() || self.preview_feed_finished {
+            return;
+        }
+        let should_refill = self
+            .preview_player
+            .as_ref()
+            .map(|player| player.queued_secs() <= PLAYBACK_LOW_WATER_SECONDS)
+            .unwrap_or(false);
+        if should_refill {
+            let queued_samples = self
+                .preview_player
+                .as_ref()
+                .map(TTSPlayer::queued_samples)
+                .unwrap_or_default();
+            self.fill_preview_queue(queued_samples);
+        }
+    }
+
     fn start_playback_from_time(&mut self, cx: &mut Cx, start_time_secs: f64) -> bool {
-        let playback_samples = self.effective_audio_samples().to_vec();
-        let effective_rate = self.effective_audio_sample_rate();
-        if playback_samples.is_empty() || effective_rate == 0 {
+        let Some(source) = self.playback_audio_source.clone() else {
+            return false;
+        };
+        let effective_rate = source.sample_rate();
+        if source.is_empty() || effective_rate == 0 {
             return false;
         }
 
         let start_time = self.clamped_seek_time(start_time_secs).unwrap_or(0.0);
         let start_sample = ((start_time * effective_rate as f64).round() as usize)
-            .min(playback_samples.len().saturating_sub(1));
-        let remaining_samples = &playback_samples[start_sample..];
-        if remaining_samples.is_empty() {
-            return false;
-        }
-        let prepared_samples =
-            Self::time_stretch_preserve_pitch(remaining_samples, self.player_playback_rate);
+            .min(source.total_samples().saturating_sub(1));
 
         self.stop_preview_playback(cx);
         if let Some(player) = &self.audio_player {
-            player.stop();
-            self.apply_player_audio_settings();
-            player.write_audio(&prepared_samples);
-            self.audio_playing_time = start_time;
-            self.tts_status = TTSStatus::Playing;
-            self.update_playback_progress(cx);
-            return true;
+            self.playback_player_intent_id = player.begin_playback_intent();
         }
-        false
+        self.apply_player_audio_settings();
+        self.begin_playback_stretch_task();
+        self.playback_feed_cursor = start_sample;
+        self.playback_feed_finished = false;
+        self.player_active_rate = self.player_playback_rate;
+        self.playback_last_queued_sample = None;
+        self.tts_status = TTSStatus::Playing;
+        self.fill_playback_queue(0);
+        if self.playback_feed_cursor == start_sample && self.playback_stretch_pending.is_empty() {
+            self.tts_status = TTSStatus::Ready;
+            return false;
+        }
+        self.audio_playing_time = start_time;
+        self.keep_active_segment_visible(cx);
+        self.update_playback_progress(cx);
+        true
+    }
+
+    fn stage_paused_playback_from_time(&mut self, start_time_secs: f64) {
+        let Some(source) = self.playback_audio_source.as_ref() else {
+            return;
+        };
+        let sample_rate = source.sample_rate();
+        if source.is_empty() || sample_rate == 0 {
+            return;
+        }
+        let total_samples = source.total_samples();
+        let start_time = self.clamped_seek_time(start_time_secs).unwrap_or(0.0);
+        let start_sample = ((start_time * sample_rate as f64).round() as usize)
+            .min(total_samples.saturating_sub(1));
+
+        if let Some(player) = &self.audio_player {
+            self.playback_player_intent_id = player.begin_playback_intent();
+        }
+        self.apply_player_audio_settings();
+        self.begin_playback_stretch_task();
+        self.playback_feed_cursor = start_sample;
+        self.playback_feed_finished = false;
+        self.player_active_rate = self.player_playback_rate;
+        self.playback_last_queued_sample = None;
     }
 
     fn seek_playback_to_ratio(&mut self, cx: &mut Cx, ratio: f64) {
@@ -20525,6 +20809,7 @@ impl TTSScreen {
             }
         } else {
             self.audio_playing_time = target_time;
+            self.stage_paused_playback_from_time(target_time);
             self.update_playback_progress(cx);
             self.update_player_bar(cx);
         }
@@ -20654,10 +20939,10 @@ impl TTSScreen {
                     return;
                 }
             }
-        } else if voice.source == VoiceSource::BundledIcl {
-            // BundledIcl voice: use bundled ref audio as preview
+        } else if voice.source == VoiceSource::BundledClone {
+            // Bundled clone voice: use bundled reference audio as its preview.
             let ref_filename = voice.reference_audio_path.as_deref().unwrap_or("ref.wav");
-            match self.resolve_bundled_icl_ref_path(&voice.id, ref_filename) {
+            match self.resolve_bundled_clone_ref_path(&voice.id, ref_filename) {
                 Some(path) => path,
                 None => {
                     self.add_log(
@@ -20706,6 +20991,8 @@ impl TTSScreen {
         // Load WAV file
         match self.load_wav_file(&audio_path) {
             Ok(samples) => {
+                self.preview_audio_source = None;
+                self.preview_feed_finished = true;
                 // Initialize preview player if needed
                 if self.preview_player.is_none() {
                     self.preview_player = Some(TTSPlayer::new_with_output_device(
@@ -20773,9 +21060,9 @@ impl TTSScreen {
             .join(filename)
     }
 
-    /// Resolve the absolute path of a bundled ICL voice's reference audio.
+    /// Resolve the absolute path of a bundled clone voice's reference audio.
     /// voice_id: e.g. "baiyang", filename: e.g. "ref.wav"
-    fn resolve_bundled_icl_ref_path(&self, voice_id: &str, filename: &str) -> Option<PathBuf> {
+    fn resolve_bundled_clone_ref_path(&self, voice_id: &str, filename: &str) -> Option<PathBuf> {
         // 1. App bundle
         if let Ok(res) = std::env::var("MOXIN_APP_RESOURCES") {
             let p = PathBuf::from(&res)
@@ -20819,7 +21106,7 @@ impl TTSScreen {
         None
     }
 
-    fn load_wav_file(&self, path: &PathBuf) -> Result<Vec<f32>, String> {
+    fn load_wav_mono_file(&self, path: &PathBuf) -> Result<(Vec<f32>, u32), String> {
         let reader = WavReader::open(path).map_err(|e| format!("Failed to open WAV: {}", e))?;
         let spec = reader.spec();
         let sample_rate = spec.sample_rate;
@@ -20852,26 +21139,13 @@ impl TTSScreen {
             samples
         };
 
-        // Resample to 24000 Hz if needed (TTSPlayer source rate = Qwen3-TTS native 24kHz)
-        let target_rate = 24000;
-        let resampled = if sample_rate != target_rate {
-            let ratio = target_rate as f32 / sample_rate as f32;
-            let new_len = (mono_samples.len() as f32 * ratio) as usize;
-            let mut result = Vec::with_capacity(new_len);
-            for i in 0..new_len {
-                let src_idx = i as f32 / ratio;
-                let idx = src_idx as usize;
-                let frac = src_idx - idx as f32;
-                let s1 = mono_samples.get(idx).copied().unwrap_or(0.0);
-                let s2 = mono_samples.get(idx + 1).copied().unwrap_or(s1);
-                result.push(s1 + (s2 - s1) * frac);
-            }
-            result
-        } else {
-            mono_samples
-        };
+        Ok((mono_samples, sample_rate))
+    }
 
-        Ok(resampled)
+    fn load_wav_file(&self, path: &PathBuf) -> Result<Vec<f32>, String> {
+        let (samples, sample_rate) = self.load_wav_mono_file(path)?;
+        let source = PlaybackAudioSource::from_contiguous(Arc::new(samples), sample_rate, 24_000);
+        Ok(source.read_block(0, source.total_samples()))
     }
 
     fn show_toast(&mut self, cx: &mut Cx, message: &str) {
@@ -23496,33 +23770,31 @@ impl TTSScreen {
                     format!("VOICE:Doubao|{}", text)
                 }
             } else if voice.source == crate::voice_data::VoiceSource::Custom {
-                if let (Some(ref_audio), Some(prompt_text)) =
-                    (&voice.reference_audio_path, &voice.prompt_text)
-                {
+                if let Some(ref_audio) = &voice.reference_audio_path {
                     let ref_audio_path = crate::voice_persistence::get_reference_audio_path(voice)
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_else(|| ref_audio.clone());
-                    format!(
-                        "VOICE:CUSTOM|{}|{}|{}|{}",
-                        ref_audio_path, prompt_text, voice.language, text
-                    )
+                    crate::voice_data::build_custom_clone_prompt(voice, &ref_audio_path, text)
+                        .unwrap_or_else(|| format!("VOICE:Doubao|{}", text))
                 } else {
                     format!("VOICE:Doubao|{}", text)
                 }
-            } else if voice.source == crate::voice_data::VoiceSource::BundledIcl {
+            } else if voice.source == crate::voice_data::VoiceSource::BundledClone {
                 if let Some(ref_filename) = &voice.reference_audio_path {
                     let ref_audio_path = self
-                        .resolve_bundled_icl_ref_path(&voice.id, ref_filename)
+                        .resolve_bundled_clone_ref_path(&voice.id, ref_filename)
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_default();
 
                     if ref_audio_path.is_empty() {
                         format!("VOICE:vivian|{}", text)
                     } else {
-                        format!(
-                            "VOICE:CUSTOM|{}|{}|{}|{}",
-                            ref_audio_path, "", voice.language, text
+                        crate::voice_data::build_custom_clone_prompt(
+                            voice,
+                            &ref_audio_path,
+                            text,
                         )
+                        .unwrap_or_else(|| format!("VOICE:vivian|{}", text))
                     }
                 } else {
                     format!("VOICE:vivian|{}", text)
@@ -23851,21 +24123,20 @@ impl TTSScreen {
                 ),
             );
         } else {
-            if self.effective_audio_samples().is_empty() {
+            if self.playback_audio_total_samples() == 0 {
                 self.add_log(cx, "[WARN] [tts] No audio to play");
                 self.update_player_bar(cx);
                 return;
             }
 
-            let effective_rate = self.effective_audio_sample_rate();
+            let effective_rate = self.playback_audio_sample_rate();
             if effective_rate == 0 {
                 self.add_log(cx, "[WARN] [tts] Invalid audio sample rate");
                 self.update_player_bar(cx);
                 return;
             }
 
-            let total_duration =
-                self.effective_audio_samples().len() as f64 / effective_rate as f64;
+            let total_duration = self.playback_audio_total_samples() as f64 / effective_rate as f64;
             let is_resuming =
                 self.audio_playing_time > 0.1 && self.audio_playing_time < (total_duration - 0.1);
             let start_time = if is_resuming {
@@ -23900,7 +24171,7 @@ impl TTSScreen {
                 );
                 return;
             }
-            if self.effective_audio_samples().is_empty() {
+            if self.playback_audio_total_samples() == 0 {
                 self.add_log(cx, "[WARN] [share] No audio available to share");
                 self.show_toast(cx, self.tr("暂无可分享音频", "No audio available to share"));
                 return;
@@ -23930,7 +24201,7 @@ impl TTSScreen {
                     );
                     return;
                 }
-                if self.effective_audio_samples().is_empty() {
+                if self.playback_audio_total_samples() == 0 {
                     self.add_log(cx, "[WARN] [download] No audio available to download");
                     self.show_toast(
                         cx,
@@ -24081,8 +24352,12 @@ impl TTSScreen {
     }
 
     fn prepare_current_audio_share_file(&mut self, cx: &mut Cx) -> Option<PathBuf> {
-        let samples = self.effective_audio_samples().to_vec();
-        if samples.is_empty() || self.stored_audio_sample_rate == 0 {
+        let Some(source) = self.playback_audio_source.clone() else {
+            self.add_log(cx, "[WARN] [share] Current audio is empty");
+            self.show_toast(cx, self.tr("暂无可分享音频", "No audio available to share"));
+            return None;
+        };
+        if source.is_empty() || source.sample_rate() == 0 {
             self.add_log(cx, "[WARN] [share] Current audio is empty");
             self.show_toast(cx, self.tr("暂无可分享音频", "No audio available to share"));
             return None;
@@ -24096,7 +24371,7 @@ impl TTSScreen {
         let filename = format!("tts_share_{}_{}.wav", safe_voice, timestamp);
         let share_path = Self::export_path_for_filename(&filename);
 
-        match self.write_wav_file(&share_path, &samples) {
+        match Self::write_wav_file_from_source(&share_path, &source) {
             Ok(_) => Some(share_path),
             Err(e) => {
                 self.add_log(
@@ -24260,9 +24535,16 @@ impl TTSScreen {
     }
 
     fn export_current_audio(&mut self, cx: &mut Cx, format: DownloadFormat) -> Option<PathBuf> {
-        let samples = self.effective_audio_samples().to_vec();
-        let effective_rate = self.effective_audio_sample_rate();
-        if samples.is_empty() {
+        let Some(source) = self.playback_audio_source.clone() else {
+            self.add_log(cx, "[WARN] [download] No current audio available");
+            self.show_toast(
+                cx,
+                self.tr("暂无可下载音频", "No audio available to download"),
+            );
+            return None;
+        };
+        let effective_rate = source.sample_rate();
+        if source.is_empty() {
             self.add_log(cx, "[WARN] [download] No current audio available");
             self.show_toast(
                 cx,
@@ -24299,12 +24581,10 @@ impl TTSScreen {
         let target = Self::export_path_for_filename(&filename);
 
         let export_result = match format {
-            DownloadFormat::Wav => self
-                .write_wav_file(&target, &samples)
-                .map_err(|e| e.to_string()),
-            DownloadFormat::Mp3 => {
-                Self::write_mp3_file_from_samples(&target, &samples, effective_rate)
+            DownloadFormat::Wav => {
+                Self::write_wav_file_from_source(&target, &source).map_err(|e| e.to_string())
             }
+            DownloadFormat::Mp3 => Self::write_mp3_file_from_source(&target, &source),
         };
 
         match export_result {
@@ -24595,25 +24875,27 @@ impl TTSScreen {
         }
     }
 
-    fn write_wav_file(&self, path: &PathBuf, samples: &[f32]) -> std::io::Result<()> {
-        Self::write_wav_file_with_sample_rate(path, samples, self.effective_audio_sample_rate())
-    }
-
     fn write_wav_file_with_sample_rate(
         path: &PathBuf,
         samples: &[f32],
         sample_rate: u32,
     ) -> std::io::Result<()> {
-        use std::io::Write;
+        use std::io::{BufWriter, Error, ErrorKind, Write};
 
         let num_channels: u16 = 1;
         let bits_per_sample: u16 = 16;
         let byte_rate = sample_rate * (num_channels as u32) * (bits_per_sample as u32) / 8;
         let block_align: u16 = num_channels * bits_per_sample / 8;
-        let data_size = (samples.len() * 2) as u32;
-        let file_size = 36 + data_size;
+        let data_size = samples
+            .len()
+            .checked_mul(2)
+            .and_then(|size| u32::try_from(size).ok())
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "WAV data exceeds 4 GiB"))?;
+        let file_size = 36u32
+            .checked_add(data_size)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "WAV file is too large"))?;
 
-        let mut file = std::fs::File::create(path)?;
+        let mut file = BufWriter::with_capacity(256 * 1024, std::fs::File::create(path)?);
 
         // RIFF header
         file.write_all(b"RIFF")?;
@@ -24634,14 +24916,82 @@ impl TTSScreen {
         file.write_all(b"data")?;
         file.write_all(&data_size.to_le_bytes())?;
 
-        // Convert f32 samples to i16 and write
-        for &sample in samples {
-            let clamped = sample.max(-1.0).min(1.0);
-            let i16_sample = (clamped * 32767.0) as i16;
-            file.write_all(&i16_sample.to_le_bytes())?;
+        let block_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        for block in samples.chunks(block_samples.max(1)) {
+            Self::write_pcm16_block(&mut file, block)?;
         }
 
-        Ok(())
+        file.flush()
+    }
+
+    fn write_pcm16_block(
+        writer: &mut impl std::io::Write,
+        samples: &[f32],
+    ) -> std::io::Result<()> {
+        let mut bytes = Vec::with_capacity(samples.len().saturating_mul(2));
+        for sample in samples {
+            let pcm = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+            bytes.extend_from_slice(&pcm.to_le_bytes());
+        }
+        writer.write_all(&bytes)
+    }
+
+    fn write_wav_file_from_source(
+        path: &PathBuf,
+        source: &PlaybackAudioSource,
+    ) -> std::io::Result<()> {
+        use std::io::{BufWriter, Error, ErrorKind, Write};
+
+        let sample_rate = source.sample_rate();
+        if sample_rate == 0 {
+            return Err(Error::new(ErrorKind::InvalidInput, "invalid sample rate"));
+        }
+        let data_size = source
+            .total_samples()
+            .checked_mul(2)
+            .and_then(|size| u32::try_from(size).ok())
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "WAV data exceeds 4 GiB"))?;
+        let file_size = 36u32
+            .checked_add(data_size)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "WAV file is too large"))?;
+        let num_channels = 1u16;
+        let bits_per_sample = 16u16;
+        let byte_rate = sample_rate * u32::from(num_channels) * u32::from(bits_per_sample) / 8;
+        let block_align = num_channels * bits_per_sample / 8;
+        let mut file = BufWriter::with_capacity(256 * 1024, std::fs::File::create(path)?);
+
+        file.write_all(b"RIFF")?;
+        file.write_all(&file_size.to_le_bytes())?;
+        file.write_all(b"WAVE")?;
+        file.write_all(b"fmt ")?;
+        file.write_all(&16u32.to_le_bytes())?;
+        file.write_all(&1u16.to_le_bytes())?;
+        file.write_all(&num_channels.to_le_bytes())?;
+        file.write_all(&sample_rate.to_le_bytes())?;
+        file.write_all(&byte_rate.to_le_bytes())?;
+        file.write_all(&block_align.to_le_bytes())?;
+        file.write_all(&bits_per_sample.to_le_bytes())?;
+        file.write_all(b"data")?;
+        file.write_all(&data_size.to_le_bytes())?;
+
+        let block_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        let mut cursor = 0usize;
+        while cursor < source.total_samples() {
+            let block = source.read_block(cursor, block_samples);
+            if block.is_empty() {
+                break;
+            }
+            Self::write_pcm16_block(&mut file, &block)?;
+            cursor = cursor.saturating_add(block.len());
+        }
+
+        if cursor != source.total_samples() {
+            return Err(Error::new(
+                ErrorKind::UnexpectedEof,
+                "audio source ended before its declared sample count",
+            ));
+        }
+        file.flush()
     }
 
     fn write_mp3_file_from_samples(
@@ -24665,6 +25015,26 @@ impl TTSScreen {
         Self::write_wav_file_with_sample_rate(&temp_wav, samples, sample_rate)
             .map_err(|e| format!("failed to create temp wav: {}", e))?;
 
+        let conversion = Self::convert_wav_file_to_mp3(&temp_wav, target);
+        let _ = std::fs::remove_file(&temp_wav);
+        conversion
+    }
+
+    fn write_mp3_file_from_source(
+        target: &PathBuf,
+        source: &PlaybackAudioSource,
+    ) -> Result<(), String> {
+        let temp_wav = std::env::temp_dir().join(format!(
+            "moxin_tts_export_{}_{}.wav",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+
+        Self::write_wav_file_from_source(&temp_wav, source)
+            .map_err(|e| format!("failed to create temp wav: {}", e))?;
         let conversion = Self::convert_wav_file_to_mp3(&temp_wav, target);
         let _ = std::fs::remove_file(&temp_wav);
         conversion
@@ -25910,189 +26280,255 @@ impl TTSScreen {
         }
     }
 
-    fn effective_audio_samples(&self) -> &[f32] {
-        if self.stored_audio_samples.is_empty() {
-            &self.stored_audio_samples
-        } else if self.processed_audio_samples.is_empty() {
-            &self.stored_audio_samples
-        } else {
-            &self.processed_audio_samples
-        }
+    fn playback_audio_total_samples(&self) -> usize {
+        self.playback_audio_source
+            .as_ref()
+            .map(PlaybackAudioSource::total_samples)
+            .unwrap_or_default()
     }
 
-    fn effective_audio_sample_rate(&self) -> u32 {
-        if self.stored_audio_samples.is_empty() {
-            self.stored_audio_sample_rate
-        } else if self.processed_audio_samples.is_empty() {
-            self.stored_audio_sample_rate
-        } else {
-            24000
-        }
+    fn playback_audio_sample_rate(&self) -> u32 {
+        self.playback_audio_source
+            .as_ref()
+            .map(PlaybackAudioSource::sample_rate)
+            .unwrap_or_default()
     }
 
-    fn resample_linear(samples: &[f32], in_rate: u32, out_rate: u32) -> Vec<f32> {
-        if samples.is_empty() || in_rate == 0 || out_rate == 0 || in_rate == out_rate {
-            return samples.to_vec();
-        }
-
-        let ratio = out_rate as f32 / in_rate as f32;
-        let new_len = (samples.len() as f32 * ratio).round().max(1.0) as usize;
-        let mut result = Vec::with_capacity(new_len);
-
-        for i in 0..new_len {
-            let src_idx = i as f32 / ratio;
-            let idx = src_idx as usize;
-            let frac = src_idx - idx as f32;
-            let s1 = samples.get(idx).copied().unwrap_or(0.0);
-            let s2 = samples.get(idx + 1).copied().unwrap_or(s1);
-            result.push(s1 + (s2 - s1) * frac);
-        }
-
-        result
+    fn begin_playback_stretch_task(&mut self) {
+        let worker = self
+            .playback_stretch_worker
+            .get_or_insert_with(PlaybackStretchWorker::new);
+        self.playback_stretch_task_id = worker.begin_task();
+        self.playback_stretch_pending.clear();
     }
 
-    fn hann_window_sample(index: usize, len: usize) -> f32 {
-        if len <= 1 {
-            return 1.0;
-        }
-        let phase = std::f32::consts::TAU * index as f32 / (len - 1) as f32;
-        0.5 - 0.5 * phase.cos()
-    }
-
-    fn best_time_stretch_source_index(
-        samples: &[f32],
-        output: &[f32],
-        weights: &[f32],
-        output_pos: usize,
-        desired_source_idx: usize,
-        frame_len: usize,
-        synthesis_hop: usize,
-    ) -> usize {
-        if output_pos == 0 || frame_len == 0 || samples.len() <= frame_len {
-            return desired_source_idx.min(samples.len().saturating_sub(frame_len));
-        }
-
-        let max_candidate = samples.len().saturating_sub(frame_len);
-        let search_radius = (frame_len / 3).clamp(64, 320);
-        let start = desired_source_idx.saturating_sub(search_radius).min(max_candidate);
-        let end = desired_source_idx
-            .saturating_add(search_radius)
-            .min(max_candidate);
-        let compare_len = (frame_len.saturating_sub(synthesis_hop))
-            .min(512)
-            .min(output.len().saturating_sub(output_pos));
-        if compare_len < 32 || start >= end {
-            return desired_source_idx.min(max_candidate);
-        }
-
-        let mut best_idx = desired_source_idx.min(max_candidate);
-        let mut best_score = f32::NEG_INFINITY;
-        for candidate in start..=end {
-            let mut dot = 0.0f32;
-            let mut out_energy = 0.0f32;
-            let mut src_energy = 0.0f32;
-
-            for offset in (0..compare_len).step_by(4) {
-                if weights[output_pos + offset] <= 0.000_001 {
-                    continue;
-                }
-                let out_sample = output[output_pos + offset] / weights[output_pos + offset];
-                let src_sample = samples[candidate + offset];
-                dot += out_sample * src_sample;
-                out_energy += out_sample * out_sample;
-                src_energy += src_sample * src_sample;
+    fn poll_playback_stretch_results(&mut self) {
+        let mut results = Vec::new();
+        if let Some(worker) = &self.playback_stretch_worker {
+            while let Some(result) = worker.try_recv() {
+                results.push(result);
             }
+        }
 
-            if out_energy <= 0.000_001 || src_energy <= 0.000_001 {
+        for result in results {
+            if result.task_id != self.playback_stretch_task_id {
                 continue;
             }
-
-            let score = dot / (out_energy.sqrt() * src_energy.sqrt());
-            if score > best_score {
-                best_score = score;
-                best_idx = candidate;
-            }
+            self.playback_stretch_pending.remove(&result.key);
+            self.playback_stretch_cache
+                .insert(result.key, Arc::new(result.samples));
         }
-
-        best_idx
     }
 
-    fn time_stretch_preserve_pitch(samples: &[f32], playback_rate: f64) -> Vec<f32> {
-        if samples.is_empty() {
-            return Vec::new();
+    fn request_playback_stretch_block(
+        &mut self,
+        key: StretchBlockKey,
+        priority: StretchPriority,
+    ) -> bool {
+        if self.playback_stretch_cache.contains(&key)
+            || self.playback_stretch_pending.contains(&key)
+        {
+            return false;
+        }
+        let Some(source) = self.playback_audio_source.clone() else {
+            return false;
+        };
+        if source.revision() != key.audio_revision || self.playback_stretch_task_id == 0 {
+            return false;
         }
 
-        let rate = playback_rate.clamp(0.5, 2.0);
-        if (rate - 1.0).abs() < 0.01 {
-            return samples.to_vec();
+        let sample_rate = source.sample_rate() as usize;
+        let block_samples = sample_rate.saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        if block_samples == 0 {
+            return false;
         }
-
-        let target_len = (samples.len() as f64 / rate).round().max(1.0) as usize;
-        let window_len = samples.len().min(1024);
-        if window_len < 32 {
-            return samples.to_vec();
+        let block_start = (key.block_index as usize).saturating_mul(block_samples);
+        if block_start >= source.total_samples() {
+            return false;
         }
-
-        let synthesis_hop = (window_len / 4).max(8);
-        let analysis_hop = (synthesis_hop as f64 * rate).round().max(1.0);
-        let mut output = vec![0.0f32; target_len + window_len];
-        let mut weights = vec![0.0f32; target_len + window_len];
-        let mut source_pos = 0.0f64;
-        let mut output_pos = 0usize;
-
-        while output_pos < target_len {
-            let desired_source_idx = source_pos.round().max(0.0) as usize;
-            let source_idx = Self::best_time_stretch_source_index(
-                samples,
-                &output,
-                &weights,
-                output_pos,
-                desired_source_idx,
-                window_len,
-                synthesis_hop,
-            );
-            if source_idx >= samples.len() {
-                break;
-            }
-
-            let frame_len = window_len
-                .min(samples.len() - source_idx)
-                .min(output.len() - output_pos);
-            for i in 0..frame_len {
-                let window = Self::hann_window_sample(i, window_len).max(0.000_001);
-                output[output_pos + i] += samples[source_idx + i] * window;
-                weights[output_pos + i] += window;
-            }
-
-            source_pos += analysis_hop;
-            output_pos = output_pos.saturating_add(synthesis_hop);
+        let context_samples = sample_rate
+            .saturating_mul(PLAYBACK_STRETCH_CONTEXT_MILLIS)
+            / 1_000;
+        let submitted = self
+            .playback_stretch_worker
+            .as_ref()
+            .is_some_and(|worker| {
+                worker.submit_source_block(
+                    self.playback_stretch_task_id,
+                    key,
+                    source,
+                    block_samples,
+                    context_samples,
+                    priority,
+                )
+            });
+        if submitted {
+            self.playback_stretch_pending.insert(key);
         }
-
-        for i in 0..target_len {
-            if weights[i] > 0.000_001 {
-                output[i] /= weights[i];
-            }
-        }
-
-        output.truncate(target_len);
-        output
+        submitted
     }
 
-    fn rebuild_processed_audio_samples(&mut self) {
-        if self.stored_audio_samples.is_empty() {
-            self.processed_audio_samples.clear();
+    fn prefetch_playback_stretch_blocks(&mut self, after_block_index: u64) {
+        let Some(source) = self.playback_audio_source.clone() else {
+            return;
+        };
+        let block_samples = (source.sample_rate() as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        if block_samples == 0 {
             return;
         }
-
-        // Resample to 24kHz if needed (player source rate matches Qwen3-TTS native rate).
-        if self.stored_audio_sample_rate > 0 && self.stored_audio_sample_rate != 24000 {
-            self.processed_audio_samples = Self::resample_linear(
-                &self.stored_audio_samples,
-                self.stored_audio_sample_rate,
-                24000,
+        let block_count = source.total_samples().div_ceil(block_samples) as u64;
+        for offset in 1..=PLAYBACK_STRETCH_PREFETCH_BLOCKS {
+            let block_index = after_block_index.saturating_add(offset);
+            if block_index >= block_count {
+                break;
+            }
+            let key = StretchBlockKey::new(
+                source.revision(),
+                self.player_playback_rate,
+                block_index,
             );
+            self.request_playback_stretch_block(key, StretchPriority::Prefetch);
+        }
+    }
+
+    fn queue_next_playback_block(
+        &mut self,
+        queued_samples: usize,
+        queue_capacity_samples: usize,
+    ) -> Option<usize> {
+        let Some(source) = self.playback_audio_source.clone() else {
+            self.playback_feed_finished = true;
+            return None;
+        };
+        let sample_rate = source.sample_rate();
+        let block_samples = (sample_rate as usize).saturating_mul(PLAYBACK_BLOCK_SECONDS);
+        if block_samples == 0 || self.playback_feed_cursor >= source.total_samples() {
+            self.playback_feed_finished = true;
+            return None;
+        }
+
+        if (self.player_playback_rate - 1.0).abs() < 0.01 {
+            let source_block = source.read_block(self.playback_feed_cursor, block_samples);
+            if source_block.is_empty() {
+                self.playback_feed_finished = true;
+                return None;
+            }
+            let source_samples = source_block.len();
+            let player = self.audio_player.as_ref()?;
+            if source_samples > queue_capacity_samples {
+                self.playback_feed_finished = true;
+                return None;
+            }
+            if !player_queue_can_accept(
+                queued_samples,
+                source_samples,
+                queue_capacity_samples,
+            ) {
+                return None;
+            }
+            player.write_audio_owned_for_intent(
+                self.playback_player_intent_id,
+                source_block,
+            );
+            self.player_active_rate = 1.0;
+            self.playback_last_queued_sample = None;
+            self.playback_feed_cursor = self.playback_feed_cursor.saturating_add(source_samples);
+            self.playback_feed_finished = self.playback_feed_cursor >= source.total_samples();
+            return Some(source_samples);
+        }
+
+        let block_index = (self.playback_feed_cursor / block_samples) as u64;
+        let block_start = (block_index as usize).saturating_mul(block_samples);
+        let block_end = block_start
+            .saturating_add(block_samples)
+            .min(source.total_samples());
+        let key = StretchBlockKey::new(
+            source.revision(),
+            self.player_playback_rate,
+            block_index,
+        );
+        let Some(cached) = self.playback_stretch_cache.get(&key) else {
+            self.request_playback_stretch_block(key, StretchPriority::Current);
+            self.prefetch_playback_stretch_blocks(block_index);
+            return None;
+        };
+
+        let source_offset = self.playback_feed_cursor.saturating_sub(block_start);
+        let output_offset = (source_offset as f64 / key.playback_rate()).round() as usize;
+        let mut prepared = if output_offset == 0 {
+            cached
         } else {
-            self.processed_audio_samples = self.stored_audio_samples.clone();
+            Arc::new(cached.get(output_offset..).unwrap_or_default().to_vec())
+        };
+        if let Some(previous_sample) = self.playback_last_queued_sample {
+            let mut smoothed = prepared.as_ref().clone();
+            let fade_samples = (sample_rate as usize)
+                .saturating_mul(PLAYBACK_STRETCH_BOUNDARY_FADE_MILLIS)
+                / 1_000;
+            smooth_block_boundary(&mut smoothed, previous_sample, fade_samples);
+            prepared = Arc::new(smoothed);
+        }
+        if prepared.is_empty() {
+            self.playback_feed_cursor = block_end;
+            self.playback_feed_finished = self.playback_feed_cursor >= source.total_samples();
+            return Some(0);
+        }
+        let player = self.audio_player.as_ref()?;
+        if prepared.len() > queue_capacity_samples {
+            self.playback_feed_finished = true;
+            return None;
+        }
+        if !player_queue_can_accept(
+            queued_samples,
+            prepared.len(),
+            queue_capacity_samples,
+        ) {
+            return None;
+        }
+        let queued_samples = prepared.len();
+        self.playback_last_queued_sample = prepared.last().copied();
+        player.write_audio_shared_for_intent(self.playback_player_intent_id, prepared);
+        self.player_active_rate = key.playback_rate();
+        self.playback_feed_cursor = block_end;
+        self.playback_feed_finished = self.playback_feed_cursor >= source.total_samples();
+        self.prefetch_playback_stretch_blocks(block_index);
+        Some(queued_samples)
+    }
+
+    fn fill_playback_queue(&mut self, mut queued_samples: usize) {
+        let sample_rate = self.playback_audio_sample_rate();
+        let high_water = (PLAYBACK_HIGH_WATER_SECONDS * sample_rate as f64) as usize;
+        let queue_capacity_samples = self
+            .audio_player
+            .as_ref()
+            .map(TTSPlayer::queue_capacity_samples)
+            .unwrap_or_default();
+        while queued_samples < high_water && !self.playback_feed_finished {
+            let Some(written) =
+                self.queue_next_playback_block(queued_samples, queue_capacity_samples)
+            else {
+                break;
+            };
+            queued_samples = queued_samples.saturating_add(written);
+        }
+    }
+
+    fn refill_playback_queue(&mut self) {
+        if self.tts_status != TTSStatus::Playing || self.playback_feed_finished {
+            return;
+        }
+        let should_refill = self
+            .audio_player
+            .as_ref()
+            .map(|player| player.queued_secs() <= PLAYBACK_LOW_WATER_SECONDS)
+            .unwrap_or(false);
+        if should_refill {
+            let queued_samples = self
+                .audio_player
+                .as_ref()
+                .map(TTSPlayer::queued_samples)
+                .unwrap_or_default();
+            self.fill_playback_queue(queued_samples);
         }
     }
 
@@ -27777,7 +28213,7 @@ impl TTSScreen {
             .iter()
             .filter(|v| match self.voice_picker_tab {
                 0 => true,
-                1 => v.source != VoiceSource::Builtin && v.source != VoiceSource::BundledIcl,
+                1 => v.source != VoiceSource::Builtin && v.source != VoiceSource::BundledClone,
                 _ => true,
             })
             .filter(|v| v.matches_language(&self.voice_picker_language_filter))
@@ -28854,7 +29290,7 @@ impl TTSScreen {
             .find(|v| v.id == voice_id)
             .map(|v| {
                 v.source != crate::voice_data::VoiceSource::Builtin
-                    && v.source != crate::voice_data::VoiceSource::BundledIcl
+                    && v.source != crate::voice_data::VoiceSource::BundledClone
             })
             .unwrap_or(false);
 
@@ -28924,6 +29360,8 @@ impl TTSScreen {
             if let Some(player) = &self.preview_player {
                 player.stop();
             }
+            self.preview_audio_source = None;
+            self.preview_feed_finished = true;
             self.preview_playing_voice_id = None;
             self.update_voice_picker_controls(cx);
             self.view.redraw(cx);
@@ -28965,10 +29403,10 @@ impl TTSScreen {
                         return;
                     }
                 }
-            } else if voice.source == VoiceSource::BundledIcl {
+            } else if voice.source == VoiceSource::BundledClone {
                 // Use bundled ref audio as preview
                 let ref_filename = voice.reference_audio_path.as_deref().unwrap_or("ref.wav");
-                match self.resolve_bundled_icl_ref_path(&voice.id, ref_filename) {
+                match self.resolve_bundled_clone_ref_path(&voice.id, ref_filename) {
                     Some(path) => path,
                     None => {
                         self.add_log(
@@ -29020,6 +29458,8 @@ impl TTSScreen {
         // Load and play WAV file
         match self.load_wav_file(&audio_path) {
             Ok(samples) => {
+                self.preview_audio_source = None;
+                self.preview_feed_finished = true;
                 if self.preview_player.is_none() {
                     self.preview_player = Some(TTSPlayer::new_with_output_device(
                         24000,
@@ -29726,10 +30166,11 @@ mod tests {
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
         player_effective_volume, player_menu_abs_pos, player_playback_position_after_tick,
-        player_playback_rate_index, should_probe_translation_permission_on_page_entry,
-        should_show_runtime_download_ui, split_tts_text_segments, tts_input_click_disposition,
-        tts_input_drag_scroll_delta, AppPage, DownloadFormat, Event, RuntimeInitState,
-        TtsInputClickDisposition, TtsSegmentDispatch, TTSScreen, TTS_INPUT_MAX_CHARS,
+        player_playback_rate_index, player_queue_can_accept, segment_follow_first_id,
+        should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
+        split_tts_text_segments, tts_input_click_disposition, tts_input_drag_scroll_delta, AppPage,
+        DownloadFormat, Event, RuntimeInitState, TtsInputClickDisposition, TtsSegmentDispatch,
+        TTSScreen, TTS_INPUT_MAX_CHARS,
     };
     use makepad_widgets::{
         dvec2, Area, DVec2, KeyModifiers, MouseButton, MouseDownEvent, MouseUpEvent, Rect,
@@ -29830,6 +30271,31 @@ mod tests {
     }
 
     #[test]
+    fn current_audio_wav_export_streams_from_playback_source() {
+        let target = std::env::temp_dir().join(format!(
+            "moxin-streamed-export-{}-{}.wav",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let source = crate::playback_audio_source::PlaybackAudioSource::from_contiguous(
+            std::sync::Arc::new(vec![0.25; 48_000]),
+            24_000,
+            24_000,
+        );
+
+        TTSScreen::write_wav_file_from_source(&target, &source).unwrap();
+
+        let reader = hound::WavReader::open(&target).unwrap();
+        assert_eq!(reader.spec().sample_rate, 24_000);
+        assert_eq!(reader.duration(), 48_000);
+        drop(reader);
+        let _ = std::fs::remove_file(target);
+    }
+
+    #[test]
     fn player_playback_position_advances_by_playback_rate() {
         assert_eq!(player_playback_position_after_tick(1.0, 10.0, 0.1, 2.0), 1.2);
         assert_eq!(
@@ -29837,6 +30303,33 @@ mod tests {
             10.0
         );
         assert_eq!(player_playback_position_after_tick(1.0, 10.0, 0.1, 0.0), 1.0);
+    }
+
+    #[test]
+    fn active_segment_only_moves_the_list_after_leaving_the_viewport() {
+        assert_eq!(segment_follow_first_id(4, 3, 4), None);
+        assert_eq!(segment_follow_first_id(2, 3, 4), Some(2));
+        assert_eq!(segment_follow_first_id(7, 3, 4), Some(4));
+        assert_eq!(segment_follow_first_id(9, 0, 0), Some(9));
+    }
+
+    #[test]
+    fn slow_playback_refill_stops_before_the_player_queue_overflows() {
+        let sample_rate = 24_000usize;
+        let capacity = 30 * sample_rate;
+        let stretched_block = (10.0 / 0.75 * sample_rate as f64).round() as usize;
+        let queued_at_refill = 5 * sample_rate;
+
+        assert!(player_queue_can_accept(
+            queued_at_refill,
+            stretched_block,
+            capacity
+        ));
+        assert!(!player_queue_can_accept(
+            queued_at_refill + stretched_block,
+            stretched_block,
+            capacity
+        ));
     }
 
     #[test]
@@ -29883,7 +30376,16 @@ mod tests {
             .map(|n| ((n % period) as f32 / period as f32 * std::f32::consts::TAU).sin())
             .collect();
 
-        let stretched = TTSScreen::time_stretch_preserve_pitch(&samples, 2.0);
+        let stretched = crate::playback_time_stretch::stretch_block_preserve_pitch(
+            &samples,
+            2.0,
+            crate::playback_time_stretch::BlockTrim {
+                leading_source_samples: 0,
+                output_source_samples: samples.len(),
+            },
+            &|| false,
+        )
+        .unwrap();
 
         assert!(stretched.len() > samples.len() / 2 - period);
         assert!(stretched.len() < samples.len() / 2 + period);
@@ -29919,7 +30421,16 @@ mod tests {
             .map(|n| ((n % period) as f32 / period as f32 * std::f32::consts::TAU).sin())
             .collect();
 
-        let stretched = TTSScreen::time_stretch_preserve_pitch(&samples, 1.5);
+        let stretched = crate::playback_time_stretch::stretch_block_preserve_pitch(
+            &samples,
+            1.5,
+            crate::playback_time_stretch::BlockTrim {
+                leading_source_samples: 0,
+                output_source_samples: samples.len(),
+            },
+            &|| false,
+        )
+        .unwrap();
         let input_rms = rms(&samples);
         let output_rms = rms(&stretched);
 
@@ -30168,7 +30679,9 @@ mod tests {
         assert!(menu.contains("vec4(0.05, 0.10, 0.20, 0.07)"));
         assert!(!menu.contains("shadow_distance"));
         assert!(menu.contains("padding: {left: 16, right: 16, top: 16, bottom: 18}"));
-        assert!(source.contains("icon_walk: {width: 20, height: 20}"));
+        assert!(source.contains(
+            "icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}"
+        ));
     }
 
     #[test]
@@ -30243,6 +30756,25 @@ mod tests {
     }
 
     #[test]
+    fn pending_tts_generation_failure_is_visible_to_the_user() {
+        let source = include_str!("screen.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        let failure = source
+            .split("fn fail_pending_tts_generation")
+            .nth(1)
+            .expect("pending generation failure handler should exist")
+            .split("fn set_generate_button_loading")
+            .next()
+            .unwrap();
+
+        assert!(failure.contains("self.show_toast("));
+        assert!(failure.contains("音频生成失败，请重试"));
+        assert!(failure.contains("Audio generation failed; please try again"));
+    }
+
+    #[test]
     fn segment_actions_stay_right_aligned_after_the_flexible_row_spacer() {
         let source = include_str!("screen.rs")
             .split("#[cfg(test)]")
@@ -30269,23 +30801,33 @@ mod tests {
     }
 
     #[test]
-    fn segment_icon_buttons_center_thin_neutral_icons() {
+    fn segment_icon_buttons_match_trigger_and_action_styles() {
         let source = include_str!("screen.rs")
             .split("#[cfg(test)]")
             .next()
             .unwrap();
-        for button_name in ["PlayerSegmentBtn = <Button>", "PlayerSegmentActionBtn = <Button>"] {
-            let button = source
-                .split(button_name)
-                .nth(1)
-                .expect("segment icon button should exist")
-                .split("draw_text:")
-                .next()
-                .unwrap();
-            assert!(button.contains("align: {x: 0.5, y: 0.5}"));
-            assert!(button.contains("label_walk: {width: 0, height: 0}"));
-            assert!(button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
-        }
+        let action_button = source
+            .split("PlayerSegmentActionBtn = <Button>")
+            .nth(1)
+            .expect("segment action button should exist")
+            .split("draw_text:")
+            .next()
+            .unwrap();
+        assert!(action_button.contains("align: {x: 0.5, y: 0.5}"));
+        assert!(action_button.contains("label_walk: {width: 0, height: 0}"));
+        assert!(action_button.contains("mix((SLATE_600), (SLATE_300), self.dark_mode)"));
+
+        let menu_button = source
+            .split("PlayerSegmentBtn = <Button>")
+            .nth(1)
+            .expect("segment menu button should exist")
+            .split("draw_text:")
+            .next()
+            .unwrap();
+        assert!(menu_button.contains("align: {x: 0.5, y: 0.5}"));
+        assert!(menu_button.contains("label_walk: {width: 0, height: 0}"));
+        assert!(menu_button.contains("return (WHITE);"));
+        assert!(menu_button.contains("icon_walk: {width: 16, height: 16"));
         let preview_button = source
             .split("PlayerSegmentPreviewBtn = <PlayerSegmentActionBtn>")
             .nth(1)
@@ -30304,7 +30846,7 @@ mod tests {
             .next()
             .unwrap();
         assert!(download_button.contains("svg_file: (ICO_TTS_SEGMENT_DOWNLOAD)"));
-        assert!(download_button.contains("margin: {left: 6, right: 6, top: 6, bottom: 6}"));
+        assert!(download_button.contains("margin: {left: 8, right: 4, top: 6, bottom: 6}"));
         let action_button = source
             .split("PlayerSegmentActionBtn = <Button>")
             .nth(1)

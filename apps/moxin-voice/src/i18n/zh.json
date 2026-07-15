@@ -37,14 +37,14 @@
     "export": "导出",
     "exporting": "导出中...",
     "input_placeholder": "请输入要转换的文字...",
-    "speed": "语速",
+    "speed": "生成语速",
     "pitch": "音调",
     "volume": "音量",
     "no_result": "暂无结果"
   },
   "clone": {
     "express_mode": "快速模式",
-    "express_desc": "5-10秒音频克隆声音",
+    "express_desc": "使用3-6秒音频克隆，无需参考文本",
     "pro_mode": "专业模式",
     "pro_desc": "3-10分钟训练高质量克隆",
     "record_audio": "录制音频",
@@ -59,7 +59,7 @@
   "settings": {
     "title": "设置",
     "voice_settings": "语音合成设置",
-    "default_speed": "默认语速",
+    "default_speed": "默认生成语速",
     "default_pitch": "默认音调",
     "default_volume": "默认音量",
     "output_format": "输出格式",

@@ -20,8 +20,8 @@ bash scripts/init_qwen3_models.sh
 | 模型 | 用途 | 大小 |
 |------|------|------|
 | `Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | 预置 9 个内置音色 | ~3GB |
-| `Qwen3-TTS-12Hz-1.7B-Base` | ICL 零样本语音克隆 | ~3GB |
-| `Qwen3-ASR-1.7B-MLX` | 语音识别（克隆参考音频转文字） | ~2.5GB |
+| `Qwen3-TTS-12Hz-1.7B-Base` | x-vector 零样本语音克隆 | ~3GB |
+| `Qwen3-ASR-1.7B-MLX` | 语音识别与实时转写 | ~2.5GB |
 
 所有模型存储于 `~/.OminiX/models/`。
 
@@ -42,6 +42,13 @@ cargo run -p moxin-voice-shell
 ```
 
 应用会自动执行 preflight、首次模型 bootstrap，以及 Dora runtime 启动。
+
+## 音色克隆与长音频播放
+
+- 快速克隆使用 x-vector，只需 3–6 秒参考音频，不需要参考文本。
+- 底层库仍保留实验性 ICL API，但应用产品入口不会调用它。
+- “生成语速”会改变重新生成的音频和下载文件；播放器中的“预览倍速”只影响本地播放，采用变速不变调，不改写导出音频。
+- 播放器正式支持至少 60 分钟音频。未缓存位置会在后台按 10 秒块准备，同一音频、倍率和位置的后续播放会复用缓存。
 
 ## 构建 macOS App Bundle
 

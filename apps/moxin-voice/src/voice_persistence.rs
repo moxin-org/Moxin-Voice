@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+pub(crate) const EXPRESS_REFERENCE_MIN_SECS: f32 = 3.0;
+pub(crate) const EXPRESS_REFERENCE_MAX_SECS: f32 = 6.0;
+
 /// Custom voices configuration file format
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CustomVoicesConfig {
@@ -182,13 +185,10 @@ pub fn copy_reference_audio(voice_id: &str, source_path: &PathBuf) -> Result<Str
 /// Validate audio file for voice cloning
 ///
 /// Hard limits (rejected):
-/// - Duration < 1 second: Too short for voice cloning
-/// - Duration > 30 seconds: Too long, may degrade quality
+/// - Duration < 3 seconds: Too short for voice cloning
+/// - Duration > 6 seconds: Too long for voice cloning
 ///
-/// Recommended range (warnings):
-/// - Duration 3-10 seconds: Optimal for voice cloning quality
-///
-/// Returns AudioInfo with validation warnings, or Err if hard limits exceeded.
+/// Returns AudioInfo, or Err if the supported duration is exceeded.
 pub fn validate_audio_file(path: &PathBuf) -> Result<AudioInfo, String> {
     use hound::WavReader;
 
@@ -207,50 +207,31 @@ pub fn validate_audio_file(path: &PathBuf) -> Result<AudioInfo, String> {
     let num_samples = reader.len() as f32;
     let duration_secs = num_samples / (sample_rate as f32 * channels as f32);
 
-    // Validate duration with hard limits and warnings
-    // Hard limits: reject files < 1s or > 30s (unusable for voice cloning)
-    // Recommended: 3-10 seconds for optimal quality
-    const MIN_DURATION_HARD: f32 = 1.0;
-    const MAX_DURATION_HARD: f32 = 8.0;
-    const MIN_DURATION_RECOMMENDED: f32 = 3.0;
-    const MAX_DURATION_RECOMMENDED: f32 = 10.0;
-
-    // Hard limit validation - reject immediately
-    if duration_secs < MIN_DURATION_HARD {
-        return Err(format!(
-            "Audio too short for voice cloning: {:.1}s (minimum: {}s)",
-            duration_secs, MIN_DURATION_HARD
-        ));
-    }
-    if duration_secs > MAX_DURATION_HARD {
-        return Err(format!(
-            "Audio too long for voice cloning: {:.1}s (maximum: {}s)",
-            duration_secs, MAX_DURATION_HARD
-        ));
-    }
-
-    // Soft limit validation - warn but allow
-    let mut warnings = Vec::new();
-    if duration_secs < MIN_DURATION_RECOMMENDED {
-        warnings.push(format!(
-            "Audio shorter than recommended ({:.1}s < {}s) - may affect cloning quality",
-            duration_secs, MIN_DURATION_RECOMMENDED
-        ));
-    }
-    if duration_secs > MAX_DURATION_RECOMMENDED {
-        warnings.push(format!(
-            "Audio longer than recommended ({:.1}s > {}s) - may affect cloning quality",
-            duration_secs, MAX_DURATION_RECOMMENDED
-        ));
-    }
+    validate_reference_duration(duration_secs)?;
 
     Ok(AudioInfo {
         duration_secs,
         sample_rate,
         channels,
         bits_per_sample,
-        warnings,
+        warnings: Vec::new(),
     })
+}
+
+fn validate_reference_duration(duration_secs: f32) -> Result<(), String> {
+    if duration_secs < EXPRESS_REFERENCE_MIN_SECS {
+        return Err(format!(
+            "Audio too short for voice cloning: {:.1}s (minimum: {}s)",
+            duration_secs, EXPRESS_REFERENCE_MIN_SECS
+        ));
+    }
+    if duration_secs > EXPRESS_REFERENCE_MAX_SECS {
+        return Err(format!(
+            "Audio too long for voice cloning: {:.1}s (maximum: {}s)",
+            duration_secs, EXPRESS_REFERENCE_MAX_SECS
+        ));
+    }
+    Ok(())
 }
 
 /// Audio file information
@@ -328,6 +309,20 @@ mod tests {
     #[test]
     fn test_voice_id_with_chinese() {
         let id = generate_voice_id("我的声音");
-        assert!(id.starts_with("____")); // Chinese chars become underscores
+        assert!(id.starts_with("我的声音_"));
+    }
+
+    #[test]
+    fn express_reference_duration_uses_the_shared_three_to_six_second_range() {
+        assert!(validate_reference_duration(EXPRESS_REFERENCE_MIN_SECS).is_ok());
+        assert!(validate_reference_duration(EXPRESS_REFERENCE_MAX_SECS).is_ok());
+        assert_eq!(
+            validate_reference_duration(2.9).unwrap_err(),
+            "Audio too short for voice cloning: 2.9s (minimum: 3s)"
+        );
+        assert_eq!(
+            validate_reference_duration(6.1).unwrap_err(),
+            "Audio too long for voice cloning: 6.1s (maximum: 6s)"
+        );
     }
 }

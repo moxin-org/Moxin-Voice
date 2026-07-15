@@ -10,10 +10,7 @@ pub enum SegmentAudioError {
 
 #[derive(Clone, Debug)]
 pub enum RetryCommit {
-    Replace {
-        samples: Vec<f32>,
-        sample_rate: u32,
-    },
+    Replace { samples: Vec<f32>, sample_rate: u32 },
     KeepExisting,
 }
 
@@ -21,7 +18,7 @@ pub enum RetryCommit {
 pub struct TtsAudioSegment {
     pub text: String,
     pub request_payload: String,
-    pub samples: Vec<f32>,
+    pub samples: Arc<Vec<f32>>,
     pub sample_rate: u32,
     pub text_expanded: bool,
 }
@@ -31,7 +28,7 @@ impl TtsAudioSegment {
         Self {
             text: text.into(),
             request_payload: request_payload.into(),
-            samples: Vec::new(),
+            samples: Arc::new(Vec::new()),
             sample_rate: 0,
             text_expanded: false,
         }
@@ -46,7 +43,7 @@ impl TtsAudioSegment {
         Self {
             text: text.into(),
             request_payload: request_payload.into(),
-            samples,
+            samples: Arc::new(samples),
             sample_rate,
             text_expanded: false,
         }
@@ -57,6 +54,8 @@ impl TtsAudioSegment {
 pub struct TtsAudioSegments {
     segments: Vec<TtsAudioSegment>,
     sample_rate: u32,
+    start_offsets: Vec<usize>,
+    revision: u64,
 }
 
 impl TtsAudioSegments {
@@ -75,14 +74,52 @@ impl TtsAudioSegments {
             });
         }
 
+        let start_offsets = Self::build_start_offsets(&segments);
         Ok(Self {
             segments,
             sample_rate,
+            start_offsets,
+            revision: next_audio_revision(),
         })
+    }
+
+    fn build_start_offsets(segments: &[TtsAudioSegment]) -> Vec<usize> {
+        let mut offsets = Vec::with_capacity(segments.len() + 1);
+        offsets.push(0usize);
+        for segment in segments {
+            let next = offsets
+                .last()
+                .copied()
+                .unwrap_or_default()
+                .saturating_add(segment.samples.len());
+            offsets.push(next);
+        }
+        offsets
+    }
+
+    fn rebuild_offsets_and_revision(&mut self) {
+        self.start_offsets = Self::build_start_offsets(&self.segments);
+        self.revision = next_audio_revision();
     }
 
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub fn total_samples(&self) -> usize {
+        self.start_offsets.last().copied().unwrap_or_default()
+    }
+
+    pub fn duration_secs(&self) -> f64 {
+        if self.sample_rate == 0 {
+            0.0
+        } else {
+            self.total_samples() as f64 / self.sample_rate as f64
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -106,22 +143,39 @@ impl TtsAudioSegments {
     }
 
     pub fn merged_samples(&self) -> Vec<f32> {
-        self.segments
-            .iter()
-            .flat_map(|segment| segment.samples.iter().copied())
-            .collect()
+        self.read_block(0, self.total_samples())
+    }
+
+    pub fn read_block(&self, start_sample: usize, max_samples: usize) -> Vec<f32> {
+        if max_samples == 0 || start_sample >= self.total_samples() {
+            return Vec::new();
+        }
+
+        let end_sample = start_sample
+            .saturating_add(max_samples)
+            .min(self.total_samples());
+        let mut output = Vec::with_capacity(end_sample - start_sample);
+        let mut segment_index = self
+            .index_at_sample(start_sample)
+            .unwrap_or(self.segments.len());
+        let mut cursor = start_sample;
+
+        while cursor < end_sample && segment_index < self.segments.len() {
+            let segment_start = self.start_offsets[segment_index];
+            let segment = &self.segments[segment_index];
+            let local_start = cursor.saturating_sub(segment_start);
+            let available = segment.samples.len().saturating_sub(local_start);
+            let take = available.min(end_sample - cursor);
+            output.extend_from_slice(&segment.samples[local_start..local_start + take]);
+            cursor = cursor.saturating_add(take);
+            segment_index += 1;
+        }
+
+        output
     }
 
     pub fn start_sample(&self, index: usize) -> Option<usize> {
-        if index >= self.segments.len() {
-            return None;
-        }
-        Some(
-            self.segments[..index]
-                .iter()
-                .map(|segment| segment.samples.len())
-                .sum(),
-        )
+        (index < self.segments.len()).then(|| self.start_offsets[index])
     }
 
     pub fn start_time_secs(&self, index: usize) -> Option<f64> {
@@ -130,15 +184,13 @@ impl TtsAudioSegments {
     }
 
     pub fn index_at_sample(&self, sample: usize) -> Option<usize> {
-        let mut start = 0usize;
-        for (index, segment) in self.segments.iter().enumerate() {
-            let end = start.saturating_add(segment.samples.len());
-            if sample >= start && sample < end {
-                return Some(index);
-            }
-            start = end;
+        if sample >= self.total_samples() {
+            return None;
         }
-        None
+        let boundary = self
+            .start_offsets
+            .partition_point(|offset| *offset <= sample);
+        Some(boundary.saturating_sub(1).min(self.segments.len() - 1))
     }
 
     pub fn replace_samples(
@@ -156,8 +208,9 @@ impl TtsAudioSegments {
         let Some(segment) = self.segments.get_mut(index) else {
             return Err(SegmentAudioError::InvalidSegmentIndex(index));
         };
-        segment.samples = samples;
+        segment.samples = Arc::new(samples);
         segment.sample_rate = sample_rate;
+        self.rebuild_offsets_and_revision();
         Ok(())
     }
 
@@ -280,7 +333,7 @@ mod tests {
 
         segments.replace_samples(1, vec![0.9], 24_000).unwrap();
 
-        assert_eq!(segments.segment(0).unwrap().samples, vec![0.1, 0.2]);
+        assert_eq!(segments.segment(0).unwrap().samples.as_slice(), &[0.1, 0.2]);
         assert_eq!(segments.merged_samples(), vec![0.1, 0.2, 0.9]);
     }
 
@@ -307,7 +360,10 @@ mod tests {
         assembly.push_audio(&[0.3], 24_000).unwrap();
 
         assert!(assembly.is_ready());
-        assert_eq!(assembly.into_samples().unwrap(), (vec![0.1, 0.2, 0.3], 24_000));
+        assert_eq!(
+            assembly.into_samples().unwrap(),
+            (vec![0.1, 0.2, 0.3], 24_000)
+        );
     }
 
     #[test]
@@ -324,7 +380,7 @@ mod tests {
             )
             .unwrap());
 
-        assert_eq!(segments.segment(0).unwrap().samples, vec![0.1, 0.2]);
+        assert_eq!(segments.segment(0).unwrap().samples.as_slice(), &[0.1, 0.2]);
         assert_eq!(segments.merged_samples(), vec![0.1, 0.2, 0.9]);
         assert_eq!(segments.start_time_secs(1), Some(2.0 / 24_000.0));
     }
@@ -338,4 +394,12 @@ mod tests {
 
         assert_eq!(segments.merged_samples(), before);
     }
+}
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+static NEXT_AUDIO_REVISION: AtomicU64 = AtomicU64::new(1);
+
+fn next_audio_revision() -> u64 {
+    NEXT_AUDIO_REVISION.fetch_add(1, Ordering::Relaxed)
 }
