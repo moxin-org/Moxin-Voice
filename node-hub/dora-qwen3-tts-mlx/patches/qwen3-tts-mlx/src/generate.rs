@@ -15,7 +15,7 @@
 use std::time::Instant;
 
 use mlx_rs::{module::Module, ops::indexing::IndexOp, transforms::eval, Array};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::{GenerationConfig, Qwen3TtsConfig, TalkerConfig};
 use crate::error::Result;
@@ -117,9 +117,34 @@ impl GenerationTiming {
     }
 
     pub fn is_incomplete_clone(&self) -> bool {
-        self.streamed_text_tokens
-            .is_some_and(|tokens| self.generation_frames < tokens)
+        !self.ended_by_eos
+            || self
+                .streamed_text_tokens
+                .is_some_and(|tokens| self.generation_frames < tokens)
     }
+}
+
+/// Bound x-vector generation to a duration that is generous for one UI segment
+/// but cannot run away to the model's multi-minute global default (8192 frames).
+/// Qwen3-TTS emits 12 codec frames per second; the character allowance therefore
+/// permits roughly 0.5 seconds per character plus a 10.7 second pad.
+pub(crate) fn voice_clone_generation_limit(
+    configured_limit: i32,
+    text_tokens: usize,
+    text_chars: usize,
+) -> usize {
+    const MIN_FRAMES: usize = 256;
+    const FRAMES_PER_TOKEN: usize = 8;
+    const FRAMES_PER_CHAR: usize = 6;
+    const PADDING_FRAMES: usize = 128;
+
+    let content_limit = text_tokens
+        .saturating_mul(FRAMES_PER_TOKEN)
+        .max(text_chars.saturating_mul(FRAMES_PER_CHAR))
+        .saturating_add(PADDING_FRAMES)
+        .max(MIN_FRAMES);
+    let configured_limit = usize::try_from(configured_limit).unwrap_or(1).max(1);
+    configured_limit.min(content_limit)
 }
 
 /// Build the codec prefix for CustomVoice mode with specified language.
@@ -860,12 +885,25 @@ pub fn generate_voice_clone(
         hidden = result.1;
         eval([&logits])?;
 
+        if (step + 1) % 128 == 0 {
+            info!(
+                "VoiceClone generation progress: {}/{} frames",
+                step + 1,
+                gen_config.max_new_tokens
+            );
+        }
         if step > 0 && step % 256 == 0 {
             unsafe { mlx_sys::mlx_clear_cache() };
         }
     }
 
     let gen_time = gen_start.elapsed();
+    if !ended_by_eos {
+        warn!(
+            "VoiceClone reached the {} frame safety limit without EOS",
+            gen_config.max_new_tokens
+        );
+    }
     info!("VoiceClone generation complete: {} frames", all_codes.len());
 
     let timing = GenerationTiming {
@@ -1296,8 +1334,17 @@ mod tests {
     fn clone_result_is_incomplete_when_generation_stops_before_remaining_text() {
         assert!(GenerationTiming::from_termination(8, Some(16), true).is_incomplete_clone());
         assert!(GenerationTiming::from_termination(8, Some(16), false).is_incomplete_clone());
+        assert!(GenerationTiming::from_termination(32, Some(16), false).is_incomplete_clone());
         assert!(!GenerationTiming::from_termination(16, Some(16), true).is_incomplete_clone());
-        assert!(!GenerationTiming::from_termination(16, Some(16), false).is_incomplete_clone());
         assert!(!GenerationTiming::from_termination(8, None, true).is_incomplete_clone());
+    }
+
+    #[test]
+    fn xvector_generation_limit_is_bounded_by_segment_content() {
+        assert_eq!(voice_clone_generation_limit(8192, 59, 60), 600);
+        assert_eq!(voice_clone_generation_limit(8192, 27, 30), 344);
+        assert_eq!(voice_clone_generation_limit(8192, 30, 120), 848);
+        assert_eq!(voice_clone_generation_limit(500, 59, 60), 500);
+        assert_eq!(voice_clone_generation_limit(8192, 0, 0), 256);
     }
 }

@@ -541,7 +541,7 @@ fn synthesize_qwen(
             if timing.incomplete_clone {
                 attempts = 2;
                 tracing::warn!(
-                    "Clone generation ended before its streamed text was consumed; retrying once"
+                    "Clone generation did not finish safely; retrying once with a new seed"
                 );
                 (samples, timing) = synthesize_once(Some(retry_seed(&text, 1)))?;
             }
@@ -650,7 +650,7 @@ fn main() -> Result<()> {
                             send_status(&mut node, "error: incomplete clone synthesis")?;
                             send_log(
                                 &mut node,
-                                "{\"error\":\"clone synthesis ended before all text was consumed\"}",
+                                "{\"error\":\"clone synthesis did not reach EOS within its safety limit\"}",
                             )?;
                             continue;
                         }

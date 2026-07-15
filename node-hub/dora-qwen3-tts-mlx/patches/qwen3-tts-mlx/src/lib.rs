@@ -24,7 +24,8 @@ use config::{GenerationConfig, Qwen3TtsConfig, SpeechTokenizerConfig};
 use error::{Error, Result};
 use generate::{
     build_codec_prefix, build_codec_prefix_voice_design, generate_custom_voice,
-    generate_voice_clone, generate_voice_clone_icl, generate_voice_design, GenerationState,
+    generate_voice_clone, generate_voice_clone_icl, generate_voice_design,
+    voice_clone_generation_limit, GenerationState,
 };
 use speech_tokenizer::SpeechTokenizerDecoder;
 use talker::Talker;
@@ -622,6 +623,22 @@ impl Synthesizer {
             .map_err(|e| Error::Model(format!("Tokenizer error: {e}")))?;
         let text_token_ids: Vec<u32> = encoding.get_ids().to_vec();
 
+        let configured_limit = gen_config.max_new_tokens;
+        let text_chars = text.chars().count();
+        let generation_limit = voice_clone_generation_limit(
+            configured_limit,
+            text_token_ids.len(),
+            text_chars,
+        );
+        gen_config.max_new_tokens = generation_limit as i32;
+        info!(
+            "VoiceClone safety limit: configured={} frames, effective={} frames, text_tokens={}, text_chars={}",
+            configured_limit,
+            generation_limit,
+            text_token_ids.len(),
+            text_chars
+        );
+
         let speaker_embedding =
             self.get_or_compute_speaker_embedding(reference_audio, speaker_cache_key)?;
 
@@ -640,11 +657,11 @@ impl Synthesizer {
             opts.seed,
         )?;
 
-        if codes.is_empty() {
+        if codes.is_empty() || gen_timing.is_incomplete_clone() {
             let timing = SynthesisTiming {
                 prefill_ms: gen_timing.prefill_ms,
                 generation_ms: gen_timing.generation_ms,
-                generation_frames: 0,
+                generation_frames: gen_timing.generation_frames,
                 incomplete_clone: gen_timing.is_incomplete_clone(),
                 decode_ms: 0.0,
                 total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
