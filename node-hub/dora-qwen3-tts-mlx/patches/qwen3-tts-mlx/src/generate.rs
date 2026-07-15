@@ -117,10 +117,8 @@ impl GenerationTiming {
     }
 
     pub fn is_incomplete_clone(&self) -> bool {
-        self.ended_by_eos
-            && self
-                .streamed_text_tokens
-                .is_some_and(|tokens| self.generation_frames < tokens)
+        self.streamed_text_tokens
+            .is_some_and(|tokens| self.generation_frames < tokens)
     }
 }
 
@@ -1295,9 +1293,11 @@ mod tests {
     }
 
     #[test]
-    fn clone_result_is_incomplete_when_eos_precedes_remaining_text() {
+    fn clone_result_is_incomplete_when_generation_stops_before_remaining_text() {
         assert!(GenerationTiming::from_termination(8, Some(16), true).is_incomplete_clone());
+        assert!(GenerationTiming::from_termination(8, Some(16), false).is_incomplete_clone());
         assert!(!GenerationTiming::from_termination(16, Some(16), true).is_incomplete_clone());
+        assert!(!GenerationTiming::from_termination(16, Some(16), false).is_incomplete_clone());
         assert!(!GenerationTiming::from_termination(8, None, true).is_incomplete_clone());
     }
 }
