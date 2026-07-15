@@ -684,6 +684,27 @@ mod tests {
     }
 
     #[test]
+    fn macos_release_builder_bundles_primary_app_resources() {
+        let builder = include_str!("../../scripts/build_macos_app.sh");
+
+        assert!(builder.contains("apps/moxin-voice/resources"));
+        assert!(builder.contains("moxin_voice/resources"));
+        for icon in [
+            "action-menu.svg",
+            "segment-download.svg",
+            "segment-pause.svg",
+            "segment-play.svg",
+            "segment-retry.svg",
+            "segments.svg",
+        ] {
+            assert!(
+                builder.contains(icon),
+                "macOS release builder must verify {icon}"
+            );
+        }
+    }
+
+    #[test]
     fn main_window_close_is_intercepted_when_main_window_is_known() {
         let window_id = WindowId(1, 1);
         assert!(App::should_intercept_main_window_close(
