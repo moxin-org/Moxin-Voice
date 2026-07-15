@@ -261,6 +261,30 @@ cp "$TRANSLATION_QWEN35_BUNDLE_YAML" "$DATAFLOW_DIR/translation_qwen35.yml"
 MAKEPAD_RES_ROOT="$RES_DIR/makepad"
 mkdir -p "$MAKEPAD_RES_ROOT"
 
+APP_RESOURCES_SRC="$ROOT_DIR/apps/moxin-voice/resources"
+APP_RESOURCES_DST="$MAKEPAD_RES_ROOT/moxin_voice/resources"
+if [[ ! -d "$APP_RESOURCES_SRC" ]]; then
+  echo "Moxin Voice resources not found: $APP_RESOURCES_SRC"
+  exit 1
+fi
+mkdir -p "$MAKEPAD_RES_ROOT/moxin_voice"
+cp -R "$APP_RESOURCES_SRC" "$APP_RESOURCES_DST"
+
+REQUIRED_APP_RESOURCES=(
+  "icons/action-menu.svg"
+  "icons/segment-download.svg"
+  "icons/segment-pause.svg"
+  "icons/segment-play.svg"
+  "icons/segment-retry.svg"
+  "icons/segments.svg"
+)
+for resource in "${REQUIRED_APP_RESOURCES[@]}"; do
+  if [[ ! -f "$APP_RESOURCES_DST/$resource" ]]; then
+    echo "Required Moxin Voice resource missing from app bundle: $resource"
+    exit 1
+  fi
+done
+
 mkdir -p "$MAKEPAD_RES_ROOT/moxin_widgets"
 cp -R "$ROOT_DIR/moxin-widgets/resources" "$MAKEPAD_RES_ROOT/moxin_widgets/resources"
 
