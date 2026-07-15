@@ -175,6 +175,20 @@ fn player_playback_rate_index(current_rate: f64) -> usize {
         .unwrap_or(1)
 }
 
+fn segment_follow_first_id(
+    active_index: usize,
+    first_visible: usize,
+    visible_items: usize,
+) -> Option<usize> {
+    if visible_items == 0 || active_index < first_visible {
+        return Some(active_index);
+    }
+    if active_index >= first_visible.saturating_add(visible_items) {
+        return Some(active_index.saturating_add(1).saturating_sub(visible_items));
+    }
+    None
+}
+
 fn player_menu_abs_pos(anchor: Rect, menu_width: f64, menu_height: f64) -> DVec2 {
     dvec2(
         (anchor.pos.x + anchor.size.x - menu_width).max(0.0),
@@ -10596,6 +10610,7 @@ impl Widget for TTSScreen {
                                 self.player_active_rate,
                             );
                         }
+                        self.keep_active_segment_visible(cx);
                         self.update_playback_progress(cx);
                     }
                     // If paused (is_playing=false but not finished), do nothing - keep current time
@@ -13951,6 +13966,7 @@ impl Widget for TTSScreen {
             self.player_speed_menu_open = false;
             self.player_action_menu_open = false;
             self.update_player_menu_visibility(cx);
+            self.keep_active_segment_visible(cx);
         }
         if self
             .view
@@ -20080,6 +20096,29 @@ impl TTSScreen {
         self.update_player_bar(cx);
     }
 
+    fn keep_active_segment_visible(&mut self, cx: &mut Cx) {
+        if !self.player_segment_menu_open || self.tts_status != TTSStatus::Playing {
+            return;
+        }
+        let Some(active_index) = self.tts_audio_segments.as_ref().and_then(|segments| {
+            let sample = (self.audio_playing_time * segments.sample_rate() as f64).max(0.0)
+                as usize;
+            segments.index_at_sample(sample)
+        }) else {
+            return;
+        };
+
+        let list = self
+            .view
+            .portal_list(ids!(player_segment_menu.segment_portal_list));
+        if let Some(first_id) =
+            segment_follow_first_id(active_index, list.first_id(), list.visible_items())
+        {
+            list.set_first_id(first_id);
+            self.view.redraw(cx);
+        }
+    }
+
     fn format_duration(duration_secs: f32) -> String {
         let total = duration_secs.max(0.0).round() as u32;
         let mins = total / 60;
@@ -20717,6 +20756,7 @@ impl TTSScreen {
             return false;
         }
         self.audio_playing_time = start_time;
+        self.keep_active_segment_visible(cx);
         self.update_playback_progress(cx);
         true
     }
@@ -30092,7 +30132,7 @@ mod tests {
     use super::{
         runtime_init_next_display_progress, runtime_init_progress_for_display_value,
         player_effective_volume, player_menu_abs_pos, player_playback_position_after_tick,
-        player_playback_rate_index, player_queue_can_accept,
+        player_playback_rate_index, player_queue_can_accept, segment_follow_first_id,
         should_probe_translation_permission_on_page_entry, should_show_runtime_download_ui,
         split_tts_text_segments, tts_input_click_disposition, tts_input_drag_scroll_delta, AppPage,
         DownloadFormat, Event, RuntimeInitState, TtsInputClickDisposition, TtsSegmentDispatch,
@@ -30229,6 +30269,14 @@ mod tests {
             10.0
         );
         assert_eq!(player_playback_position_after_tick(1.0, 10.0, 0.1, 0.0), 1.0);
+    }
+
+    #[test]
+    fn active_segment_only_moves_the_list_after_leaving_the_viewport() {
+        assert_eq!(segment_follow_first_id(4, 3, 4), None);
+        assert_eq!(segment_follow_first_id(2, 3, 4), Some(2));
+        assert_eq!(segment_follow_first_id(7, 3, 4), Some(4));
+        assert_eq!(segment_follow_first_id(9, 0, 0), Some(9));
     }
 
     #[test]
