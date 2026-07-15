@@ -1945,7 +1945,8 @@ live_design! {
     }
 
     PlayerSegmentDownloadBtn = <PlayerSegmentActionBtn> {
-        icon_walk: {width: 20, height: 20, margin: {left: 6, right: 6, top: 6, bottom: 6}}
+        // Compensate for the download glyph's optical center inside its SVG bounds.
+        icon_walk: {width: 20, height: 20, margin: {left: 8, right: 4, top: 6, bottom: 6}}
         draw_icon: { svg_file: (ICO_TTS_SEGMENT_DOWNLOAD) }
     }
 
@@ -30615,7 +30616,7 @@ mod tests {
             .next()
             .unwrap();
         assert!(download_button.contains("svg_file: (ICO_TTS_SEGMENT_DOWNLOAD)"));
-        assert!(download_button.contains("margin: {left: 6, right: 6, top: 6, bottom: 6}"));
+        assert!(download_button.contains("margin: {left: 8, right: 4, top: 6, bottom: 6}"));
         let action_button = source
             .split("PlayerSegmentActionBtn = <Button>")
             .nth(1)
