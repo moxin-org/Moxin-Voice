@@ -569,7 +569,7 @@ cargo check -p moxin-voice
 git diff --check
 ```
 
-- [ ] **Step 2：运行相关测试集**
+- [x] **Step 2：运行相关测试集**
 
 ```bash
 cargo test -p qwen3-tts-mlx
@@ -577,7 +577,7 @@ cargo test -p dora-qwen3-tts-mlx
 cargo test -p moxin-voice
 ```
 
-- [ ] **Step 3：执行不依赖模型的静态 release gate**
+- [x] **Step 3：执行不依赖模型的静态 release gate**
 
 ```bash
 rg -n "synthesize_voice_clone_icl" node-hub/dora-qwen3-tts-mlx/src/main.rs
@@ -606,7 +606,7 @@ rg -n "stored_audio_samples|processed_audio_samples|rebuild_processed_audio_samp
 12. 修改播放器倍速后流式下载音频，下载时长和内容不变。
 13. 修改生成语速后重新生成，下载音频体现生成语速，播放器倍速仍可独立调整。
 
-- [ ] **Step 5：审查最终 diff 范围**
+- [x] **Step 5：审查最终 diff 范围**
 
 确认：
 
@@ -614,11 +614,21 @@ rg -n "stored_audio_samples|processed_audio_samples|rebuild_processed_audio_samp
 - 没有修改 `VOICE:CUSTOM` 字段数量；
 - release 最小修复没有仓促引入未经 benchmark、许可证和构建验证的新 DSP 依赖；若 Task 5 已完成，引入项必须有评估记录；
 - 没有改动无关的训练、翻译或 ASR 功能；
+
 - 旧音色配置保持可读；
 - 所有产品克隆请求最终都进入 x-vector；
 - UI 线程不再执行全量 time-stretch；
 - canonical audio 没有 merged/processed 完整副本，播放器不接收完整长音频 command；
 - cache key 包含 block index 且有 byte 上限，旧任务不能覆盖新音频、seek 或新倍率状态。
+
+自动化 release gate 记录：
+
+- `cargo check -p qwen3-tts-mlx`、`cargo check -p dora-qwen3-tts-mlx`、`cargo check -p moxin-voice` 全部通过。
+- `cargo test -p qwen3-tts-mlx` 10/10、`cargo test -p dora-qwen3-tts-mlx` 6/6、`cargo test -p moxin-voice` 116/116 全部通过。最终门禁中顺带修正了 3 个基线过期断言：两个断言仍期待旧 segment 图标样式，一个错误期待 Unicode 中文 ID 被替换为下划线；仅测试契约改变，产品行为未变。
+- 四项静态禁止扫描全部无匹配：产品节点 ICL 调用、UI time-stretch DSP、`merged_samples()` 热路径、旧完整音频副本状态均不存在。
+- `git diff --check 3ea5285..HEAD` 通过；最终范围为 20 个文件，只涉及计划、x-vector 产品入口/文案、clone 数据兼容、分块 source/player/time-stretch、benchmark 及对应测试。底层 ICL API、`VOICE:CUSTOM` 字段数量和生成 speed/pitch/volume 语义未删除或改变，也未引入新 DSP 依赖。
+- Task 7 Step 1 尚未整体勾选：三个目标 crate 的静态检查和 diff whitespace 检查通过，但仓库基线的 `cargo fmt --all --check` 会输出约 8,259 行跨大量未修改模块的既有格式差异。为避免把全仓机械重排混入 release 修复，本分支未处理该独立基线债务。
+- Task 7 Step 4 保持待人工完成：需要真实 Qwen 模型、可听音频设备和交互 UI 来验证音色相似度、提前 EOS 日志、30 分钟实际播放、快速切速/seek 和边界听感；自动化测试或正弦 fixture 不能替代这些听测项。
 
 ---
 
