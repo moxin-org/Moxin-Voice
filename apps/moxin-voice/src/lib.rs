@@ -9,6 +9,7 @@ pub mod app_update;
 pub mod audio_player; // Keep local: simplified TTS-specific version
 pub mod dora_integration;
 pub mod i18n;
+pub mod playback_audio_source;
 
 pub mod screen;
 

@@ -19104,7 +19104,7 @@ impl TTSScreen {
             self.fail_pending_tts_generation(cx, "[ERROR] [tts] Missing pending TTS segment");
             return;
         };
-        segment.samples = samples;
+        segment.samples = Arc::new(samples);
         segment.sample_rate = sample_rate;
 
         self.pending_generation_dispatch.mark_received();

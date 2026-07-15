@@ -8,6 +8,8 @@ use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
+const PLAYER_BUFFER_SECONDS: f32 = 30.0;
+
 /// Commands sent to the audio thread
 enum AudioCommand {
     Write(Vec<f32>), // Append samples
@@ -17,7 +19,7 @@ enum AudioCommand {
     SetVolume(f32),
     SetPlaybackRate(f32),
     #[allow(dead_code)]
-    Stop,            // Reserved for explicit thread shutdown
+    Stop, // Reserved for explicit thread shutdown
 }
 
 /// Circular audio buffer for thread-safe audio streaming
@@ -45,62 +47,28 @@ impl CircularAudioBuffer {
     }
 
     fn write(&mut self, samples: &[f32]) -> usize {
-        self.ensure_capacity(self.available_samples.saturating_add(samples.len()));
-
+        let writable = samples
+            .len()
+            .min(self.buffer_size.saturating_sub(self.available_samples));
         let mut written = 0;
-        let mut dropped_in_write = 0;
-
-        for &sample in samples {
-            if self.available_samples < self.buffer_size {
-                self.buffer[self.write_pos] = sample;
-                self.write_pos = (self.write_pos + 1) % self.buffer_size;
-                self.available_samples += 1;
-                written += 1;
-            } else {
-                // Buffer full - overwrite oldest (ring buffer behavior)
-                // Ideally this shouldn't happen if consumer is fast enough
-                self.buffer[self.write_pos] = sample;
-                self.write_pos = (self.write_pos + 1) % self.buffer_size;
-                self.read_pos = (self.read_pos + 1) % self.buffer_size;
-                self.dropped_samples += 1;
-                dropped_in_write += 1;
-                written += 1;
-            }
+        for &sample in samples.iter().take(writable) {
+            self.buffer[self.write_pos] = sample;
+            self.write_pos = (self.write_pos + 1) % self.buffer_size;
+            self.available_samples += 1;
+            written += 1;
         }
 
-        // Log warning if samples were dropped
-        if dropped_in_write > 0 {
+        let rejected = samples.len().saturating_sub(written);
+        if rejected > 0 {
+            self.dropped_samples = self.dropped_samples.saturating_add(rejected);
             log::warn!(
-                "Audio buffer overflow: dropped {} samples (total dropped: {})",
-                dropped_in_write,
+                "Audio buffer full: rejected {} samples (total rejected: {})",
+                rejected,
                 self.dropped_samples
             );
         }
 
         written
-    }
-
-    fn ensure_capacity(&mut self, required_available: usize) {
-        if required_available <= self.buffer_size {
-            return;
-        }
-
-        let new_size = required_available
-            .checked_next_power_of_two()
-            .unwrap_or(required_available);
-        let mut new_buffer = vec![0.0; new_size];
-        for (idx, slot) in new_buffer
-            .iter_mut()
-            .enumerate()
-            .take(self.available_samples)
-        {
-            *slot = self.sample_at_offset(idx).unwrap_or(0.0);
-        }
-
-        self.buffer = new_buffer;
-        self.buffer_size = new_size;
-        self.read_pos = 0;
-        self.write_pos = self.available_samples % self.buffer_size;
     }
 
     fn sample_at_offset(&self, offset: usize) -> Option<f32> {
@@ -194,6 +162,7 @@ fn apply_output_volume(sample: f32, volume: f32) -> f32 {
 /// Shared state between audio thread and main thread
 pub struct SharedAudioState {
     pub buffer_fill: f64,
+    pub queued_samples: usize,
     pub is_playing: bool,
     pub output_waveform: Vec<f32>, // Samples currently being played (for visualization)
 }
@@ -214,13 +183,17 @@ impl TTSPlayer {
         Self::new_with_output_device(source_sample_rate, None)
     }
 
-    pub fn new_with_output_device(source_sample_rate: u32, preferred_output_device: Option<&str>) -> Self {
+    pub fn new_with_output_device(
+        source_sample_rate: u32,
+        preferred_output_device: Option<&str>,
+    ) -> Self {
         let sample_rate = source_sample_rate;
         let (command_tx, command_rx) = unbounded::<AudioCommand>();
         let preferred_output_device = preferred_output_device.map(|s| s.to_string());
 
         let state = Arc::new(Mutex::new(SharedAudioState {
             buffer_fill: 0.0,
+            queued_samples: 0,
             is_playing: false,
             output_waveform: vec![0.0; 512],
         }));
@@ -256,10 +229,15 @@ impl TTSPlayer {
 
     /// Add audio samples to the buffer for streaming playback
     pub fn write_audio(&self, samples: &[f32]) {
+        self.write_audio_owned(samples.to_vec());
+    }
+
+    /// Transfer one bounded block to the audio thread without cloning it.
+    pub fn write_audio_owned(&self, samples: Vec<f32>) {
         if samples.is_empty() {
             return;
         }
-        let _ = self.command_tx.send(AudioCommand::Write(samples.to_vec()));
+        let _ = self.command_tx.send(AudioCommand::Write(samples));
         let _ = self.command_tx.send(AudioCommand::Resume);
     }
 
@@ -290,6 +268,22 @@ impl TTSPlayer {
 
     pub fn is_playing(&self) -> bool {
         self.state.lock().is_playing
+    }
+
+    pub fn queued_samples(&self) -> usize {
+        self.state.lock().queued_samples
+    }
+
+    pub fn queued_secs(&self) -> f64 {
+        if self.sample_rate == 0 {
+            0.0
+        } else {
+            self.queued_samples() as f64 / self.sample_rate as f64
+        }
+    }
+
+    pub fn queue_capacity_samples(&self) -> usize {
+        (PLAYER_BUFFER_SECONDS * self.sample_rate as f32) as usize
     }
 
     pub fn get_waveform_data(&self) -> Vec<f32> {
@@ -345,9 +339,8 @@ fn run_audio_thread(
     state: Arc<Mutex<SharedAudioState>>,
     playback_finished: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let buffer_seconds = 400.0; // Large buffer for TTS (supports up to ~341s audio after resampling)
     let buffer = Arc::new(Mutex::new(CircularAudioBuffer::new(
-        buffer_seconds,
+        PLAYER_BUFFER_SECONDS,
         sample_rate,
     )));
     let is_playing = Arc::new(AtomicBool::new(false));
@@ -438,15 +431,14 @@ fn run_audio_thread(
                         for sample in data.iter_mut() {
                             *sample = T::from_sample(0.0);
                         }
-                        return;
-                    }
-
-                    let volume =
-                        f32::from_bits(output_volume.load(Ordering::Relaxed)).clamp(0.0, 1.0);
-                    for i in 0..frames {
-                        let output_val = T::from_sample(apply_output_volume(mono[i], volume));
-                        for ch in 0..output_channels {
-                            data[i * output_channels + ch] = output_val;
+                    } else {
+                        let volume =
+                            f32::from_bits(output_volume.load(Ordering::Relaxed)).clamp(0.0, 1.0);
+                        for i in 0..frames {
+                            let output_val = T::from_sample(apply_output_volume(mono[i], volume));
+                            for ch in 0..output_channels {
+                                data[i * output_channels + ch] = output_val;
+                            }
                         }
                     }
                 } else {
@@ -455,8 +447,18 @@ fn run_audio_thread(
                     }
                 }
 
+                let (queued_samples, buffer_size) = {
+                    let buf = buffer.lock();
+                    (buf.available(), buf.buffer_size)
+                };
                 if let Some(mut s) = state.try_lock() {
                     s.is_playing = is_playing.load(Ordering::Relaxed);
+                    s.queued_samples = queued_samples;
+                    s.buffer_fill = if buffer_size == 0 {
+                        0.0
+                    } else {
+                        queued_samples as f64 / buffer_size as f64
+                    };
                 }
             },
             |err| eprintln!("Stream error: {}", err),
@@ -535,12 +537,24 @@ fn run_audio_thread(
                 if buf.available() > 0 {
                     is_playing.store(true, Ordering::Relaxed);
                 }
+                let mut shared = state.lock();
+                shared.queued_samples = buf.available();
+                shared.buffer_fill = if buf.buffer_size == 0 {
+                    0.0
+                } else {
+                    buf.available() as f64 / buf.buffer_size as f64
+                };
+                shared.is_playing = is_playing.load(Ordering::Relaxed);
             }
             Ok(AudioCommand::Reset) => {
                 is_playing.store(false, Ordering::Relaxed);
                 resampler_reset.store(true, Ordering::Release);
                 buffer.lock().reset();
                 playback_finished.store(false, Ordering::Release);
+                let mut shared = state.lock();
+                shared.queued_samples = 0;
+                shared.buffer_fill = 0.0;
+                shared.is_playing = false;
             }
             Ok(AudioCommand::Pause) => is_playing.store(false, Ordering::Relaxed),
             Ok(AudioCommand::Resume) => {
@@ -604,16 +618,18 @@ mod tests {
     }
 
     #[test]
-    fn circular_buffer_grows_for_long_writes_without_dropping_start() {
+    fn circular_buffer_rejects_overflow_without_growing_or_overwriting_start() {
         let mut buffer = CircularAudioBuffer::new(1.0, 10);
         let source: Vec<f32> = (0..25).map(|n| n as f32).collect();
 
-        buffer.write(&source);
+        let written = buffer.write(&source);
 
-        assert_eq!(buffer.dropped_samples, 0);
-        assert_eq!(buffer.available_samples, source.len());
+        assert_eq!(written, 10);
+        assert_eq!(buffer.buffer_size, 10);
+        assert_eq!(buffer.dropped_samples, 15);
+        assert_eq!(buffer.available_samples, 10);
         assert_eq!(buffer.sample_at_offset(0), Some(0.0));
-        assert_eq!(buffer.sample_at_offset(24), Some(24.0));
+        assert_eq!(buffer.sample_at_offset(9), Some(9.0));
     }
 
     #[test]
